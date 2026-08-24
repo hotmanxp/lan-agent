@@ -72,15 +72,10 @@ fun WebViewScreen(url: String, onBack: () -> Unit) {
             request: WebResourceRequest?,
             error: WebResourceError?
         ) {
-            val msg = when (error?.errorCode) {
-                -8 -> context.getString(R.string.snack_not_whitelisted)
-                else -> context.getString(
-                    R.string.snack_load_failed,
-                    error?.errorCode ?: 0,
-                    error?.description ?: ""
-                )
-            }
-            scope.launch { snackbarHostState.showSnackbar(msg) }
+            // Silently ignore. LAN tools hit transient net::ERR_FAILED all the
+            // time (server bouncing, sub-resources behind proxies, etc.) and a
+            // Snackbar per failed request is noise. The page itself still
+            // renders whatever loaded successfully.
         }
     }
 

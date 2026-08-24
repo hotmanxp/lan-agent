@@ -62,8 +62,11 @@ fun WebViewScreen(url: String, onBack: () -> Unit) {
         WebView(context).apply {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
-            settings.useWideViewPort = true
-            settings.loadWithOverviewMode = true
+            // Don't override viewport — let opencc-web's own <meta viewport>
+            // tag handle mobile sizing. useWideViewPort + loadWithOverviewMode
+            // both zoom-fit content to width, which forces a desktop layout
+            // on a mobile route and inflates the perceived font size.
+            settings.textZoom = 100
         }
     }
 

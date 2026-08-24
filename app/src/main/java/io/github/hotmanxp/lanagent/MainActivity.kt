@@ -15,15 +15,25 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         // Edge-to-edge: app draws under system bars; WebView fills the screen.
         WindowCompat.setDecorFitsSystemWindows(window, false)
-        // Hide both status bar and navigation bar; swipe to reveal (BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE).
-        WindowInsetsControllerCompat(window, window.decorView).apply {
-            hide(WindowInsetsCompat.Type.systemBars())
-            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        }
+        applyImmersive()
         setContent {
             LanAgentTheme {
                 AppNavHost()
             }
+        }
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        // Re-hide after the user swipes to reveal system bars (which Android
+        // does as a temporary show); without this, the gesture bar stays sticky.
+        if (hasFocus) applyImmersive()
+    }
+
+    private fun applyImmersive() {
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            hide(WindowInsetsCompat.Type.systemBars())
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
     }
 }

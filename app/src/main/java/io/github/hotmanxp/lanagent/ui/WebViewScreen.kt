@@ -11,6 +11,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.SnackbarHost
@@ -26,6 +27,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import io.github.hotmanxp.lanagent.R
 import kotlinx.coroutines.launch
@@ -108,9 +110,13 @@ fun WebViewScreen(url: String, onBack: () -> Unit) {
             modifier = Modifier
                 .fillMaxSize()
                 // Status bar is visible (per MainActivity) and the activity draws
-                // edge-to-edge; use windowInsetsPadding so the WebView's first row
-                // of content doesn't get hidden behind the clock/battery.
+                // edge-to-edge; windowInsetsPadding keeps the WebView's first row
+                // from hiding behind the clock/battery, and the negative 8dp shaves
+                // a bit of unused space — status bar text uses the upper portion
+                // of the bar, so the WebView only needs to start ~8dp below the
+                // bar's bottom edge.
                 .windowInsetsPadding(WindowInsets.statusBars)
+                .padding(top = (-8).dp)
         )
         SnackbarHost(
             hostState = snackbarHostState,

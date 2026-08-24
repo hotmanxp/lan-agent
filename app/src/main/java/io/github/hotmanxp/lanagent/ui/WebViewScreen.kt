@@ -1,4 +1,4 @@
-// ui/WebViewScreen.kt — WebView 详情页 + 全屏 + 透明自动隐藏顶栏 + Snackbar 错误
+// ui/WebViewScreen.kt — WebView 详情页 + 全屏 + 透明自动隐藏顶栏 + FAB 切换系统栏 + Snackbar
 package io.github.hotmanxp.lanagent.ui
 
 import android.graphics.Bitmap
@@ -20,9 +20,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.SnackbarHost
@@ -45,27 +49,28 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import io.github.hotmanxp.lanagent.R
 import kotlinx.coroutines.launch
 
 @Composable
 fun WebViewScreen(url: String, onBack: () -> Unit) {
     val context = LocalContext.current
+    val activity = context as? android.app.Activity
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var currentUrl by remember(url) { mutableStateOf(url) }
     var canGoBack by remember { mutableStateOf(false) }
-    // Auto-hide top bar on scroll. true = visible.
     var topBarVisible by remember { mutableStateOf(true) }
+    // True = system bars hidden (immersive); FAB toggles this. Starts visible
+    // so the user can reach the FAB on first load.
+    var barsHidden by remember { mutableStateOf(false) }
 
     val webView = remember(url) {
         WebView(context).apply {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
-            // Don't override viewport — let opencc-web's own <meta viewport>
-            // tag handle mobile sizing. useWideViewPort + loadWithOverviewMode
-            // both zoom-fit content to width, which forces a desktop layout
-            // on a mobile route and inflates the perceived font size.
             settings.textZoom = 100
         }
     }
@@ -96,14 +101,14 @@ fun WebViewScreen(url: String, onBack: () -> Unit) {
 
     webView.loadUrl(if (url.isBlank()) "about:blank" else url)
 
-    // Auto-hide: scrolling down hides, scrolling up (or near top) shows.
+    // Auto-hide top bar on scroll.
     webView.setOnScrollChangeListener { _, _, scrollY, _, oldScrollY ->
         val delta = scrollY - oldScrollY
         topBarVisible = when {
-            scrollY <= 8 -> true                  // near top — always show
-            delta < -2 -> true                    // scroll up — show
-            delta > 2 -> false                    // scroll down — hide
-            else -> topBarVisible                 // micro-jitter
+            scrollY <= 8 -> true
+            delta < -2 -> true
+            delta > 2 -> false
+            else -> topBarVisible
         }
     }
 
@@ -116,14 +121,12 @@ fun WebViewScreen(url: String, onBack: () -> Unit) {
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // WebView fills the whole screen.
         AndroidView(
             factory = { webView },
             modifier = Modifier.fillMaxSize()
         )
 
-        // Transparent, slimmer (40dp) top bar. Slides up/down on scroll.
-        // statusBarsPadding keeps it clear of the transient status-bar reveal.
+        // Transparent, slimmer (40dp) auto-hiding top bar.
         AnimatedVisibility(
             visible = topBarVisible,
             enter = slideInVertically(animationSpec = tween(180)) { -it },
@@ -149,15 +152,22 @@ fun WebViewScreen(url: String, onBack: () -> Unit) {
                         .height(40.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(
-                        onClick = onBack,
-                        modifier = Modifier.size(40.dp)
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .padding(8.dp)
+                            .background(Color.Black.copy(alpha = 0.35f), CircleShape)
                     ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.webview_back_cd),
-                            tint = Color.White
-                        )
+                        IconButton(
+                            onClick = onBack,
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = stringResource(R.string.webview_back_cd),
+                                tint = Color.White
+                            )
+                        }
                     }
                     Text(
                         text = currentUrl,
@@ -169,21 +179,55 @@ fun WebViewScreen(url: String, onBack: () -> Unit) {
                             .weight(1f)
                             .padding(horizontal = 4.dp)
                     )
-                    IconButton(
-                        onClick = { webView.reload() },
-                        modifier = Modifier.size(40.dp)
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .padding(8.dp)
+                            .background(Color.Black.copy(alpha = 0.35f), CircleShape)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = stringResource(R.string.webview_refresh_cd),
-                            tint = Color.White
-                        )
+                        IconButton(
+                            onClick = { webView.reload() },
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = stringResource(R.string.webview_refresh_cd),
+                                tint = Color.White
+                            )
+                        }
                     }
                 }
             }
         }
 
-        // Snackbar overlay at the bottom.
+        // Bottom-right FAB: toggle system bars (immersive fullscreen ↔ chrome visible).
+        if (activity != null) {
+            FloatingActionButton(
+                onClick = {
+                    val controller = WindowInsetsControllerCompat(activity.window, activity.window.decorView)
+                    if (barsHidden) {
+                        controller.show(WindowInsetsCompat.Type.systemBars())
+                    } else {
+                        controller.hide(WindowInsetsCompat.Type.systemBars())
+                    }
+                    barsHidden = !barsHidden
+                },
+                containerColor = Color.Black.copy(alpha = 0.45f),
+                contentColor = Color.White,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(16.dp)
+                    .size(44.dp)
+            ) {
+                Icon(
+                    imageVector = if (barsHidden) Icons.Default.Add else Icons.Default.Close,
+                    contentDescription = stringResource(
+                        if (barsHidden) R.string.webview_sbar_show_cd else R.string.webview_sbar_hide_cd
+                    )
+                )
+            }
+        }
+
         Box(
             modifier = Modifier
                 .fillMaxSize()

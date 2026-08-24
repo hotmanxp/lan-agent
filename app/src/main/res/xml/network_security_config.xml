@@ -1,8 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    base-config: cleartext denied by default (HTTPS-only on the public Internet).
+    Three sibling <domain-config> blocks permit cleartext HTTP to RFC1918 private
+    network ranges so the user can add any LAN card at runtime via the in-app
+    edit UI without rebuilding. Public IPs remain blocked.
+-->
 <network-security-config>
     <base-config cleartextTrafficPermitted="false" />
+
     <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="true">192.168.1.100</domain>
-        <domain includeSubdomains="true">192.168.1.101</domain>
+        <domain includeSubdomains="true">192.168.0.0</domain>
+    </domain-config>
+
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">10.0.0.0</domain>
+    </domain-config>
+
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">172.16.0.0</domain>
     </domain-config>
 </network-security-config>

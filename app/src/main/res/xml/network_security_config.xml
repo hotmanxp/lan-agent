@@ -1,22 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    base-config: cleartext denied by default (HTTPS-only on the public Internet).
-    Three sibling <domain-config> blocks permit cleartext HTTP to RFC1918 private
-    network ranges so the user can add any LAN card at runtime via the in-app
-    edit UI without rebuilding. Public IPs remain blocked.
+    LAN Agent is a tool whose sole purpose is opening LAN URLs that, by their
+    nature, are cleartext HTTP on private RFC1918 networks. Manifest sets
+    `usesCleartextTraffic="true"` so Android does not block cleartext by default.
+    This file is kept as a hook for future HTTPS-only enforcement (e.g. when
+    serving LAN over Tailscale/HTTPS); today it permits everything.
 -->
 <network-security-config>
-    <base-config cleartextTrafficPermitted="false" />
-
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="true">192.168.0.0</domain>
-    </domain-config>
-
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="true">10.0.0.0</domain>
-    </domain-config>
-
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="true">172.16.0.0</domain>
-    </domain-config>
+    <base-config cleartextTrafficPermitted="true" />
 </network-security-config>

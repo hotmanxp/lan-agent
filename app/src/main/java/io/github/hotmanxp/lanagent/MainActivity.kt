@@ -1,8 +1,8 @@
-// MainActivity.kt — 单 Activity 入口,immersive 全屏
+// MainActivity.kt — 单 Activity 入口;状态栏保持可见,只隐藏底部导航栏
 package io.github.hotmanxp.lanagent
 
+import android.graphics.Color as AndroidColor
 import android.os.Bundle
-import android.view.View
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.core.view.WindowCompat
@@ -15,44 +15,23 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // Draw under system bars.
+        // Draw under status bar so we control the background ourselves; the
+        // navigation bar stays in its normal slot.
         WindowCompat.setDecorFitsSystemWindows(window, false)
-        hideSystemBars()
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            // Hide only the navigation bar; keep the status bar visible so
+            // battery / clock / signal remain readable.
+            hide(WindowInsetsCompat.Type.navigationBars())
+            systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        }
+        // Make the status-bar background transparent so the app's content
+        // paints behind it (used for the home screen, which already pads).
+        window.statusBarColor = AndroidColor.TRANSPARENT
         setContent {
             LanAgentTheme {
                 AppNavHost()
             }
         }
-    }
-
-    override fun onResume() {
-        super.onResume()
-        // Re-assert immersive on every resume — covers back-from-recents and
-        // user-initiated reveals.
-        hideSystemBars()
-    }
-
-    override fun onWindowFocusChanged(hasFocus: Boolean) {
-        super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) hideSystemBars()
-    }
-
-    @Suppress("DEPRECATION")
-    private fun hideSystemBars() {
-        val controller = WindowInsetsControllerCompat(window, window.decorView)
-        controller.hide(WindowInsetsCompat.Type.systemBars())
-        controller.systemBarsBehavior =
-            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-
-        // Belt-and-suspenders: legacy flags cover gesture-nav quirks on older
-        // devices and some OEM ROMs that ignore the modern API.
-        window.decorView.systemUiVisibility = (
-            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                or View.SYSTEM_UI_FLAG_FULLSCREEN
-            )
     }
 }

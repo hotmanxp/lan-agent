@@ -1,10 +1,43 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    LAN Agent adaptive-icon foreground.
+    Concept — "Wi-Fi hub": a central device point with three radiating arcs.
+    Rendered in white over the adaptive background (res/values/colors.xml:
+    ic_launcher_background). Stays within the 72dp safe zone
+    (viewport 108dp with 18dp margin on each side).
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+
+    <!-- Outermost arc (broader network reach) -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="4"
+        android:strokeLineCap="round"
+        android:pathData="M24,42 Q54,12 84,42" />
+
+    <!-- Middle arc -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="4"
+        android:strokeLineCap="round"
+        android:pathData="M34,50 Q54,30 74,50" />
+
+    <!-- Innermost arc -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="4"
+        android:strokeLineCap="round"
+        android:pathData="M44,58 Q54,48 64,58" />
+
+    <!-- Device dot at the bottom -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M54,30 L72,48 L72,78 L60,78 L60,60 L48,60 L48,78 L36,78 L36,48 Z" />
+        android:pathData="M54,72 m-5,0 a5,5 0,1,1 10,0 a5,5 0,1,1 -10,0 Z" />
 </vector>

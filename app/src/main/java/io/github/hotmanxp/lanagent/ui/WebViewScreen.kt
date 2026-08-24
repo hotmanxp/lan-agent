@@ -36,12 +36,16 @@ fun WebViewScreen(url: String, onBack: () -> Unit) {
         WebView(context).apply {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
-            // Honor <meta name="viewport" content="width=device-width"> in the
-            // page so mobile CSS gets the actual device width instead of the
-            // default 980px desktop viewport. loadWithOverviewMode stays off
-            // because it zooms-to-fit which can blow up small mobile pages.
+            // Honor <meta name="viewport" content="width=device-width"> so mobile
+            // CSS gets the actual device width (default 980px viewport would
+            // render the page at desktop width and look squished/wrong).
             settings.useWideViewPort = true
             settings.loadWithOverviewMode = false
+            // opencc-web /m uses fixed CSS px (16px body, 14px inputs) with no
+            // responsive typography — this looks oversized on typical Android
+            // phones. Scale the WebView's text/content down 15% to match what
+            // Chrome on the same device feels like.
+            settings.textZoom = 85
         }
     }
 

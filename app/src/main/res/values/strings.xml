@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">LAN Agent</string>
+    <string name="home_title">LAN Agent</string>
+    <string name="card_open_cd">打开</string>
+    <string name="webview_back_cd">返回</string>
+    <string name="webview_refresh_cd">刷新</string>
+    <string name="snack_load_failed">加载失败:%1$d %2$s</string>
+    <string name="snack_url_invalid">URL 无效</string>
+    <string name="snack_not_whitelisted">目标不在局域网白名单</string>
+    <string name="empty_cards_hint">暂未配置入口,请编辑 Cards.kt</string>
+</resources>

@@ -111,12 +111,10 @@ fun WebViewScreen(url: String, onBack: () -> Unit) {
                 .fillMaxSize()
                 // Status bar is visible (per MainActivity) and the activity draws
                 // edge-to-edge; windowInsetsPadding keeps the WebView's first row
-                // from hiding behind the clock/battery, and the negative 8dp shaves
-                // a bit of unused space — status bar text uses the upper portion
-                // of the bar, so the WebView only needs to start ~8dp below the
-                // bar's bottom edge.
+                // from hiding behind the clock/battery. The 4dp top lets the
+                // content breathe a hair below the bar.
                 .windowInsetsPadding(WindowInsets.statusBars)
-                .padding(top = (-8).dp)
+                .padding(top = 4.dp)
         )
         SnackbarHost(
             hostState = snackbarHostState,

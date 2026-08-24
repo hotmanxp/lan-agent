@@ -9,6 +9,7 @@ import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
@@ -86,7 +87,12 @@ fun WebViewScreen(url: String, onBack: () -> Unit) {
     Box(modifier = Modifier.fillMaxSize()) {
         AndroidView(
             factory = { webView },
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxSize()
+                // Status bar is visible (per MainActivity) and the activity draws
+                // edge-to-edge; without this padding the WebView's first row of
+                // content gets hidden behind the clock/battery.
+                .statusBarsPadding()
         )
         SnackbarHost(
             hostState = snackbarHostState,

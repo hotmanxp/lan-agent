@@ -8,8 +8,10 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
@@ -21,6 +23,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import io.github.hotmanxp.lanagent.R
@@ -47,6 +51,11 @@ fun WebViewScreen(url: String, onBack: () -> Unit) {
             // phones. Scale the WebView's text/content down 15% to match what
             // Chrome on the same device feels like.
             settings.textZoom = 85
+            // Dark backdrop so the WebView doesn't paint a white rectangle
+            // before the page's own background kicks in. Matches the dark
+            // surface so any uncovered area (e.g. before load, or padding
+            // inside the page) blends with the app theme.
+            setBackgroundColor(Color(0xFF1F2937).toArgb())
         }
     }
 
@@ -90,9 +99,9 @@ fun WebViewScreen(url: String, onBack: () -> Unit) {
             modifier = Modifier
                 .fillMaxSize()
                 // Status bar is visible (per MainActivity) and the activity draws
-                // edge-to-edge; without this padding the WebView's first row of
-                // content gets hidden behind the clock/battery.
-                .statusBarsPadding()
+                // edge-to-edge; use windowInsetsPadding so the WebView's first row
+                // of content doesn't get hidden behind the clock/battery.
+                .windowInsetsPadding(WindowInsets.statusBars)
         )
         SnackbarHost(
             hostState = snackbarHostState,

@@ -65,7 +65,16 @@ fun WebViewScreen(url: String, onBack: () -> Unit) {
             request: WebResourceRequest?,
             error: WebResourceError?
         ) {
-            val msg = "加载失败: ${error?.errorCode ?: 0} ${error?.description ?: ""}"
+            val msg = when (error?.errorCode) {
+                // ERROR_FAILED (-8) is also returned for cleartext network_policy blocks on Android 9+.
+                // The exact errorCode for cleartext-block is undocumented; -8 is a heuristic.
+                -8 -> context.getString(R.string.snack_not_whitelisted)
+                else -> context.getString(
+                    R.string.snack_load_failed,
+                    error?.errorCode ?: 0,
+                    error?.description ?: ""
+                )
+            }
             scope.launch { snackbarHostState.showSnackbar(msg) }
         }
     }

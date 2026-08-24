@@ -9,7 +9,6 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import io.github.hotmanxp.lanagent.model.Card
 
 @Composable
 fun AppNavHost(navController: NavHostController = rememberNavController()) {
@@ -19,6 +18,16 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
                 navController.navigate("webview/${Uri.encode(card.url)}")
             })
         }
-        // webview/{url} 路由在 Task 8 接入
+        composable(
+            route = "webview/{url}",
+            arguments = listOf(navArgument("url") { type = NavType.StringType })
+        ) { entry ->
+            val raw = entry.arguments?.getString("url").orEmpty()
+            val decoded = Uri.decode(raw)
+            WebViewScreen(
+                url = decoded.ifBlank { "about:blank" },
+                onBack = { navController.popBackStack() }
+            )
+        }
     }
 }

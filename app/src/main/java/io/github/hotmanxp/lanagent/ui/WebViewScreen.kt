@@ -36,6 +36,12 @@ fun WebViewScreen(url: String, onBack: () -> Unit) {
         WebView(context).apply {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
+            // Honor <meta name="viewport" content="width=device-width"> in the
+            // page so mobile CSS gets the actual device width instead of the
+            // default 980px desktop viewport. loadWithOverviewMode stays off
+            // because it zooms-to-fit which can blow up small mobile pages.
+            settings.useWideViewPort = true
+            settings.loadWithOverviewMode = false
         }
     }
 

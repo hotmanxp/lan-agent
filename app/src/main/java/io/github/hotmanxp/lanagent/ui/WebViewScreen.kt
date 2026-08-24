@@ -7,6 +7,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -24,7 +25,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import io.github.hotmanxp.lanagent.R
@@ -51,11 +51,12 @@ fun WebViewScreen(url: String, onBack: () -> Unit) {
             // phones. Scale the WebView's text/content down 15% to match what
             // Chrome on the same device feels like.
             settings.textZoom = 85
-            // Dark backdrop so the WebView doesn't paint a white rectangle
-            // before the page's own background kicks in. Matches the dark
-            // surface so any uncovered area (e.g. before load, or padding
-            // inside the page) blends with the app theme.
-            setBackgroundColor(Color(0xFF1F2937).toArgb())
+            // setBackgroundColor on a WebView rarely shows: WebView's surface
+            // is hardware-accelerated and the drawable background paints
+            // behind, not under, the surface. We draw the dark backdrop in
+            // Compose (see Box below) and let the WebView be transparent so
+            // the surface shows the Compose-painted color through it.
+            setBackgroundColor(android.graphics.Color.TRANSPARENT)
         }
     }
 
@@ -93,7 +94,15 @@ fun WebViewScreen(url: String, onBack: () -> Unit) {
         if (canGoBack) webView.goBack() else onBack()
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            // Dark backdrop painted by Compose (NOT by WebView.setBackgroundColor
+            // — that doesn't show under the WebView's hardware-accelerated
+            // surface). This is the color visible around any WebView padding
+            // or before the page paints its own background.
+            .background(Color(0xFF1F2937))
+    ) {
         AndroidView(
             factory = { webView },
             modifier = Modifier

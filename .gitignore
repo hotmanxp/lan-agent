@@ -73,3 +73,6 @@ lint/tmp/
 
 # Mac
 .DS_Store
+
+# Local tool indexes / caches
+.codegraph/

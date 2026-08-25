@@ -5,12 +5,36 @@
 
 ## 改入口
 
-编辑 [`app/src/main/java/io/github/hotmanxp/lanagent/data/Cards.kt`](app/src/main/java/io/github/hotmanxp/lanagent/data/Cards.kt)
-里的 `defaultCards` 列表,改完 `./gradlew :app:installDebug` 重装即可。
+有 3 种方式,**推荐在 APP 内完成**:
+
+1. **APP 内编辑模式** — 首屏右上 `✎` 进编辑模式,长按拖拽换位,点 `🗑` 删除,
+   点 `+` 加新卡。改完即时写 DataStore,下次启动还是这些。
+2. **QR 扫码添加** — `+` → 选 QR 扫码,扫 opencc-web 实例管理页导出的二维码即可
+   (CameraX + ML Kit Barcode)。
+3. **改 seed 卡片** — 编辑 [`app/src/main/java/io/github/hotmanxp/lanagent/data/Cards.kt`](app/src/main/java/io/github/hotmanxp/lanagent/data/Cards.kt)
+   里的 `defaultCards` 列表,改完 `./gradlew :app:installDebug` 重装即可。
+   **只影响卸载重装后的首次启动**(已有数据从 DataStore 读)。
 
 如目标 IP 不在白名单,还要编辑
 [`app/src/main/res/xml/network_security_config.xml`](app/src/main/res/xml/network_security_config.xml)
 加一行 `<domain includeSubdomains="true">你的.IP</domain>`。
+
+## 0.6.0 新增功能
+
+相比 0.1.x 单卡片模式,0.6.0 引入多实例管理:
+
+- **多实例列表** — InstancesScreen 替代 HomeScreen 单卡片模式,支持任意多个
+  opencc-web 实例(名称 / 地址 / 端口 / 备注)
+- **三种添加方式** — 手动表单 / 选目录拉 `/instances` / **QR 扫码**
+  (CameraX 1.3.4 + ML Kit Barcode)
+- **编辑 / 删除** — 实例卡片长按进编辑模式,可改端口、改备注、删除
+- **WebView 文件上传** — `<input type="file">` 通过系统图库选择器(content:// URI),
+  支持 Android 13+ 的 `READ_MEDIA_IMAGES`
+- **前台 Service 保活** — `service/WebViewKeepAliveService`(dataSync foreground
+  service),让 WebView 的 SSE / WebSocket / long-poll 在 Activity onPause 后仍保活,
+  避免用户切走再回来时 session 断开
+
+版本号: `versionCode 5 → 22`,`versionName "0.1.4" → "0.6.0"`。
 
 ## 编译 & 装
 

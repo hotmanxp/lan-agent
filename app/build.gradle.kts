@@ -13,8 +13,8 @@ android {
         applicationId = "io.github.hotmanxp.lanagent"
         minSdk = 26
         targetSdk = 34
-        versionCode = 22
-        versionName = "0.6.0"
+        versionCode = 24
+        versionName = "0.6.2"
     }
 
     buildTypes {

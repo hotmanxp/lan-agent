@@ -287,6 +287,6 @@ opencc-web 仓库在 `/Users/ethan/code/opencc-web/`,详见 `opencc-web/AGENTS.m
 
 ## 版本 / 发布
 
-- 当前: **0.6.0** (versionCode 22)
+- 当前: **0.6.2** (versionCode 24)
 - 不发 release,只本地 debug APK
 - 每次改完手动 bump `versionCode` + `versionName`(`app/build.gradle.kts`),否则手机装上后版本号不变看不出是新版

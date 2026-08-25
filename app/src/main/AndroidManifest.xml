@@ -51,9 +51,21 @@
         android:usesCleartextTraffic="true"
         android:theme="@style/Theme.LanAgent">
 
+        <!-- android:screenOrientation="portrait" locks the Activity to
+             portrait. WebView is a child view of this Activity, so the
+             zai /m page (which doesn't ship a landscape layout) also
+             stays portrait. "behind" / "nosensor" were considered: "behind"
+             would inherit the launcher's orientation (LAUNCHER itself is
+             portrait on phones, so functionally the same, but couples us
+             to the home screen's orientation setting); "nosensor" would
+             freeze at whatever the device happened to be when the app
+             started, which on a tablet launched while held sideways
+             could be wrong. "portrait" is explicit and matches the
+             chat/agent UI we wrap. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:screenOrientation="portrait"
             android:theme="@style/Theme.LanAgent"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>

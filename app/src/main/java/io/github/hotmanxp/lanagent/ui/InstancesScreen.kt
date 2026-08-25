@@ -225,7 +225,7 @@ fun InstancesScreen(
                 else -> {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(vertical = 8.dp, horizontal = 12.dp),
+                        contentPadding = PaddingValues(vertical = 12.dp, horizontal = 16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         items(items = instances, key = { it.id }) { inst ->
@@ -246,7 +246,7 @@ fun InstancesScreen(
                             )
                         }
                         item("bottom-spacer") {
-                            Spacer(modifier = Modifier.height(80.dp))
+                            Spacer(modifier = Modifier.height(96.dp))
                         }
                     }
                 }

@@ -19,10 +19,12 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
@@ -35,6 +37,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,11 +45,19 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import io.github.hotmanxp.lanagent.R
+import io.github.hotmanxp.lanagent.data.readRefreshButtonPos
+import io.github.hotmanxp.lanagent.data.saveRefreshButtonPos
 import io.github.hotmanxp.lanagent.service.WebViewKeepAliveService
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -63,6 +74,19 @@ fun WebViewScreen(url: String, onBack: () -> Unit) {
     // lets us surface a "已刷新" Snackbar so the user knows the WebView
     // actually re-fetched instead of silently re-painting cached content.
     var pendingReload by remember { mutableStateOf(false) }
+
+    // Floating refresh button — draggable, position persisted across launches.
+    // null = never moved → render at the legacy default (right-center, 6dp inset).
+    // Once the user drags it once, onDragStart seeds the offset to that same
+    // default pixel position so the visual jump from align() to offset() is
+    // zero, then subsequent drags accumulate from there.
+    var refreshBtnPos by remember { mutableStateOf<Offset?>(null) }
+    var refreshLayerSize by remember { mutableStateOf(IntSize.Zero) }
+    val density = LocalDensity.current
+    val refreshBtnSizePx = with(density) { 28.dp.toPx() }
+    LaunchedEffect(Unit) {
+        refreshBtnPos = context.readRefreshButtonPos()
+    }
 
     // Bridge between WebView's synchronous onShowFileChooser and the async
     // ActivityResult result. The WebView hands us a ValueCallback that we
@@ -271,6 +295,9 @@ fun WebViewScreen(url: String, onBack: () -> Unit) {
             // surface). This is the color visible around any WebView padding
             // or before the page paints its own background.
             .background(Color(0xFF1F2937))
+            // refreshLayerSize bounds the draggable refresh button — clamp
+            // its offset so it can't be dragged off-screen or behind the IME.
+            .onSizeChanged { refreshLayerSize = it }
     ) {
         AndroidView(
             factory = { webView },
@@ -292,24 +319,71 @@ fun WebViewScreen(url: String, onBack: () -> Unit) {
                 // into the now-visible region.
                 .imePadding()
         )
-        // Right-center floating refresh button. webView.reload() is silent
-        // by default — SPA-style pages may look identical after reload
-        // (just internal state reset), so the user has no way to tell if
-        // it actually fired. We pair the call with a "pendingReload" flag
-        // and show a Snackbar in onPageStarted so they get a confirmation
-        // pulse.
+        // Floating refresh button. webView.reload() is silent by default —
+        // SPA-style pages may look identical after reload (just internal state
+        // reset), so the user has no way to tell if it actually fired. We
+        // pair the call with a "pendingReload" flag and show a Snackbar in
+        // onPageStarted so they get a confirmation pulse.
+        //
+        // Draggable + position persisted across launches. Until the user
+        // drags once, it sits at the legacy default (right-center, 6dp end
+        // inset); after the first drag it switches to an absolute offset
+        // driven by the persisted position. pointerInput's detectDragGestures
+        // consumes the drag gesture so clickable only fires on a tap with
+        // no movement, keeping a single click = reload semantics intact.
         //
         // Built with Box + clickable instead of IconButton because
         // IconButton's minimumInteractiveComponentSize (48dp by default)
         // overrides Modifier.size, so the original 36dp / 28dp circles
         // kept rendering at 48dp regardless of size hint. Box honors the
         // exact size — the outer circle and inner icon shrink together.
-        Box(
-            modifier = Modifier
+        val savedPos = refreshBtnPos
+        val baseModifier: Modifier = if (savedPos == null) {
+            Modifier
                 .align(Alignment.CenterEnd)
                 .padding(end = 6.dp)
                 .size(28.dp)
+        } else {
+            val maxX = (refreshLayerSize.width - refreshBtnSizePx).coerceAtLeast(0f)
+            val maxY = (refreshLayerSize.height - refreshBtnSizePx).coerceAtLeast(0f)
+            Modifier
+                .offset {
+                    IntOffset(
+                        savedPos.x.coerceIn(0f, maxX).toInt(),
+                        savedPos.y.coerceIn(0f, maxY).toInt(),
+                    )
+                }
+                .size(28.dp)
+        }
+        Box(
+            modifier = baseModifier
                 .background(Color(0x669CA3AF), shape = CircleShape)
+                .pointerInput(refreshLayerSize, refreshBtnSizePx) {
+                    val endPadPx = with(density) { 6.dp.toPx() }
+                    detectDragGestures(
+                        onDragStart = {
+                            // Switch from align() to offset() at the same pixel
+                            // position so the button doesn't jump on first drag.
+                            if (refreshBtnPos == null) {
+                                val defaultX = refreshLayerSize.width - refreshBtnSizePx - endPadPx
+                                val defaultY = (refreshLayerSize.height - refreshBtnSizePx) / 2f
+                                refreshBtnPos = Offset(defaultX, defaultY)
+                            }
+                        },
+                        onDrag = { change, drag ->
+                            change.consume()
+                            val cur = refreshBtnPos ?: Offset.Zero
+                            refreshBtnPos = cur + drag
+                        },
+                        onDragEnd = {
+                            // Persist on drag end, not per-frame, to avoid
+                            // hammering DataStore during a fast swipe.
+                            scope.launch {
+                                refreshBtnPos?.let { context.saveRefreshButtonPos(it) }
+                            }
+                        },
+                    )
+                }
                 .clickable {
                     pendingReload = true
                     webView.reload()

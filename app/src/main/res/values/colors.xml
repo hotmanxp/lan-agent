@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Deep indigo so the white Wi-Fi hub reads with strong contrast. -->
-    <color name="ic_launcher_background">#1F2937</color>
+    <!-- zai brand orange (#ff6600) so the white robot icon matches the
+         AI-Agent avatar family zai uses on the /m page. -->
+    <color name="ic_launcher_background">#ff6600</color>
 </resources>

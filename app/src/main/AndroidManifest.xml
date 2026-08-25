@@ -3,7 +3,45 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- WebView reads the content:// URIs returned by the system image
+         picker (ACTION_GET_CONTENT) before injecting them as File objects
+         into the page's <input type="file">. On Android 13+ scoped storage
+         requires READ_MEDIA_IMAGES; older versions gate on READ_EXTERNAL_STORAGE.
+         Intent.FLAG_GRANT_READ_URI_PERMISSION alone is not enough on some
+         OEM ROMs — the WebView process still needs the underlying media
+         permission or FileReader.readAsDataURL silently fails and the
+         attachment never lands in the chat input. -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+
+    <!-- CameraX + ML Kit Barcode Scanning power the QR entry point. CAMERA
+         is requested at runtime when the user opens ScanQrScreen; if denied
+         we bounce back to Home with a Snackbar hint. hardware.camera is
+         declared as required="false" so the app stays installable on
+         tablets/emulators without a back camera (Google Play filter rule). -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+
+    <!-- Foreground service keeps the WebView's network stack (SSE / long-poll
+         / WebSocket) alive while the user is in another app or the screen is
+         off — without this, Android freezes WebView networking as soon as
+         Activity.onPause fires and the user's running session drops. dataSync
+         is the right type for "hold open a network sync session"; the matching
+         FOREGROUND_SERVICE_DATA_SYNC permission is mandatory on Android 14
+         (API 34) or startForeground throws SecurityException. WAKE_LOCK is
+         required on Android 13+ to acquire PARTIAL_WAKE_LOCK from the
+         service. POST_NOTIFICATIONS (API 33+) gates the ongoing status
+         notification; we don't request it at runtime yet — the service still
+         runs, the notification just gets silently dropped by the OS. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <application
+        android:name=".LanAgentApp"
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
@@ -16,12 +54,21 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:theme="@style/Theme.LanAgent">
+            android:theme="@style/Theme.LanAgent"
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Started from WebViewScreen via DisposableEffect(url); stops
+             itself when the user navigates back to Home. exported=false —
+             it's a private IPC target, only this app's components start it. -->
+        <service
+            android:name=".service.WebViewKeepAliveService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
     </application>
 
 </manifest>

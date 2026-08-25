@@ -13,8 +13,8 @@ android {
         applicationId = "io.github.hotmanxp.lanagent"
         minSdk = 26
         targetSdk = 34
-        versionCode = 5
-        versionName = "0.1.4"
+        versionCode = 22
+        versionName = "0.6.0"
     }
 
     buildTypes {
@@ -42,14 +42,22 @@ android {
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.activity.compose)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
+    implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.webkit)
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.kotlinx.serialization.json)
+    implementation(libs.androidx.camera.core)
+    implementation(libs.androidx.camera.camera2)
+    implementation(libs.androidx.camera.lifecycle)
+    implementation(libs.androidx.camera.view)
+    implementation(libs.mlkit.barcode.scanning)
+    implementation(libs.okhttp)
 }

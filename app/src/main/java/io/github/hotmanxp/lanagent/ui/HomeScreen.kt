@@ -25,6 +25,8 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.QrCodeScanner
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -53,6 +55,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import io.github.hotmanxp.lanagent.R
 import io.github.hotmanxp.lanagent.data.cardsFlow
+import io.github.hotmanxp.lanagent.data.findManagerBaseUrl
 import io.github.hotmanxp.lanagent.data.saveCards
 import io.github.hotmanxp.lanagent.model.Card
 import kotlinx.coroutines.flow.first
@@ -60,7 +63,11 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen(onCardClick: (Card) -> Unit) {
+fun HomeScreen(
+    onCardClick: (Card) -> Unit,
+    onScanClick: () -> Unit,
+    onInstancesClick: (String) -> Unit,
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val cards by context.cardsFlow().collectAsState(initial = null)
@@ -71,6 +78,8 @@ fun HomeScreen(onCardClick: (Card) -> Unit) {
     var editMode by remember { mutableStateOf(false) }
     var editingCard by remember { mutableStateOf<Card?>(null) }
     var showAddDialog by remember { mutableStateOf(false) }
+    var showNoManagerHint by remember { mutableStateOf(false) }
+    val managerBaseUrl = remember(currentCards) { findManagerBaseUrl(currentCards) }
 
     Scaffold(
         topBar = {
@@ -85,6 +94,27 @@ fun HomeScreen(onCardClick: (Card) -> Unit) {
                             )
                         }
                     } else {
+                        // Scan button comes first (left of edit/add) since
+                        // it's the primary one-tap action; edit/add are
+                        // card-management ops and live next to each other.
+                        IconButton(onClick = onScanClick) {
+                            Icon(
+                                imageVector = Icons.Default.QrCodeScanner,
+                                contentDescription = stringResource(R.string.home_scan_cd)
+                            )
+                        }
+                        IconButton(
+                            onClick = {
+                                val url = managerBaseUrl
+                                if (url != null) onInstancesClick(url)
+                                else showNoManagerHint = true
+                            },
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Storage,
+                                contentDescription = stringResource(R.string.instances_manage_cd),
+                            )
+                        }
                         IconButton(onClick = { editMode = true }) {
                             Icon(
                                 imageVector = Icons.Default.Edit,
@@ -164,6 +194,19 @@ fun HomeScreen(onCardClick: (Card) -> Unit) {
                 scope.launch { context.saveCards(next) }
                 editingCard = null
             }
+        )
+    }
+
+    if (showNoManagerHint) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showNoManagerHint = false },
+            title = { Text(stringResource(R.string.instances_manage_cd)) },
+            text = { Text(stringResource(R.string.instances_no_manager_hint)) },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = { showNoManagerHint = false }) {
+                    Text(stringResource(R.string.dialog_ok))
+                }
+            },
         )
     }
 }

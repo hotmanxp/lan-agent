@@ -24,4 +24,85 @@
     <string name="dialog_field_accent">色条</string>
     <string name="dialog_save">保存</string>
     <string name="dialog_cancel">取消</string>
+    <string name="dialog_ok">知道了</string>
+    <string name="home_scan_cd">扫码进入</string>
+    <string name="scan_back_cd">返回</string>
+    <string name="scan_hint">将二维码对准框内</string>
+    <string name="scan_permission_denied">需要相机权限才能扫码</string>
+    <string name="scan_permission_retry">重新授权</string>
+    <string name="scan_back">返回首页</string>
+    <!-- Foreground service (WebViewKeepAliveService) — Channel name is what
+         the user sees under system Settings → Apps → LAN Agent →
+         Notifications; description is the body under the channel. Keep both
+         short and accurate: this channel exists solely for the ongoing
+         "service is keeping your WebView session alive" notification, not
+         for chat alerts or anything else. -->
+    <string name="notif_keepalive_channel_name">WebView 后台保持</string>
+    <string name="notif_keepalive_channel_desc">保持 WebView 长连接不中断</string>
+    <string name="notif_keepalive_title">LAN Agent 后台运行中</string>
+    <!-- Instances 实例管理 -->
+    <string name="instances_title">实例管理</string>
+    <string name="instances_refresh">刷新</string>
+    <string name="instances_create">新建实例</string>
+    <string name="instances_state_stopped">已停止</string>
+    <string name="instances_state_starting">启动中</string>
+    <string name="instances_state_running">运行中</string>
+    <string name="instances_state_stopping">停止中</string>
+    <string name="instances_state_down">异常</string>
+    <string name="instances_current_tag">当前</string>
+    <string name="instances_lan">LAN</string>
+    <string name="instances_lan_tag">--lan</string>
+    <string name="instances_field_kernel">内核</string>
+    <string name="instances_field_kernel_inherit">继承全局</string>
+    <string name="instances_field_start_port">启动端口</string>
+    <string name="instances_field_port">运行端口</string>
+    <string name="instances_field_cwd">工作目录</string>
+    <string name="instances_field_pid">PID</string>
+    <string name="instances_field_started_at">启动时间</string>
+    <string name="instances_field_runtime">运行时长</string>
+    <string name="instances_field_created_at">创建时间</string>
+    <string name="instances_field_last_heartbeat">最后心跳</string>
+    <string name="instances_field_error">错误</string>
+    <string name="instances_action_start">启动</string>
+    <string name="instances_action_stop">停止</string>
+    <string name="instances_action_restart">重启</string>
+    <string name="instances_action_delete">删除</string>
+    <string name="instances_action_open">打开</string>
+    <string name="instances_action_edit_port">编辑</string>
+    <string name="instances_lan_tooltip">LAN 模式:该实例会以 --lan 启动并监听 0.0.0.0</string>
+    <string name="instances_dialog_create_title">新建实例</string>
+    <string name="instances_dialog_edit_port_title">编辑启动端口</string>
+    <string name="instances_dialog_field_name">名称</string>
+    <string name="instances_dialog_field_cwd">工作目录</string>
+    <string name="instances_dialog_field_cwd_hint">/absolute/path</string>
+    <string name="instances_dialog_field_browse">浏览</string>
+    <string name="instances_dialog_field_lan">LAN 模式启动 (--lan)</string>
+    <string name="instances_dialog_field_kernel">实例内核</string>
+    <string name="instances_dialog_field_kernel_inherit">继承全局设置 (默认)</string>
+    <string name="instances_dialog_field_port_mode">启动端口</string>
+    <string name="instances_dialog_port_auto">自动</string>
+    <string name="instances_dialog_port_manual">手动</string>
+    <string name="instances_dialog_field_port">端口号</string>
+    <string name="instances_dialog_create_btn">创建</string>
+    <string name="instances_dialog_save_btn">保存</string>
+    <string name="instances_picker_title">选择工作目录</string>
+    <string name="instances_picker_home">主页</string>
+    <string name="instances_picker_up">上级</string>
+    <string name="instances_picker_refresh">刷新</string>
+    <string name="instances_picker_select">选择当前目录</string>
+    <string name="instances_picker_empty">空目录</string>
+    <string name="instances_picker_open">打开</string>
+    <string name="instances_delete_confirm_title">确定删除该实例定义?</string>
+    <string name="instances_delete_confirm_desc">如果实例正在运行,会先停止。</string>
+    <string name="instances_empty_hint">暂无实例,点 + 创建</string>
+    <string name="instances_loading">加载中...</string>
+    <string name="instances_error_load">加载失败:%1$s</string>
+    <string name="instances_action_failed">操作失败:%1$s</string>
+    <string name="instances_manage_cd">原生实例管理</string>
+    <string name="instances_no_manager_hint">未配置「实例管理」入口卡片,请先在首页 + 添加 URL 指向 /instances 的卡片</string>
+    <string name="instances_field_auto">auto</string>
+    <string name="instances_dialog_error_name_required">请输入名称</string>
+    <string name="instances_dialog_error_cwd_required">请输入工作目录</string>
+    <string name="instances_dialog_error_port_required">请输入端口</string>
+    <string name="instances_dialog_error_port_range">端口需为 1024-65535 之间的整数</string>
 </resources>

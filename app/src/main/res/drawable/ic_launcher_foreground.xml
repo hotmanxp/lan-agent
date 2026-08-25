@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    LAN Agent adaptive-icon foreground.
-    Concept — "Wi-Fi hub": a central device point with three radiating arcs.
-    Rendered in white over the adaptive background (res/values/colors.xml:
-    ic_launcher_background). Stays within the 72dp safe zone
-    (viewport 108dp with 18dp margin on each side).
+    lan-agent adaptive-icon foreground — friendly robot, drawn in white
+    over the orange (#ff6600) background. Stays within the 72dp safe zone
+    (viewport 108dp with 18dp margin on each side), matches the AI-Agent
+    avatar zai uses on the /m page so the launcher icon is recognizable
+    as the same family.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
@@ -12,32 +12,39 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Outermost arc (broader network reach) -->
-    <path
-        android:fillColor="#00000000"
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="4"
-        android:strokeLineCap="round"
-        android:pathData="M24,42 Q54,12 84,42" />
-
-    <!-- Middle arc -->
-    <path
-        android:fillColor="#00000000"
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="4"
-        android:strokeLineCap="round"
-        android:pathData="M34,50 Q54,30 74,50" />
-
-    <!-- Innermost arc -->
-    <path
-        android:fillColor="#00000000"
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="4"
-        android:strokeLineCap="round"
-        android:pathData="M44,58 Q54,48 64,58" />
-
-    <!-- Device dot at the bottom -->
+    <!-- Antenna stem (left) -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M54,72 m-5,0 a5,5 0,1,1 10,0 a5,5 0,1,1 -10,0 Z" />
+        android:pathData="M40,28 L40,38" />
+    <!-- Antenna stem (right) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M68,28 L68,38" />
+    <!-- Antenna ball (left) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M40,28 m-4,0 a4,4 0,1,1 8,0 a4,4 0,1,1 -8,0 Z" />
+    <!-- Antenna ball (right) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M68,28 m-4,0 a4,4 0,1,1 8,0 a4,4 0,1,1 -8,0 Z" />
+
+    <!-- Head: rounded square 50x44 centered at top half -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M30,38 L78,38 Q86,38 86,46 L86,72 Q86,82 76,82 L32,82 Q22,82 22,72 L22,46 Q22,38 30,38 Z" />
+
+    <!-- Left eye -->
+    <path
+        android:fillColor="#ff6600"
+        android:pathData="M40,56 m-5,0 a5,5 0,1,1 10,0 a5,5 0,1,1 -10,0 Z" />
+    <!-- Right eye -->
+    <path
+        android:fillColor="#ff6600"
+        android:pathData="M68,56 m-5,0 a5,5 0,1,1 10,0 a5,5 0,1,1 -10,0 Z" />
+
+    <!-- Smile (rounded line via two circles + rect, simple version) -->
+    <path
+        android:fillColor="#ff6600"
+        android:pathData="M44,68 L64,68 L64,70 Q64,74 60,74 L48,74 Q44,74 44,70 Z" />
 </vector>

@@ -5,6 +5,23 @@ import io.github.hotmanxp.lanagent.model.Card
 
 private const val HOST = "192.168.101.69"
 
+/**
+ * 从卡片列表里识别「实例管理器入口」:URL 路径以 `/instances` 结尾的卡片。
+ *
+ * 返回去掉路径与尾部斜杠后的 baseURL,形如 `http://192.168.101.69:9201`,
+ * 给原生 InstancesScreen 用作 API 根。没找到返回 null,UI 应引导用户先配置卡片。
+ */
+fun findManagerBaseUrl(cards: List<Card>): String? {
+    val manager = cards.firstOrNull { c ->
+        val path = c.url.substringBefore('?').substringBefore('#').trimEnd('/')
+        path.endsWith("/instances")
+    } ?: return null
+    val url = manager.url.substringBefore('?').substringBefore('#').trimEnd('/')
+    // url = "http://host:port/instances" → base = "http://host:port"
+    val base = url.substringBefore("/instances")
+    return if (base.endsWith("/")) base.dropLast(1) else base
+}
+
 val defaultCards: List<Card> = listOf(
     Card(
         id = "seed-instances",

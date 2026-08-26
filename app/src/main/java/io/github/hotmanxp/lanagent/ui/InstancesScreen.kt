@@ -132,7 +132,9 @@ fun InstancesScreen(
                 return
             }
             val host = Uri.parse(baseUrl).host ?: return
-            onOpenUrl("http://$host:$port")
+            // 走 mobile Agent 路由(/m),而不是桌面端入口。
+            // lan-agent 是手机端 APP,桌面端页面在窄屏上挤、不友好。
+            onOpenUrl("http://$host:$port/m")
             return
         }
         if (inst.id in actionBusy) return

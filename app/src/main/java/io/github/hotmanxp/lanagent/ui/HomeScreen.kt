@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.Card
@@ -67,6 +68,7 @@ fun HomeScreen(
     onCardClick: (Card) -> Unit,
     onScanClick: () -> Unit,
     onInstancesClick: (String) -> Unit,
+    onSshHostsClick: () -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -125,6 +127,17 @@ fun HomeScreen(
                             Icon(
                                 imageVector = Icons.Default.Add,
                                 contentDescription = stringResource(R.string.home_add_cd)
+                            )
+                        }
+                        // SSH hosts list — placed last (rightmost) so the
+                        // primary card-management actions stay grouped
+                        // together. The icon is Terminal (CLI / SSH
+                        // keyboard metaphor); the SshHostListScreen has
+                        // its own empty-state hint so no Snackbar here.
+                        IconButton(onClick = onSshHostsClick) {
+                            Icon(
+                                imageVector = Icons.Filled.Memory,
+                                contentDescription = stringResource(R.string.ssh_title),
                             )
                         }
                     }

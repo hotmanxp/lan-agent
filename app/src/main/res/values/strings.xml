@@ -105,4 +105,31 @@
     <string name="instances_dialog_error_cwd_required">请输入工作目录</string>
     <string name="instances_dialog_error_port_required">请输入端口</string>
     <string name="instances_dialog_error_port_range">端口需为 1024-65535 之间的整数</string>
+    <!-- SSH host 列表 + 编辑 -->
+    <string name="ssh_title">SSH 主机</string>
+    <string name="ssh_add_cd">添加 SSH 主机</string>
+    <string name="ssh_empty_hint">暂未配置 SSH 主机,点 + 添加</string>
+    <string name="ssh_dialog_add_title">添加 SSH 主机</string>
+    <string name="ssh_dialog_edit_title">编辑 SSH 主机</string>
+    <string name="ssh_dialog_field_name">名称(显示用)</string>
+    <string name="ssh_dialog_field_host">主机 / IP</string>
+    <string name="ssh_dialog_field_port">SSH 端口</string>
+    <string name="ssh_dialog_field_user">用户名</string>
+    <string name="ssh_dialog_field_password">密码</string>
+    <string name="ssh_dialog_field_zai_port">zai 启动端口</string>
+    <string name="ssh_dialog_error_port_range">端口需为 1-65535 之间的整数</string>
+    <string name="ssh_action_start">启动 zai</string>
+    <string name="ssh_action_stop">停止 zai</string>
+    <string name="ssh_action_edit">编辑</string>
+    <string name="ssh_action_delete">删除</string>
+    <string name="ssh_sheet_title_start">启动 zai</string>
+    <string name="ssh_sheet_title_stop">停止 zai</string>
+    <string name="ssh_sheet_running">执行中...</string>
+    <string name="ssh_sheet_exit_code">exit code: %1$d · 耗时 %2$d ms</string>
+    <string name="ssh_sheet_view_log">查看 /tmp/zai.log</string>
+    <string name="ssh_sheet_dismiss">关闭</string>
+    <string name="ssh_sheet_start_ok">zai 已启动,正在跳转…</string>
+    <string name="ssh_sheet_start_fail">启动失败,请查看日志</string>
+    <string name="ssh_log_title">/tmp/zai.log 末尾</string>
+    <string name="ssh_no_host_hint">请先在 SSH 主机列表添加主机</string>
 </resources>

@@ -13,8 +13,8 @@ android {
         applicationId = "io.github.hotmanxp.lanagent"
         minSdk = 26
         targetSdk = 34
-        versionCode = 26
-        versionName = "0.6.4"
+        versionCode = 28
+        versionName = "0.7.1"
     }
 
     buildTypes {
@@ -60,4 +60,5 @@ dependencies {
     implementation(libs.androidx.camera.view)
     implementation(libs.mlkit.barcode.scanning)
     implementation(libs.okhttp)
+    implementation(libs.jsch)
 }

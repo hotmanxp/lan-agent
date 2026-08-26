@@ -55,6 +55,66 @@
 
 版本号: `versionCode 5 → 22`,`versionName "0.1.4" → "0.6.0"`。
 
+## 0.7.x 新增功能 (SSH 启动 zai)
+
+**架构新增**:`model/SshHost.kt` + `data/SshRepository.kt`(独立 DataStore `lan_agent_ssh_hosts`)
++ `ssh/JschClient.kt`(JSch 封装)+ `ssh/ZaiLauncher.kt`(命令预设)
++ `ssh/ZaiPortProbe.kt`(OkHttp 端口探测)+ `ui/SshHostListScreen.kt`
++ `ui/EditSshHostDialog.kt`。依赖加 `com.jcraft:jsch:0.1.55`(Tencent mirror 已代理)。
+
+**核心特性**:
+
+- **多 SSH host 支持** — DataStore 持久化,可配置多台电脑
+- **启停命令预设** — start 用 `nohup pnpm --filter @zn-ai/zai dev -- --lan > /tmp/zai.log 2>&1 & disown`;
+  stop 用 `pkill -f 'pnpm.*zai.*--lan'`;日志查 `tail -50 /tmp/zai.log`
+- **PATH 兜底** — sshd 默认 PATH 不带 Homebrew,命令前缀
+  `source ~/.zshenv 2>/dev/null; source ~/.bashrc 2>/dev/null;`
+- **端口探测自动跳转** — exec 成功后 OkHttp 1s × 5 次轮询 9201,200 → 自动跳 WebView
+- **失败兜底** — sheet 内「查看日志」按钮,再 exec 一次 tail
+- **密码明文存储** — 与 Card 一致(Phase 2 接受,后续可上 Keystore)
+
+## SSH 启动 zai (0.7.x)
+
+当电脑关机或 zai 没跑起来时,首屏右上 `>_` (Terminal) 图标进 SSH 主机列表,
+点「启动 zai」按钮即可通过 SSH 远程执行 `nohup pnpm --filter @zn-ai/zai dev -- --lan`,
+启动成功后自动跳到 Instances 实例管理页。
+
+**前置条件(Mac 端)**:
+
+1. **开启 SSH 远程登录**: 「系统设置 → 通用 → 共享 → 远程登录」(macOS 13+),
+   或「系统设置 → 共享」(macOS 12)。勾上后记下当前 Wi-Fi 的 IP。
+2. **pnpm 在 PATH**: zai 用 `pnpm` 启动,sshd 默认 PATH 不带 Homebrew 的
+   `/opt/homebrew/bin`。所以命令模板已自动前缀 `source ~/.zshenv 2>/dev/null;
+   source ~/.bashrc 2>/dev/null;`,如果还是找不到 pnpm,把 `export PATH=...`
+   写进 `~/.zshenv`。
+3. **opencc-web 路径**: 默认 `~/code/opencc-web`(命令模板硬编码)。
+   改了路径就编辑 `ssh/ZaiLauncher.kt` 的 `OPENCC_WEB_DIR`。
+
+**APP 内配置步骤**:
+
+1. 首屏右上 `>_` 图标 → SSH 主机列表页
+2. 点 `+` 加一条:name(随便起)/ host(电脑 LAN IP)/ port(`22`)/ user(Mac 用户名)/ password
+3. 保存后列表多一条,点该条「启动 zai」按钮 → 弹半屏 sheet 显示:
+   - 执行中 → exit code + 耗时
+   - exit code = 0 + 端口探测 5 次内 200 → 自动跳 WebView
+   - 失败 → sheet 显示「查看 /tmp/zai.log」按钮,点了显示最近 50 行日志
+
+**进程存活**:用 `nohup ... & disown` 让 pnpm 从 SSH shell 脱离,
+SSH session 关闭后 zai 继续跑。日志在 Mac 的 `/tmp/zai.log`。
+
+**已知坑**:
+
+| 现象 | 排查 |
+|------|------|
+| 连接超时 `connect failed` | Mac 远程登录没开 / IP 不对 / 端口被防火墙挡 |
+| `Auth fail` | 密码错 / Mac 用户没勾「允许远程登录」 |
+| exit code = 127 (`command not found`) | pnpm 不在 PATH,把 `export PATH="/opt/homebrew/bin:$PATH"` 写进 `~/.zshenv` |
+| exit code = 0 但端口探测失败 | `cd ~/code/opencc-web` 路径不对,日志会显示 `cd: ...: No such file or directory` |
+| exit code = 0 + 启动成功但跳不到 WebView | 端口探测超时(<5s),说明 pnpm 还在启动;手动点 Storage 进 InstancesScreen 看 |
+
+**底层实现**:JSch 0.1.55(`com.jcraft:jsch`,~250KB,Maven Central 最新版本),exec 提交后立即返回;
+端口探测用现有 OkHttp 4.12.0 轮询 `http://host:9201/instances`,1s × 5 次。
+
 ## 编译 & 装
 
 ```bash
@@ -112,6 +172,13 @@ pnpm --filter @zn-ai/zai dev -- --lan
     `onReceivedError` 静音,LAN 工具太频繁),InstancesScreen 拉取报错时弹 Snackbar
 17. **重置 DataStore**: `adb shell pm clear io.github.hotmanxp.lanagent` →
     启动 App → 回到 5 张 seed 默认卡片(确认改 `Cards.kt` 后这条路径有效)
+18. **SSH 启动 zai**: 首屏右上 `>_` 图标 → 加一条 SSH host(name / IP / port / user / password)
+    → 保存 → 点「启动 zai」 → 半屏 sheet 显示执行中 → exit code = 0 + 端口可达 →
+    自动跳到 Instances 实例管理 WebView;手动关 zai 后再点「启动 zai」也能拉起
+19. **SSH 启动失败兜底**: 在 SSH host 配置里把 host 改错 → 「启动 zai」 →
+    sheet 显示「connect failed: ...」+ 「查看 /tmp/zai.log」入口(点开有错误日志)
+20. **SSH host 持久化 + 编辑 + 删除**: 加完条目,杀进程重开 App,条目还在;
+    点条目右侧 ✎ 编辑、🗑 删除(带二次确认)
 
 ## 工程位置
 

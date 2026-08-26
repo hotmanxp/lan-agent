@@ -25,6 +25,9 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
                 onInstancesClick = { baseUrl ->
                     navController.navigate("instances/${Uri.encode(baseUrl)}")
                 },
+                onSshHostsClick = {
+                    navController.navigate("ssh-hosts")
+                },
             )
         }
         composable("scan") {
@@ -50,6 +53,17 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
                 baseUrl = baseUrl.ifBlank { "http://127.0.0.1:9201" },
                 onBack = { navController.popBackStack() },
                 onOpenUrl = { url ->
+                    navController.navigate("webview/${Uri.encode(url)}")
+                },
+            )
+        }
+        composable("ssh-hosts") {
+            SshHostListScreen(
+                onBack = { navController.popBackStack() },
+                onOpenWebview = { url ->
+                    // Pop ssh-hosts first so back from the auto-launched
+                    // WebView lands on Home, mirroring the scan flow.
+                    navController.popBackStack()
                     navController.navigate("webview/${Uri.encode(url)}")
                 },
             )

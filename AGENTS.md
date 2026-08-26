@@ -163,6 +163,43 @@ zai 上传图片 → `<input type="file" accept="image/*">` → WebChromeClient.
    - **优先**用 `window.lanAgentAttachImages` bridge(`scope.launch` + `ContentResolver.openInputStream` 读 bytes → base64 → `evaluateJavascript` 注入) — 绕过 WebView 在 content:// 上的脏转换
    - **fallback**:bridge 不存在或读失败 → 让 WebView 走标准路径,接受 OEM ROM 上的不可靠
 
+### 7. SSH 启动 zai(0.7.x)
+
+加一个独立模块让手机在 zai 没启动时一键拉起来。
+
+**模块**:
+- `model/SshHost.kt` — `@Serializable data class SshHost(id, name, host, port=22, user, password)`
+- `data/SshRepository.kt` — 独立 DataStore `lan_agent_ssh_hosts`,key=`ssh_hosts_json`,完全照搬 CardRepository 模式
+- `ssh/JschClient.kt` — JSch 0.1.55 封装:connect + exec,统一抛 `SshException`,Session/Channel 显式 disconnect 防 FD 泄漏
+- `ssh/ZaiLauncher.kt` — 命令预设 + suspend `start/stop/tailLog`(withContext(IO))
+- `ssh/ZaiPortProbe.kt` — OkHttp 1s × 5 次轮询 9201
+- `ui/SshHostListScreen.kt` + `ui/EditSshHostDialog.kt` — 列表 + 启停半屏 sheet
+
+**命令模板**(写在 `ZaiLauncher.kt`):
+- **PATH 兜底**:`source ~/.zshenv 2>/dev/null; source ~/.bashrc 2>/dev/null;` 前缀
+- **start**:`cd ~/code/opencc-web && nohup pnpm --filter @zn-ai/zai dev -- --lan > /tmp/zai.log 2>&1 & disown`
+- **stop**:`pkill -f 'pnpm.*zai.*--lan' && echo stopped || echo nothing_to_stop`
+- **tail log**:`tail -50 /tmp/zai.log 2>&1`
+- `nohup ... & disown` 让 pnpm 脱离 SSH shell,SSH session 关闭后 zai 继续跑
+
+**进程方案选择 nohup+disown**(与用户对齐):不用 tmux(用户需装)、不用 LaunchAgent(配置复杂)。LAN 工具场景够了。
+
+**已知坑**:
+
+| 现象 | 排查 |
+|------|------|
+| `connect failed` | Mac 「系统设置 → 共享 → 远程登录」 没开,或 IP 错 |
+| `Auth fail` | 密码错,或 Mac 用户没勾「允许远程登录」 |
+| exit 127(`command not found`) | sshd PATH 不全,`~/.zshenv` 加 `export PATH=...` |
+| exit 0 但端口不通 | `cd ~/code/opencc-web` 路径不对;改 `ZaiLauncher.OPENCC_WEB_DIR` |
+| 端口探测超时 | pnpm 启动慢(冷启动 5-10s),5s 内探测失败正常 |
+
+**改路径 / 改命令**:`ssh/ZaiLauncher.kt` 的 `OPENCC_WEB_DIR` / `START_COMMAND` 等常量。改完重 build,只影响卸载重装后的首次启动(已有数据从 DataStore 读)。
+
+**改依赖**:JSch 在 `gradle/libs.versions.toml` `[versions] jsch = "0.1.55"` + `[libraries] jsch`,`app/build.gradle.kts` `implementation(libs.jsch)`。Tencent mirror 已代理。
+
+**密码明文**:与 Card.url 一致,DataStore 存明文。Phase 2 接受,Phase 3 再上 Keystore 加密。
+
 `MainActivity.onCreate` 会主动申请 `READ_MEDIA_IMAGES` (API 33+) / `READ_EXTERNAL_STORAGE` (更早),但只影响 base64 注入是否成功,不会阻塞选图弹窗。
 
 ### 7. WebView 后台保活(WebViewKeepAliveService)

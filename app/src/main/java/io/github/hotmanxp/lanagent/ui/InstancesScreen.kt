@@ -270,6 +270,7 @@ fun InstancesScreen(
                         lan = input.lan,
                         port = input.port,
                         kernel = input.kernel,
+                        runtime = input.runtime,
                     )
                     Unit
                 }

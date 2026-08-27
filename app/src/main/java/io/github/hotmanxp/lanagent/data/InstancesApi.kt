@@ -101,6 +101,7 @@ class InstancesApi(private val baseUrl: String) {
         lan: Boolean,
         port: Int?,
         kernel: InstanceKernel?,
+        runtime: String? = null,
     ): InstanceSnapshot {
         val body = buildJsonObject {
             put("name", name)
@@ -108,6 +109,7 @@ class InstancesApi(private val baseUrl: String) {
             put("lan", lan)
             if (port != null) put("port", port)
             if (kernel != null) put("kernel", kernel.name)
+            if (runtime != null) put("runtime", runtime)
         }
         val req = Request.Builder()
             .url(urlFor("/api/instances"))

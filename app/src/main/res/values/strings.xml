@@ -79,6 +79,9 @@
     <string name="instances_dialog_field_lan">LAN 模式启动 (--lan)</string>
     <string name="instances_dialog_field_kernel">实例内核</string>
     <string name="instances_dialog_field_kernel_inherit">继承全局设置 (默认)</string>
+    <string name="instances_dialog_field_runtime">运行时输出</string>
+    <string name="instances_dialog_field_runtime_inherit">不传 (默认)</string>
+    <string name="instances_dialog_field_runtime_print">--runtime=print (仅打印进程信息)</string>
     <string name="instances_dialog_field_port_mode">启动端口</string>
     <string name="instances_dialog_port_auto">自动</string>
     <string name="instances_dialog_port_manual">手动</string>

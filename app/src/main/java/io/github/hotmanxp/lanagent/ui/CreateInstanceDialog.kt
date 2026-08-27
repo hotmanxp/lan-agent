@@ -44,6 +44,7 @@ data class CreateInstanceInput(
     val lan: Boolean,
     val port: Int?,
     val kernel: InstanceKernel?,  // null = inherit global
+    val runtime: String?,         // null = 不传 --runtime 参数;目前仅 "print" 一个值
 )
 
 @Composable
@@ -61,6 +62,8 @@ fun CreateInstanceDialog(
     var portText by remember { mutableStateOf("") }
     var kernel by remember { mutableStateOf<InstanceKernel?>(null) }
     var kernelMenu by remember { mutableStateOf(false) }
+    var runtime by remember { mutableStateOf<String?>(null) }
+    var runtimeMenu by remember { mutableStateOf(false) }
     var pickerOpen by remember { mutableStateOf(false) }
     var nameErr by remember { mutableStateOf<Int?>(null) }
     var cwdErr by remember { mutableStateOf<Int?>(null) }
@@ -188,6 +191,41 @@ fun CreateInstanceDialog(
                     }
                 }
                 Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = stringResource(R.string.instances_dialog_field_runtime),
+                        fontSize = 13.sp,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Box {
+                        Button(
+                            onClick = { runtimeMenu = true },
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                        ) {
+                            Text(
+                                text = runtime ?: stringResource(R.string.instances_dialog_field_runtime_inherit),
+                                fontSize = 13.sp,
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = runtimeMenu,
+                            onDismissRequest = { runtimeMenu = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.instances_dialog_field_runtime_inherit), fontSize = 13.sp) },
+                                onClick = { runtime = null; runtimeMenu = false },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.instances_dialog_field_runtime_print), fontSize = 13.sp) },
+                                onClick = { runtime = "print"; runtimeMenu = false },
+                            )
+                        }
+                    }
+                }
+                Row(
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -237,6 +275,7 @@ fun CreateInstanceDialog(
                                 lan = lan,
                                 port = if (portEnabled) portNumber else null,
                                 kernel = kernel,
+                                runtime = runtime,
                             )
                         )
                         submitting = false

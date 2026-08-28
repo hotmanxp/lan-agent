@@ -100,16 +100,14 @@ class InstancesApi(private val baseUrl: String) {
         cwd: String,
         lan: Boolean,
         port: Int?,
-        kernel: InstanceKernel?,
-        runtime: String? = null,
+        runtimeCore: InstanceRuntimeCore?,
     ): InstanceSnapshot {
         val body = buildJsonObject {
             put("name", name)
             put("cwd", cwd)
             put("lan", lan)
             if (port != null) put("port", port)
-            if (kernel != null) put("kernel", kernel.name)
-            if (runtime != null) put("runtime", runtime)
+            if (runtimeCore != null) put("runtimeCore", runtimeCore.name)
         }
         val req = Request.Builder()
             .url(urlFor("/api/instances"))
@@ -140,7 +138,7 @@ class InstancesApi(private val baseUrl: String) {
         id: String,
         lan: PatchValue<Boolean>? = null,
         port: PatchValue<Int>? = null,
-        kernel: PatchValue<InstanceKernel>? = null,
+        runtimeCore: PatchValue<InstanceRuntimeCore>? = null,
     ): InstanceSnapshot {
         val body = buildJsonObject {
             lan?.let {
@@ -157,10 +155,10 @@ class InstancesApi(private val baseUrl: String) {
                     PatchValue.Unset -> Unit
                 }
             }
-            kernel?.let {
+            runtimeCore?.let {
                 when (it) {
-                    PatchValue.Null -> put("kernel", JsonNull)
-                    is PatchValue.Set -> put("kernel", it.value.name)
+                    PatchValue.Null -> put("runtimeCore", JsonNull)
+                    is PatchValue.Set -> put("runtimeCore", it.value.name)
                     PatchValue.Unset -> Unit
                 }
             }

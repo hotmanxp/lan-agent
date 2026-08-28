@@ -11,8 +11,17 @@ import kotlinx.serialization.Serializable
 @Serializable
 enum class InstanceState { stopped, starting, running, stopping, down }
 
+/**
+ * 实例运行时核心(可选枚举值来自 opencc-web `packages/zai/src/shared/settings.ts`
+ * 的 `CoreRuntime = 'default' | 'inproc' | 'spawn'`,与 `zaiSettingsStore` 中
+ * `settings.coreRuntime` 字段、`isValidCoreRuntime` 校验函数对齐)。
+ *
+ * 字段名 `runtimeCore`(名字顺序与 opencc-web 的 `coreRuntime` 相反,保留 lan-agent
+ * 端命名)对应全局 settings.json 的 `coreRuntime` 字段,缺失 / 非法值折叠为
+ * 'default'(对齐 opencc-web `resolveCoreRuntime` 行为)。
+ */
 @Serializable
-enum class InstanceKernel { opencc, dsh }
+enum class InstanceRuntimeCore { default, inproc, spawn }
 
 @Serializable
 data class InstanceError(val at: String, val message: String)
@@ -21,9 +30,9 @@ data class InstanceError(val at: String, val message: String)
  * 完整实例快照 = definition + runtime status + isCurrent。
  * 与 web 端 `InstanceSnapshot = InstanceDefinition & InstanceStatus & { isCurrent }` 对齐。
  *
- * `lan`、`startPort`、`kernel` 仅 child 实例有;`__current__` 实例不会发送这些字段
+ * `lan`、`startPort`、`runtimeCore` 仅 child 实例有;`__current__` 实例不会发送这些字段
  * (kotlinx.serialization 在 ignoreUnknownKeys=true + 字段可空时,缺失字段视作 null)。
- * `kernel` 为 null 表示继承全局设置(只在 PATCH 时显式 null 才会清除)。
+ * `runtimeCore` 为 null 表示继承全局设置(只在 PATCH 时显式 null 才会清除)。
  */
 @Serializable
 data class InstanceSnapshot(
@@ -33,7 +42,7 @@ data class InstanceSnapshot(
     val createdAt: String,
     val lan: Boolean? = null,
     val startPort: Int? = null,
-    val kernel: InstanceKernel? = null,
+    val runtimeCore: InstanceRuntimeCore? = null,
     val state: InstanceState,
     val port: Int? = null,
     val pid: Int? = null,

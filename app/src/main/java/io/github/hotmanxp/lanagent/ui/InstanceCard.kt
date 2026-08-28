@@ -65,7 +65,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.hotmanxp.lanagent.R
-import io.github.hotmanxp.lanagent.data.InstanceKernel
+import io.github.hotmanxp.lanagent.data.InstanceRuntimeCore
 import io.github.hotmanxp.lanagent.data.InstanceSnapshot
 import io.github.hotmanxp.lanagent.data.InstanceState
 
@@ -135,20 +135,25 @@ internal fun StateTag(state: InstanceState) {
 }
 
 @Composable
-internal fun KernelTag(kernel: InstanceKernel?) {
-    val (label, bg, fg) = when (kernel) {
-        InstanceKernel.opencc -> Triple(
-            "opencc",
+internal fun RuntimeCoreTag(runtimeCore: InstanceRuntimeCore?) {
+    val (label, bg, fg) = when (runtimeCore) {
+        InstanceRuntimeCore.default -> Triple(
+            "default",
             Color(0xFFF0F0F0),
             Color(0xFF595959),
         )
-        InstanceKernel.dsh -> Triple(
-            "dsh",
+        InstanceRuntimeCore.inproc -> Triple(
+            "inproc",
+            Color(0xFFE6F4FF),
+            Color(0xFF1677FF),
+        )
+        InstanceRuntimeCore.spawn -> Triple(
+            "spawn",
             Color(0xFFF9F0FF),
             Color(0xFF722ED1),
         )
         null -> Triple(
-            stringResource(R.string.instances_field_kernel_inherit),
+            stringResource(R.string.instances_field_runtime_core_inherit),
             Color(0xFFF0F0F0),
             Color(0xFF595959),
         )
@@ -294,8 +299,8 @@ fun InstanceCard(
                     cells = listOf(
                         InfoCellSpec(
                             icon = Icons.Filled.Bolt,
-                            label = stringResource(R.string.instances_field_kernel),
-                            value = { KernelTag(inst.kernel) },
+                            label = stringResource(R.string.instances_field_runtime_core),
+                            value = { RuntimeCoreTag(inst.runtimeCore) },
                         ),
                         InfoCellSpec(
                             icon = Icons.Filled.Storage,

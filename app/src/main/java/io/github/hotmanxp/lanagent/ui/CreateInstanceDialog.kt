@@ -34,7 +34,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.hotmanxp.lanagent.R
-import io.github.hotmanxp.lanagent.data.InstanceKernel
+import io.github.hotmanxp.lanagent.data.InstanceRuntimeCore
 import io.github.hotmanxp.lanagent.data.InstancesApi
 import kotlinx.coroutines.launch
 
@@ -43,8 +43,10 @@ data class CreateInstanceInput(
     val cwd: String,
     val lan: Boolean,
     val port: Int?,
-    val kernel: InstanceKernel?,  // null = inherit global
-    val runtime: String?,         // null = 不传 --runtime 参数;目前仅 "print" 一个值
+    val runtimeCore: InstanceRuntimeCore?,  // null = inherit global;对齐 opencc-web
+                                            // `settings.coreRuntime`(`default` |
+                                            // `inproc` | `spawn`)。包含并替代旧的
+                                            // `--runtime=print|null` 选项。
 )
 
 @Composable
@@ -60,10 +62,8 @@ fun CreateInstanceDialog(
     var lan by remember { mutableStateOf(false) }
     var portEnabled by remember { mutableStateOf(false) }
     var portText by remember { mutableStateOf("") }
-    var kernel by remember { mutableStateOf<InstanceKernel?>(null) }
-    var kernelMenu by remember { mutableStateOf(false) }
-    var runtime by remember { mutableStateOf<String?>(null) }
-    var runtimeMenu by remember { mutableStateOf(false) }
+    var runtimeCore by remember { mutableStateOf<InstanceRuntimeCore?>(null) }
+    var runtimeCoreMenu by remember { mutableStateOf(false) }
     var pickerOpen by remember { mutableStateOf(false) }
     var nameErr by remember { mutableStateOf<Int?>(null) }
     var cwdErr by remember { mutableStateOf<Int?>(null) }
@@ -159,69 +159,34 @@ fun CreateInstanceDialog(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Text(
-                        text = stringResource(R.string.instances_dialog_field_kernel),
+                        text = stringResource(R.string.instances_dialog_field_runtime_core),
                         fontSize = 13.sp,
                         modifier = Modifier.weight(1f),
                     )
                     Box {
                         Button(
-                            onClick = { kernelMenu = true },
+                            onClick = { runtimeCoreMenu = true },
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                         ) {
                             Text(
-                                text = kernel?.name ?: stringResource(R.string.instances_dialog_field_kernel_inherit),
+                                text = runtimeCore?.name ?: stringResource(R.string.instances_dialog_field_runtime_core_inherit),
                                 fontSize = 13.sp,
                             )
                         }
                         DropdownMenu(
-                            expanded = kernelMenu,
-                            onDismissRequest = { kernelMenu = false },
+                            expanded = runtimeCoreMenu,
+                            onDismissRequest = { runtimeCoreMenu = false },
                         ) {
                             DropdownMenuItem(
-                                text = { Text(stringResource(R.string.instances_dialog_field_kernel_inherit), fontSize = 13.sp) },
-                                onClick = { kernel = null; kernelMenu = false },
+                                text = { Text(stringResource(R.string.instances_dialog_field_runtime_core_inherit), fontSize = 13.sp) },
+                                onClick = { runtimeCore = null; runtimeCoreMenu = false },
                             )
-                            InstanceKernel.entries.forEach { k ->
+                            InstanceRuntimeCore.entries.forEach { k ->
                                 DropdownMenuItem(
                                     text = { Text(k.name, fontSize = 13.sp) },
-                                    onClick = { kernel = k; kernelMenu = false },
+                                    onClick = { runtimeCore = k; runtimeCoreMenu = false },
                                 )
                             }
-                        }
-                    }
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text(
-                        text = stringResource(R.string.instances_dialog_field_runtime),
-                        fontSize = 13.sp,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Box {
-                        Button(
-                            onClick = { runtimeMenu = true },
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                        ) {
-                            Text(
-                                text = runtime ?: stringResource(R.string.instances_dialog_field_runtime_inherit),
-                                fontSize = 13.sp,
-                            )
-                        }
-                        DropdownMenu(
-                            expanded = runtimeMenu,
-                            onDismissRequest = { runtimeMenu = false },
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.instances_dialog_field_runtime_inherit), fontSize = 13.sp) },
-                                onClick = { runtime = null; runtimeMenu = false },
-                            )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.instances_dialog_field_runtime_print), fontSize = 13.sp) },
-                                onClick = { runtime = "print"; runtimeMenu = false },
-                            )
                         }
                     }
                 }
@@ -274,8 +239,7 @@ fun CreateInstanceDialog(
                                 cwd = cwd.trim(),
                                 lan = lan,
                                 port = if (portEnabled) portNumber else null,
-                                kernel = kernel,
-                                runtime = runtime,
+                                runtimeCore = runtimeCore,
                             )
                         )
                         submitting = false

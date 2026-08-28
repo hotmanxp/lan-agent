@@ -52,8 +52,8 @@
     <string name="instances_current_tag">当前</string>
     <string name="instances_lan">LAN</string>
     <string name="instances_lan_tag">--lan</string>
-    <string name="instances_field_kernel">内核</string>
-    <string name="instances_field_kernel_inherit">继承全局</string>
+    <string name="instances_field_runtime_core">Core Runtime</string>
+    <string name="instances_field_runtime_core_inherit">继承全局</string>
     <string name="instances_field_start_port">启动端口</string>
     <string name="instances_field_port">运行端口</string>
     <string name="instances_field_cwd">工作目录</string>
@@ -77,11 +77,8 @@
     <string name="instances_dialog_field_cwd_hint">/absolute/path</string>
     <string name="instances_dialog_field_browse">浏览</string>
     <string name="instances_dialog_field_lan">LAN 模式启动 (--lan)</string>
-    <string name="instances_dialog_field_kernel">实例内核</string>
-    <string name="instances_dialog_field_kernel_inherit">继承全局设置 (默认)</string>
-    <string name="instances_dialog_field_runtime">运行时输出</string>
-    <string name="instances_dialog_field_runtime_inherit">不传 (默认)</string>
-    <string name="instances_dialog_field_runtime_print">--runtime=print (仅打印进程信息)</string>
+    <string name="instances_dialog_field_runtime_core">Core Runtime</string>
+    <string name="instances_dialog_field_runtime_core_inherit">继承全局设置 (default)</string>
     <string name="instances_dialog_field_port_mode">启动端口</string>
     <string name="instances_dialog_port_auto">自动</string>
     <string name="instances_dialog_port_manual">手动</string>

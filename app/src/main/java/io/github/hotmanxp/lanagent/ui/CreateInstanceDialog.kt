@@ -44,7 +44,7 @@ data class CreateInstanceInput(
     val lan: Boolean,
     val port: Int?,
     val runtimeCore: InstanceRuntimeCore?,  // null = inherit global;对齐 opencc-web
-                                            // `settings.coreRuntime`(`default` |
+                                            // `settings.runtimeCore`(`default` |
                                             // `inproc` | `spawn` | `repl`)。包含并替代
                                             // 旧的 `--runtime=print|null` 选项。
 )

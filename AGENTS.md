@@ -280,9 +280,9 @@ setBackgroundColor(android.graphics.Color.TRANSPARENT)
 
 ### 13. zai 实例 runtimeCore 枚举(对齐 opencc-web)
 
-`data/InstanceModels.kt` 的 `InstanceRuntimeCore { default, inproc, spawn, repl }` 对齐 opencc-web `packages/zai/src/shared/settings.ts` 的 `CoreRuntime = 'default' | 'inproc' | 'spawn' | 'repl'`(`0.7.3` 新增 `repl`)。`CreateInstanceDialog` 的 `--runtime` 选项提供选择;`null` 表示继承全局 settings.json 的 `coreRuntime` 字段。
+`data/InstanceModels.kt` 的 `InstanceRuntimeCore { default, inproc, spawn, repl }` 对齐 opencc-web `packages/zai/src/shared/settings.ts` 的 `RuntimeCore = 'default' | 'inproc' | 'spawn' | 'repl'`(`0.7.3` 新增 `repl`,2026-08-30 字段从 `coreRuntime` 全字段统一为 `runtimeCore`)。`CreateInstanceDialog` 的 `--runtime` 选项提供选择;`null` 表示继承全局 settings.json 的 `runtimeCore` 字段。
 
-历史命名:0.7.1 及以前叫 `InstanceKernel`(对应 `kernel` 字段),0.7.2 重命名为 `InstanceRuntimeCore`(对应 `runtimeCore` 字段)— 与 web 端 `coreRuntime` 字段对齐。**新代码用 runtimeCore**。
+历史命名:0.7.1 及以前叫 `InstanceKernel`(对应 `kernel` 字段),0.7.2 重命名为 `InstanceRuntimeCore`(对应 `runtimeCore` 字段)— 与 web 端 `runtimeCore` 字段对齐。**新代码用 runtimeCore**。
 
 ## 强制开发规则
 
@@ -365,7 +365,7 @@ lan-agent 是消费者,opencc-web 是服务方。opencc-web 那侧需要:
 - `pnpm --filter @zn-ai/zai dev -- --lan` 启动,绑 0.0.0.0(zai 默认端口 9201 / MobileAgent 路由 8101)
 - zai 的 mobile Agent 路由 `/m`(`packages/zai/src/web/src/pages/MobileAgent.tsx`)
 - zai 的实例管理路由 `/instances`(`packages/zai/src/web/src/pages/Instances.tsx`) + `/api/instances` + `/api/fs/picker`
-- **运行时核心枚举**(`packages/zai/src/shared/settings.ts` 的 `CoreRuntime = 'default' | 'inproc' | 'spawn' | 'repl'`,`0.7.3` 新增 `repl`):lan-agent 的 `InstanceRuntimeCore` 必须保持与之一致;`null` 表示继承全局 settings.json 的 `coreRuntime`
+- **运行时核心枚举**(`packages/zai/src/shared/settings.ts` 的 `RuntimeCore = 'default' | 'inproc' | 'spawn' | 'repl'`,`0.7.3` 新增 `repl`,2026-08-30 字段统一):lan-agent 的 `InstanceRuntimeCore` 必须保持与之一致;`null` 表示继承全局 settings.json 的 `runtimeCore`
 
 **两种启动 zai 的方式**:
 1. **桌面手动**:`pnpm --filter @zn-ai/zai dev -- --lan`(opencc-web 仓库内,会拉 monorepo deps)

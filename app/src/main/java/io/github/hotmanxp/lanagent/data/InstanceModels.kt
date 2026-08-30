@@ -13,12 +13,13 @@ enum class InstanceState { stopped, starting, running, stopping, down }
 
 /**
  * 实例运行时核心(可选枚举值来自 opencc-web `packages/zai/src/shared/settings.ts`
- * 的 `CoreRuntime = 'default' | 'inproc' | 'spawn' | 'repl'`,与 `zaiSettingsStore`
- * 中 `settings.coreRuntime` 字段、`isValidCoreRuntime` 校验函数对齐)。
+ * 的 `RuntimeCore = 'default' | 'inproc' | 'spawn' | 'repl'`,与 `zaiSettingsStore`
+ * 中 `settings.runtimeCore` 字段、`isValidRuntimeCore` 校验函数对齐)。
  *
- * 字段名 `runtimeCore`(名字顺序与 opencc-web 的 `coreRuntime` 相反,保留 lan-agent
- * 端命名)对应全局 settings.json 的 `coreRuntime` 字段,缺失 / 非法值折叠为
- * 'default'(对齐 opencc-web `resolveCoreRuntime` 行为)。
+ * 字段名 `runtimeCore` 与 opencc-web 完全一致(0.7.3 起 opencc-web 端也把字段
+ * 从 `coreRuntime` 翻为 `runtimeCore`,2026-08-30 全字段统一),对应全局
+ * settings.json 的 `runtimeCore` 字段,缺失 / 非法值折叠为 'repl'
+ * (对齐 opencc-web `resolveRuntimeCore` 行为,默认从 'default' 翻到 'repl')。
  */
 @Serializable
 enum class InstanceRuntimeCore { default, inproc, spawn, repl }

@@ -152,6 +152,11 @@ internal fun RuntimeCoreTag(runtimeCore: InstanceRuntimeCore?) {
             Color(0xFFF9F0FF),
             Color(0xFF722ED1),
         )
+        InstanceRuntimeCore.repl -> Triple(
+            "repl",
+            Color(0xFFFFFBE6),
+            Color(0xFFD48806),
+        )
         null -> Triple(
             stringResource(R.string.instances_field_runtime_core_inherit),
             Color(0xFFF0F0F0),

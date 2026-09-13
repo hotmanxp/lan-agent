@@ -13,18 +13,27 @@ import kotlinx.serialization.Serializable
 enum class InstanceState { stopped, starting, running, stopping, down }
 
 /**
- * 实例启动 profile(0.8.0 新增) — 与 opencc-web `InstanceDefinition.app`
- * 字段对齐(见 `packages/zai/src/shared/instances.ts`)。
+ * 实例启动 profile(0.8.0 新增,0.8.1 加 `Weixin`) — 与 opencc-web
+ * `InstanceDefinition.app` 字段对齐(见 `packages/zai/src/shared/instances.ts`)。
  *
- * 仅 `'task-factory'` 一个字面量(没有 `'standard'`):标准实例对应字段缺省。
- * 创建路径 supervisor spawn 时把它转成 `--app task-factory` flag 传给子进程,
- * `cli/index.ts` 把 `process.env.ZAI_APP = 'task-factory'` 落到进程环境,
- * `routes/agent.ts` 据此强制把 `mainAgent` 锁定为 `'task-factory'`,不走全局
- * `settings.mainAgent`;`/api/system` 回显后前端 `TaskFactoryRedirect` 把入口
- * 重定向到 `/super-tasks`。**创建后不可改**(PATCH 不接受 `app` 字段)。
+ * 两种取值(没有 `'standard'` 字面量 — 标准实例对应字段缺省):
+ *   - `TaskFactory` = 任务工厂实例(spawn 时 `--app task-factory` 传给子进程,
+ *     `cli/index.ts` 把 `process.env.ZAI_APP = 'task-factory'` 落到进程环境,
+ *     `routes/agent.ts` 据此强制把 `mainAgent` 锁定,`/api/system` 回显后前端
+ *     `TaskFactoryRedirect` 把入口重定向到 `/super-tasks`)
+ *   - `Weixin` = 微信专用实例 — 机器上**唯一**持有微信通道 owner 锁、负责
+ *     收发微信消息的进程,由主实例按 `settings.weixinBot` 自动拉起(见
+ *     `services/weixinBot/weixinDedicatedInstance.ts`),一般不通过 UI 创建;
+ *     如用户手动创建,服务端会照常 `app=weixin` 落到 `process.env.ZAI_APP`,
+ *     `maybeAutoStartWeixinBot()` 仅对 `weixin` profile 拉起通道 client。
  *
- * 注意:`@SerialName("task-factory")` 把 Kotlin enum 名 `TaskFactory` 序列化为
- * web 端字符串 `'task-factory'`(`-` 不是合法 Kotlin 标识符)。
+ * **`null` 与未知字符串都 400**(`packages/zai/src/server/routes/instances.ts`
+ * `parseAppField`),所以创建时只在 `app != null` 时才把 key 写进 body —
+ * 避免发字面 `null` 被服务端拒绝。**创建后不可改**(PATCH 不接受 `app` 字段,
+ * `InstanceSnapshot.app` 只读显示)。
+ *
+ * 注意:`@SerialName("...")` 把 Kotlin enum 名(`-` 不是合法 Kotlin 标识符)
+ * 序列化为 web 端字符串。
  *
  * 历史字段:`runtimeCore`(对齐 opencc-web `RuntimeCore` 枚举)于 2026-09-12
  * opencc-web 阶段 3 删除后从本文件移除 — 运行时只剩 `repl` 一种形态,
@@ -36,6 +45,8 @@ enum class InstanceState { stopped, starting, running, stopping, down }
 enum class InstanceAppProfile {
     @SerialName("task-factory")
     TaskFactory,
+    @SerialName("weixin")
+    Weixin,
 }
 
 @Serializable

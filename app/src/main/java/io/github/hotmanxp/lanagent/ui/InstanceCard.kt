@@ -171,6 +171,31 @@ internal fun TaskFactoryTag() {
     }
 }
 
+/**
+ * 微信专用实例标签(0.8.1 新增,见 [InstanceAppProfile.Weixin])。
+ * 微信品牌绿 #07C160(底色更浅)+ 「weixin」字样 — 与运行态的绿(52C41A)
+ * 区分开来(色相不同:Running 是带黄味的青绿,Weixin 是更纯的微信绿);
+ * 放在 name 旁边一眼识别「这是个系统拉起的微信 daemon,
+ * 不是普通 zai 实例」。这类实例通常由主实例按 `settings.weixinBot` 自动
+ * 创建(`packages/zai/src/server/services/weixinBot/weixinDedicatedInstance.ts`),
+ * 不通过 lan-agent UI 创建,但卡片需要识别以便用户看清角色。
+ */
+@Composable
+internal fun WeixinTag() {
+    Box(
+        modifier = Modifier
+            .background(Color(0xFFE6F7E6), RoundedCornerShape(10.dp))
+            .padding(horizontal = 8.dp, vertical = 2.dp)
+    ) {
+        Text(
+            text = stringResource(R.string.instances_app_weixin),
+            color = Color(0xFF07C160),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+        )
+    }
+}
+
 @Composable
 fun InstanceCard(
     inst: InstanceSnapshot,
@@ -227,8 +252,14 @@ fun InstanceCard(
                     if (inst.isCurrent) CurrentTag()
                     // 0.8.0 新增:任务工厂实例在头部 name 旁边显示 task-factory tag,
                     // 让用户在卡片列表里一眼区分标准实例和任务工厂实例。
-                    // PATCH 不接受 app 字段,这里只读显示 — 创建后不可改。
-                    if (inst.app == InstanceAppProfile.TaskFactory) TaskFactoryTag()
+                    // 0.8.1 加 Weixin tag(微信专用实例) — 与 TaskFactory tag 互斥
+                    // (一个实例只有一个 app profile)。PATCH 不接受 app 字段,
+                    // 这里只读显示 — 创建后不可改。
+                    when (inst.app) {
+                        InstanceAppProfile.TaskFactory -> TaskFactoryTag()
+                        InstanceAppProfile.Weixin -> WeixinTag()
+                        null -> Unit
+                    }
                     StateTag(state)
                 }
 

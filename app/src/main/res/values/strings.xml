@@ -46,11 +46,14 @@
     <string name="instances_create">新建实例</string>
     <!-- 0.8.0 新增:任务工厂实例启动 profile(对齐 web 端 Instances.tsx
          app-radio + InstanceDefinition.app = 'task-factory')。仅一个
-         字面量 'task-factory',标准实例 = 字段缺省。 -->
+         字面量 'task-factory',标准实例 = 字段缺省。
+         0.8.1 新增 'weixin'(微信专用实例) — 服务端定义多了一个字面量,
+         卡片头部追加展示 tag 但不在创建表单里露(对齐 web UX,服务端自动管)。 -->
     <string name="instances_create_task_factory">新建任务工厂实例</string>
     <string name="instances_dialog_field_app">实例类型</string>
     <string name="instances_app_standard">标准实例</string>
     <string name="instances_app_task_factory">task-factory</string>
+    <string name="instances_app_weixin">weixin</string>
     <string name="instances_state_stopped">已停止</string>
     <string name="instances_state_starting">启动中</string>
     <string name="instances_state_running">运行中</string>

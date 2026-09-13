@@ -107,13 +107,23 @@ class InstancesApi(private val baseUrl: String) {
             put("cwd", cwd)
             put("lan", lan)
             if (port != null) put("port", port)
-            // app 与 web 端 InstanceDefinition.app 字段对齐(0.8.0 新增):
-            // 仅 `task-factory` 一个字面值,标准实例省略 key。
-            // 服务端 `parseAppField` 拒绝 `null` / 未知字符串,所以这里只在
-            // app != null 时才 put,避免把字面 `null` 发出去被 400。
-            // 直接用字符串字面量(而不是 enum.name 或 descriptor.serialName),
-            // 避免引入 `@SerialName` 反射 / 序列化器依赖,且只有一个取值。
-            if (app != null) put("app", "task-factory")
+            // app 与 web 端 InstanceDefinition.app 字段对齐(0.8.0 新增,
+            // 0.8.1 加 weixin):
+            //   `task-factory` = 任务工厂实例(打开 /super-tasks)
+            //   `weixin`       = 微信专用实例(独占微信通道 owner 锁)
+            // 标准实例省略 key。服务端 `parseAppField` 拒绝 `null` / 未知字符串,
+            // 所以这里只在 app != null 时才 put,避免把字面 `null` 发出去被 400。
+            // 用显式 `when` 把每个 enum 值映射到字面量字符串 — Kotlin 编译器
+            // 会在新增枚举值时给出 non-exhaustive 警告,避免新 profile 漏写。
+            // 不引 `@SerialName` 反射 / 序列化器依赖,免得再加一种枚举就要多
+            // 一份反射代码。
+            if (app != null) {
+                val appStr = when (app) {
+                    InstanceAppProfile.TaskFactory -> "task-factory"
+                    InstanceAppProfile.Weixin -> "weixin"
+                }
+                put("app", appStr)
+            }
         }
         val req = Request.Builder()
             .url(urlFor("/api/instances"))

@@ -32,7 +32,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
-import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Folder
@@ -65,7 +64,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.hotmanxp.lanagent.R
-import io.github.hotmanxp.lanagent.data.InstanceRuntimeCore
+import io.github.hotmanxp.lanagent.data.InstanceAppProfile
 import io.github.hotmanxp.lanagent.data.InstanceSnapshot
 import io.github.hotmanxp.lanagent.data.InstanceState
 
@@ -135,44 +134,6 @@ internal fun StateTag(state: InstanceState) {
 }
 
 @Composable
-internal fun RuntimeCoreTag(runtimeCore: InstanceRuntimeCore?) {
-    val (label, bg, fg) = when (runtimeCore) {
-        InstanceRuntimeCore.default -> Triple(
-            "default",
-            Color(0xFFF0F0F0),
-            Color(0xFF595959),
-        )
-        InstanceRuntimeCore.inproc -> Triple(
-            "inproc",
-            Color(0xFFE6F4FF),
-            Color(0xFF1677FF),
-        )
-        InstanceRuntimeCore.spawn -> Triple(
-            "spawn",
-            Color(0xFFF9F0FF),
-            Color(0xFF722ED1),
-        )
-        InstanceRuntimeCore.repl -> Triple(
-            "repl",
-            Color(0xFFFFFBE6),
-            Color(0xFFD48806),
-        )
-        null -> Triple(
-            stringResource(R.string.instances_field_runtime_core_inherit),
-            Color(0xFFF0F0F0),
-            Color(0xFF595959),
-        )
-    }
-    Box(
-        modifier = Modifier
-            .background(bg, RoundedCornerShape(10.dp))
-            .padding(horizontal = 8.dp, vertical = 2.dp)
-    ) {
-        Text(text = label, color = fg, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-    }
-}
-
-@Composable
 internal fun CurrentTag() {
     Box(
         modifier = Modifier
@@ -182,6 +143,28 @@ internal fun CurrentTag() {
         Text(
             text = stringResource(R.string.instances_current_tag),
             color = Color(0xFF1677FF),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+        )
+    }
+}
+
+/**
+ * 任务工厂实例标签(0.8.0 新增,见 [InstanceAppProfile.TaskFactory])。
+ * 橙色 + 「task-factory」字样 — 跟历史 `runtimeCore` tag 的 inproc/spawn/repl
+ * 配色同一色系(橙黄),但底色更暖;放在 name 旁边一眼识别「这是个任务工厂实例,
+ * 启动后只展示 /super-tasks」。`runtimeCore` 字段本身已随 opencc-web 阶段 3 删除。
+ */
+@Composable
+internal fun TaskFactoryTag() {
+    Box(
+        modifier = Modifier
+            .background(Color(0xFFFFF1B6), RoundedCornerShape(10.dp))
+            .padding(horizontal = 8.dp, vertical = 2.dp)
+    ) {
+        Text(
+            text = stringResource(R.string.instances_app_task_factory),
+            color = Color(0xFFD48806),
             fontSize = 12.sp,
             fontWeight = FontWeight.Medium,
         )
@@ -242,6 +225,10 @@ fun InstanceCard(
                         overflow = TextOverflow.Ellipsis,
                     )
                     if (inst.isCurrent) CurrentTag()
+                    // 0.8.0 新增:任务工厂实例在头部 name 旁边显示 task-factory tag,
+                    // 让用户在卡片列表里一眼区分标准实例和任务工厂实例。
+                    // PATCH 不接受 app 字段,这里只读显示 — 创建后不可改。
+                    if (inst.app == InstanceAppProfile.TaskFactory) TaskFactoryTag()
                     StateTag(state)
                 }
 
@@ -302,11 +289,6 @@ fun InstanceCard(
                 Spacer(Modifier.height(12.dp))
                 InfoGrid(
                     cells = listOf(
-                        InfoCellSpec(
-                            icon = Icons.Filled.Bolt,
-                            label = stringResource(R.string.instances_field_runtime_core),
-                            value = { RuntimeCoreTag(inst.runtimeCore) },
-                        ),
                         InfoCellSpec(
                             icon = Icons.Filled.Storage,
                             label = stringResource(R.string.instances_field_port),

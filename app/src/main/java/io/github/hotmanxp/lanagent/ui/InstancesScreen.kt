@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.RocketLaunch
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -51,6 +52,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import io.github.hotmanxp.lanagent.R
+import io.github.hotmanxp.lanagent.data.InstanceAppProfile
 import io.github.hotmanxp.lanagent.data.InstanceSnapshot
 import io.github.hotmanxp.lanagent.data.InstancesApi
 import io.github.hotmanxp.lanagent.data.PatchValue
@@ -74,6 +76,10 @@ fun InstancesScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var now by remember { mutableStateOf(System.currentTimeMillis()) }
     var createOpen by remember { mutableStateOf(false) }
+    // 0.8.0 新增:CreateInstanceDialog 打开时的预选 app profile。
+    // `null` = 标准实例(默认主按钮);`InstanceAppProfile.TaskFactory` = 任务工厂
+    // 实例(顶栏 Rocket 图标快捷按钮)。两者都让 dialog 显示,只是 initialApp 不同。
+    var createInitialApp by remember { mutableStateOf<InstanceAppProfile?>(null) }
     var portEdit by remember { mutableStateOf<InstanceSnapshot?>(null) }
     var deleteConfirm by remember { mutableStateOf<InstanceSnapshot?>(null) }
     val lanBusy = remember { mutableStateListOf<String>() }
@@ -132,9 +138,15 @@ fun InstancesScreen(
                 return
             }
             val host = Uri.parse(baseUrl).host ?: return
-            // 走 mobile Agent 路由(/m),而不是桌面端入口。
-            // lan-agent 是手机端 APP,桌面端页面在窄屏上挤、不友好。
-            onOpenUrl("http://$host:$port/m")
+            // 走 mobile Agent 路由:
+            // - task-factory 实例(app='task-factory',0.8.0+ opencc-web) →
+            //   `/m-super-tasks`(2026-09-04 opencc-web 新增 MobileSuperTasks 页面,
+            //   MobileLayout 下的独立顶层路由,与 `/m` 平行,**不走** `/m` 的
+            //   task-factory 分流)
+            // - 标准实例 → `/m`(MobileAgent)
+            // 不走桌面端入口:lan-agent 是手机端 APP,桌面端页面在窄屏上挤、不友好。
+            val path = if (inst.app == InstanceAppProfile.TaskFactory) "/m-super-tasks" else "/m"
+            onOpenUrl("http://$host:$port$path")
             return
         }
         if (inst.id in actionBusy) return
@@ -172,6 +184,19 @@ fun InstancesScreen(
                     }
                 },
                 actions = {
+                    // 0.8.0 新增:「新建任务工厂实例」快捷按钮(对齐 web 端
+                    // Instances.tsx 的 RocketOutlined 按钮 + data-testid="new-task-factory-instance")。
+                    // 打开 dialog 时把 initialApp = TaskFactory,Modal 内 Radio 默认
+                    // 选中「任务工厂实例」;用户后续可在 Modal 内手动切回「标准实例」。
+                    IconButton(onClick = {
+                        createInitialApp = InstanceAppProfile.TaskFactory
+                        createOpen = true
+                    }) {
+                        Icon(
+                            imageVector = Icons.Default.RocketLaunch,
+                            contentDescription = stringResource(R.string.instances_create_task_factory),
+                        )
+                    }
                     IconButton(onClick = { scope.launch { refresh() } }) {
                         Icon(
                             imageVector = Icons.Default.Refresh,
@@ -183,7 +208,12 @@ fun InstancesScreen(
         },
         floatingActionButton = {
             ExtendedFloatingActionButton(
-                onClick = { createOpen = true },
+                onClick = {
+                    // FAB 「新建实例」走标准实例路径,显式重置 initialApp,
+                    // 避免上次「任务工厂实例」快捷按钮留下的预选值污染。
+                    createInitialApp = null
+                    createOpen = true
+                },
                 icon = { Icon(Icons.Default.Add, contentDescription = null) },
                 text = { Text(stringResource(R.string.instances_create)) },
             )
@@ -261,7 +291,12 @@ fun InstancesScreen(
         CreateInstanceDialog(
             api = api,
             initialCwd = currentCwd,
-            onDismiss = { createOpen = false },
+            initialApp = createInitialApp,
+            onDismiss = {
+                createOpen = false
+                // 重置 initialApp,下次「新建实例」主按钮打开时是标准实例。
+                createInitialApp = null
+            },
             onSubmit = { input ->
                 runCatching {
                     api.createInstance(
@@ -269,7 +304,7 @@ fun InstancesScreen(
                         cwd = input.cwd,
                         lan = input.lan,
                         port = input.port,
-                        runtimeCore = input.runtimeCore,
+                        app = input.app,
                     )
                     Unit
                 }

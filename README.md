@@ -18,8 +18,9 @@
 **原生实例管理屏**(服务端实例定义,通过 `/api/instances` 同步)有 1 个入口:
 
 - 首屏右上 `Storage` 图标 → 弹出 InstancesScreen → 右下 `+` 浮动按钮 →
-  选手动表单 / 目录选择器(拉 `/api/fs/picker`)/ QR 扫码。**新加的是服务端
-  实例定义,跟首页 Card 列表是两套数据**。
+  选手动表单 / 目录选择器(拉 `/api/fs/picker`)/ QR 扫码;**0.8.0** 起
+  顶栏多一个 `RocketLaunch` 图标,快捷创建「任务工厂实例」(`app='task-factory'`)。
+  **新加的是服务端实例定义,跟首页 Card 列表是两套数据**。
 
 如目标 IP 不在白名单,还要编辑
 [`app/src/main/res/xml/network_security_config.xml`](app/src/main/res/xml/network_security_config.xml)
@@ -30,10 +31,10 @@
 相比 0.1.x 单卡片模式,0.6.0 在保留 HomeScreen 卡片列表的同时新增**原生实例管理屏**:
 
 - **原生实例管理** — 首屏 Storage 按钮 → InstancesScreen 拉 `/api/instances`,
-  2.5s 轮询;InstanceCard 对标 web Instances.tsx(状态 Tag / LAN Switch / 内核 Tag
-  / 启动端口 / 运行端口 / cwd / PID / 启动时间 / 运行时长 / 最后心跳 / 错误)
+  2.5s 轮询;InstanceCard 对标 web Instances.tsx(状态 Tag / LAN Switch / 启动端口
+  / 运行端口 / cwd / PID / 启动时间 / 运行时长 / 最后心跳 / 错误)
 - **五种动作** — 启动 / 停止 / 重启 / 删除(带二次确认)/ 打开(直接跳 WebView)
-- **三种创建方式** — 手动表单(name / cwd / LAN / 端口模式 / 内核)/ 目录选择器
+- **三种创建方式** — 手动表单(name / cwd / LAN / 端口模式 / 实例类型)/ 目录选择器
   (拉 `/api/fs/picker`)/ QR 扫码(CameraX 1.3.4 + ML Kit Barcode 17.3.0)
 - **后台保活** — `service/WebViewKeepAliveService`(dataSync foreground service),
   持 detached WebView,Activity onPause 后 WebView 的 SSE / WebSocket / long-poll
@@ -54,6 +55,26 @@
 / FOREGROUND_SERVICE_DATA_SYNC / WAKE_LOCK / POST_NOTIFICATIONS
 
 版本号: `versionCode 5 → 22`,`versionName "0.1.4" → "0.6.0"`。
+
+## 0.8.0 新增功能 (实例类型:标准 / 任务工厂)
+
+对齐 opencc-web `InstanceDefinition.app` 字段,把"标准实例 vs 任务工厂实例"
+作为新的实例分类维度暴露给手机端:
+
+- **`InstanceAppProfile` 枚举**(只读)— Kotlin enum 名 `TaskFactory`,
+  序列化字符串字面量 `'task-factory'`(`@SerialName` 桥接)
+- **`InstanceSnapshot.app` 字段** — 仅 `task-factory` 实例存在;`null` / 缺省
+  = 标准实例。**创建后不可改**(PATCH 不接受 `app` 字段)
+- **「实例类型」 Radio.Group**(`CreateInstanceDialog`)— 标准实例 / task-factory,
+  对齐 web 端 `Instances.tsx` 的 `app-radio`
+- **「新建任务工厂实例」快捷按钮**(顶栏 `RocketLaunch` 图标) — 打开 Modal 时
+  预选 `app='task-factory'` 并预填 `currentCwd`,对齐 web 端
+  `new-task-factory-instance`;FAB 「新建实例」 仍走标准实例路径
+- **`TaskFactoryTag`** — 实例卡片头部 name 旁显示橙色 `task-factory` tag,
+  与历史 `runtimeCore` tag(inproc/spawn/repl)的橙黄配色同色系但底色更暖,
+  一眼区分;`runtimeCore` 字段本身于 2026-09-12 opencc-web 阶段 3 删除
+- **`/api/instances` POST 新增 `app` body 字段** — 仅 `undefined` 或
+  `'task-factory'`,`null` / 未知字符串 400
 
 ## 0.7.x 新增功能 (SSH 启动 zai)
 
@@ -144,7 +165,7 @@ pnpm --filter @zn-ai/zai dev -- --lan
    (Instances 实例管理 / opencc-web / opencc-web-dsh / code-opencc / code-dash)
    + 顶栏右侧 **4 个 IconButton**(QR 扫码 / Storage 实例管理 / ✎ 编辑模式 / + 添加)
 5. **实例管理**: 点 Storage → InstancesScreen 拉 `/api/instances` →
-   看到轮询卡片列表(状态 Tag、LAN Switch、内核 Tag、启动端口、运行端口、
+   看到轮询卡片列表(状态 Tag、LAN Switch、启动端口、运行端口、
    cwd、PID、启动时间、运行时长每 30s 刷新、最后心跳相对时间)
 6. **实例操作**: 点任一非当前实例的「启动/停止/重启/删除」 → 看到 loading +
    状态 Tag 变化(2.5s 内下一轮 polling 反映新状态)
@@ -179,6 +200,12 @@ pnpm --filter @zn-ai/zai dev -- --lan
     sheet 显示「connect failed: ...」+ 「查看 /tmp/zai.log」入口(点开有错误日志)
 20. **SSH host 持久化 + 编辑 + 删除**: 加完条目,杀进程重开 App,条目还在;
     点条目右侧 ✎ 编辑、🗑 删除(带二次确认)
+21. **实例类型 Radio(0.8.0)**: InstancesScreen 右下 `+` 打开新建 Modal →
+    「实例类型」Radio 默认选中「标准实例」;手动切到「task-factory」提交 →
+    列表里新实例头部 name 旁显示橙色 `task-factory` tag
+22. **新建任务工厂实例快捷按钮(0.8.0)**: InstancesScreen 顶栏 `RocketLaunch` 图标 →
+    打开新建 Modal 时「实例类型」Radio 默认选中「task-factory」且 `cwd` 预填
+    `currentCwd`;用户可手动切回「标准实例」
 
 ## 工程位置
 

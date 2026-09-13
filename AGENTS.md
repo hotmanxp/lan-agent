@@ -2,7 +2,7 @@
 
 > **lan-agent** — 简单 Android App,把局域网内多个 opencc-web 实例的入口收成卡片列表,点击卡片进入 WebView 详情加载对应 URL;同时**原生**展示 zai 实例管理 API(启动/停止/重启/删除/打开/二维码扫码添加);**SSH 一键启动 zai**(当 Mac 没起来 zai 时)。配套工程是 `/Users/ethan/code/opencc-web`,zai 需用 `pnpm --filter @zn-ai/zai dev -- --lan` 启动才能让手机访问(SSH 模块则全局 `zai --lan --port <p>` 启动)。
 >
-> **当前 HEAD**: `b5c43ae` on `main` · **versionCode 30** · **versionName 0.7.3** · **HEAD message**: `feat(instances): add repl to runtimeCore enum + bump 0.7.3`
+> **当前 HEAD**: HEAD on `main` · **versionCode 31** · **versionName 0.8.0**
 
 ## 仓库用途
 
@@ -89,7 +89,7 @@ lan-agent/
             │   ├── InstancesScreen.kt # 原生实例管理(2.5s 轮询 + 5 动作 + 3 弹窗)
             │   ├── InstanceCard.kt    # 单张实例卡(状态 Tag + LAN Switch + 描述列表 + 动作行)
             │   ├── InstanceFormat.kt  # 运行时长 / 相对时间 / 时间戳格式化 helper
-            │   ├── CreateInstanceDialog.kt  # 创建实例:名称/cwd/LAN/端口/内核
+            │   ├── CreateInstanceDialog.kt  # 创建实例:名称/cwd/LAN/端口/类型
             │   ├── EditPortDialog.kt  # 编辑启动端口
             │   └── DirectoryPickerDialog.kt  # 文件系统目录选择器(拉 /api/fs/picker)
             ├── data/
@@ -97,7 +97,7 @@ lan-agent/
             │   ├── CardRepository.kt  # DataStore 持久化(`lan_agent_cards`)+ resetCards()
             │   ├── UiPrefsRepository.kt  # 浮按钮拖拽位置持久化(`lan_agent_ui_prefs`)
             │   ├── SshRepository.kt   # SSH host DataStore(`lan_agent_ssh_hosts`)
-            │   ├── InstanceModels.kt  # InstanceSnapshot/State/RuntimeCore + FsPickerEntry
+            │   ├── InstanceModels.kt  # InstanceSnapshot/State/AppProfile + FsPickerEntry
             │   └── InstancesApi.kt    # OkHttp 客户端 + PatchValue 三态
             ├── model/
             │   ├── Card.kt            # @Serializable data class(accent 存 ARGB Int)
@@ -138,12 +138,12 @@ HomeScreen 顶栏右侧 5 个 IconButton(顺序固定):
 
 - 入口:HomeScreen → Storage 按钮 → `instances/{baseUrl}` 路由
 - 数据源:`baseUrl/api/instances`(`InstancesApi.listInstances()`),**`repeatOnLifecycle(STARTED)` 包裹的 2.5s 轮询**,STOPPED 自动停
-- 单卡片 `InstanceCard` 视觉对标 web `Instances.tsx`:name + 当前 Tag + 状态 Tag(stopped/starting/running/stopping/down 五态配色对齐 web)+ LAN Switch + **runtimeCore Tag(default/inproc/spawn/repl/继承全局)**+ 启动端口(可编辑)+ 运行端口/cwd/PID/启动时间/运行时长/创建时间/最后心跳/错误 + 5 个动作按钮(启动/停止/重启/删除/打开)
+- 单卡片 `InstanceCard` 视觉对标 web `Instances.tsx`:name + 当前 Tag + 状态 Tag(stopped/starting/running/stopping/down 五态配色对齐 web)+ LAN Switch + 启动端口(可编辑)+ 运行端口/cwd/PID/启动时间/运行时长/创建时间/最后心跳/错误 + 5 个动作按钮(启动/停止/重启/删除/打开)
 - **`down` 超过 3 分钟视作 `stopped`**(`STALE_THRESHOLD_MS`),让"启动"按钮可点(对齐 web 端 effectiveState)
 - 30s 一次的 `now` tick — 让运行时长 / 相对时间不卡在同一数字
 - 操作防抖:`lanBusy` / `actionBusy` 两个 `mutableStateListOf<String>` 记 instanceId,按钮转圈
 - 三种创建方式:
-  - **手动表单**(`CreateInstanceDialog`):name / cwd(可点"浏览"拉 DirectoryPicker)/ LAN checkbox / 端口(自动/手动)/ **runtimeCore(default/inproc/spawn/repl/继承全局,0.7.3 新增 `repl`)**
+  - **手动表单**(`CreateInstanceDialog`):name / cwd(可点"浏览"拉 DirectoryPicker)/ LAN checkbox / 端口(自动/手动)/ **实例类型(标准 / task-factory)**
   - **目录选择器**(`DirectoryPickerDialog`):拉 `/api/fs/picker?path=...`,展示父子导航 + 主页/上级按钮
   - **QR 扫码**:`ScanQrScreen` 扫 zai 分享的 URL 直接 `webview/{url}`,**不进** InstancesScreen(扫码是给快速进 zai 用的,不是添加实例)
 
@@ -278,11 +278,15 @@ setBackgroundColor(android.graphics.Color.TRANSPARENT)
 
 `WebViewScreen` 和 `WebViewKeepAliveService` 都调 `WebViewFactory.create(...)`,settings 改动只需要改一处。
 
-### 13. zai 实例 runtimeCore 枚举(对齐 opencc-web)
+### 13. 实例启动 profile `app`(0.8.0,对齐 opencc-web)
 
-`data/InstanceModels.kt` 的 `InstanceRuntimeCore { default, inproc, spawn, repl }` 对齐 opencc-web `packages/zai/src/shared/settings.ts` 的 `RuntimeCore = 'default' | 'inproc' | 'spawn' | 'repl'`(`0.7.3` 新增 `repl`,2026-08-30 字段从 `coreRuntime` 全字段统一为 `runtimeCore`)。`CreateInstanceDialog` 的 `--runtime` 选项提供选择;`null` 表示继承全局 settings.json 的 `runtimeCore` 字段。
+`data/InstanceModels.kt` 的 `InstanceAppProfile { TaskFactory }`(枚举名,序列化字符串字面量 `'task-factory'`)对齐 opencc-web `packages/zai/src/shared/instances.ts` 的 `InstanceDefinition.app?: 'task-factory'`。
 
-历史命名:0.7.1 及以前叫 `InstanceKernel`(对应 `kernel` 字段),0.7.2 重命名为 `InstanceRuntimeCore`(对应 `runtimeCore` 字段)— 与 web 端 `runtimeCore` 字段对齐。**新代码用 runtimeCore**。
+- **标准实例** = `app` 字段缺省(`null`)。服务端不写 `app` 字段,行为与既有实例一致。
+- **任务工厂实例** = `app = 'task-factory'`。supervisor spawn 时把它转成 `--app task-factory` flag 传给子进程,`cli/index.ts` 把 `process.env.ZAI_APP = 'task-factory'` 落到进程环境,`routes/agent.ts` 强制把 `mainAgent` 锁定为 `'task-factory'`(不走全局 `settings.mainAgent`),`/api/system` 回显后前端 `TaskFactoryRedirect` 把入口重定向到 `/super-tasks`。
+- **`null` 与未知字符串都 400**(`packages/zai/src/server/routes/instances.ts:165-171`),所以 `InstancesApi.createInstance` 在 `app != null` 时才把 key 写进 body,避免发字面 `null`。
+- **创建后不可改** — PATCH `/api/instances/:id` 不接受 `app` 字段(`InstanceSnapshot.app` 只读显示,卡片头部展示橙色 `task-factory` tag)。
+- **UI**:InstancesScreen 顶栏 actions 加 `RocketLaunch` 快捷按钮(对齐 web 端 `RocketOutlined` + `data-testid="new-task-factory-instance"`),打开 Modal 时预选 `app='task-factory'` 并预填 `currentCwd`;右下 FAB 「新建实例」保持标准实例入口。Modal 内「实例类型」 Radio.Group(`标准实例` / `task-factory`)对齐 web 端 `app-radio`。
 
 ## 强制开发规则
 
@@ -365,7 +369,7 @@ lan-agent 是消费者,opencc-web 是服务方。opencc-web 那侧需要:
 - `pnpm --filter @zn-ai/zai dev -- --lan` 启动,绑 0.0.0.0(zai 默认端口 9201 / MobileAgent 路由 8101)
 - zai 的 mobile Agent 路由 `/m`(`packages/zai/src/web/src/pages/MobileAgent.tsx`)
 - zai 的实例管理路由 `/instances`(`packages/zai/src/web/src/pages/Instances.tsx`) + `/api/instances` + `/api/fs/picker`
-- **运行时核心枚举**(`packages/zai/src/shared/settings.ts` 的 `RuntimeCore = 'default' | 'inproc' | 'spawn' | 'repl'`,`0.7.3` 新增 `repl`,2026-08-30 字段统一):lan-agent 的 `InstanceRuntimeCore` 必须保持与之一致;`null` 表示继承全局 settings.json 的 `runtimeCore`
+- **运行时只剩 `repl` 一种形态**:opencc-web 阶段 3(2026-09-12)删除 `RuntimeCore` 类型 / `runtimeCore` 字段 / `--runtimeCore` CLI flag / `PUT /api/agent/settings/runtime-core` 端点;lan-agent 的 `InstanceRuntimeCore` 枚举已同步移除(见 `data/InstanceModels.kt` 历史字段说明)
 
 **两种启动 zai 的方式**:
 1. **桌面手动**:`pnpm --filter @zn-ai/zai dev -- --lan`(opencc-web 仓库内,会拉 monorepo deps)
@@ -378,5 +382,5 @@ opencc-web 仓库在 `/Users/ethan/code/opencc-web/`,详见 `opencc-web/AGENTS.m
 - 当前: **0.7.3** (versionCode 30) — HEAD `b5c43ae`(`feat(instances): add repl to runtimeCore enum + bump 0.7.3`)
 - 不发 release,只本地 debug APK
 - 每次改完手动 bump `versionCode` + `versionName`(`app/build.gradle.kts`),否则手机装上后版本号不变看不出是新版
-- 历史里程碑:`0.1.1` (WebView 基础) → `0.1.2/0.1.3/0.1.4` (WebView 边距/icon) → `0.6.0` (多实例管理 + 后台保活 + 文件上传) → `0.6.2` (portrait 锁定) → `0.7.0` (SSH 启动 zai) → `0.7.1` (`--runtime` 选项) → `0.7.2`(`kernel` → `runtimeCore` 重命名) → `0.7.3`(`runtimeCore` 加 `repl` 枚举值)
+- 历史里程碑:`0.1.1` (WebView 基础) → `0.1.2/0.1.3/0.1.4` (WebView 边距/icon) → `0.6.0` (多实例管理 + 后台保活 + 文件上传) → `0.6.2` (portrait 锁定) → `0.7.0` (SSH 启动 zai) → `0.7.1` (`--runtime` 选项) → `0.7.2`(`kernel` → `runtimeCore` 重命名) → `0.7.3`(`runtimeCore` 加 `repl` 枚举值) → `0.8.0`(实例类型 `app` profile:标准 / 任务工厂 `task-factory`,对齐 opencc-web `InstanceDefinition.app`)
 - 详细开发产物见 `docs/superpowers/specs/2026-08-24-lan-agent-android-app-design.md`(原 v0.1 spec)+ `docs/superpowers/plans/2026-08-24-lan-agent-android-app.md`(10-task 实现 plan)。**注意**:spec/plan 在 0.6.0 / 0.7.x 大幅扩展后已过期,但作为初始设计参考仍可读;后续新增功能没再写独立 spec/plan。

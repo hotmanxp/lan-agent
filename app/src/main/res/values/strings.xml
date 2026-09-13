@@ -44,6 +44,13 @@
     <string name="instances_title">实例管理</string>
     <string name="instances_refresh">刷新</string>
     <string name="instances_create">新建实例</string>
+    <!-- 0.8.0 新增:任务工厂实例启动 profile(对齐 web 端 Instances.tsx
+         app-radio + InstanceDefinition.app = 'task-factory')。仅一个
+         字面量 'task-factory',标准实例 = 字段缺省。 -->
+    <string name="instances_create_task_factory">新建任务工厂实例</string>
+    <string name="instances_dialog_field_app">实例类型</string>
+    <string name="instances_app_standard">标准实例</string>
+    <string name="instances_app_task_factory">task-factory</string>
     <string name="instances_state_stopped">已停止</string>
     <string name="instances_state_starting">启动中</string>
     <string name="instances_state_running">运行中</string>
@@ -52,8 +59,6 @@
     <string name="instances_current_tag">当前</string>
     <string name="instances_lan">LAN</string>
     <string name="instances_lan_tag">--lan</string>
-    <string name="instances_field_runtime_core">Core Runtime</string>
-    <string name="instances_field_runtime_core_inherit">继承全局</string>
     <string name="instances_field_start_port">启动端口</string>
     <string name="instances_field_port">运行端口</string>
     <string name="instances_field_cwd">工作目录</string>
@@ -77,8 +82,6 @@
     <string name="instances_dialog_field_cwd_hint">/absolute/path</string>
     <string name="instances_dialog_field_browse">浏览</string>
     <string name="instances_dialog_field_lan">LAN 模式启动 (--lan)</string>
-    <string name="instances_dialog_field_runtime_core">Core Runtime</string>
-    <string name="instances_dialog_field_runtime_core_inherit">继承全局设置 (default)</string>
     <string name="instances_dialog_field_port_mode">启动端口</string>
     <string name="instances_dialog_port_auto">自动</string>
     <string name="instances_dialog_port_manual">手动</string>

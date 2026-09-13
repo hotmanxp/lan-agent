@@ -100,14 +100,20 @@ class InstancesApi(private val baseUrl: String) {
         cwd: String,
         lan: Boolean,
         port: Int?,
-        runtimeCore: InstanceRuntimeCore?,
+        app: InstanceAppProfile? = null,
     ): InstanceSnapshot {
         val body = buildJsonObject {
             put("name", name)
             put("cwd", cwd)
             put("lan", lan)
             if (port != null) put("port", port)
-            if (runtimeCore != null) put("runtimeCore", runtimeCore.name)
+            // app 与 web 端 InstanceDefinition.app 字段对齐(0.8.0 新增):
+            // 仅 `task-factory` 一个字面值,标准实例省略 key。
+            // 服务端 `parseAppField` 拒绝 `null` / 未知字符串,所以这里只在
+            // app != null 时才 put,避免把字面 `null` 发出去被 400。
+            // 直接用字符串字面量(而不是 enum.name 或 descriptor.serialName),
+            // 避免引入 `@SerialName` 反射 / 序列化器依赖,且只有一个取值。
+            if (app != null) put("app", "task-factory")
         }
         val req = Request.Builder()
             .url(urlFor("/api/instances"))
@@ -138,7 +144,6 @@ class InstancesApi(private val baseUrl: String) {
         id: String,
         lan: PatchValue<Boolean>? = null,
         port: PatchValue<Int>? = null,
-        runtimeCore: PatchValue<InstanceRuntimeCore>? = null,
     ): InstanceSnapshot {
         val body = buildJsonObject {
             lan?.let {
@@ -152,13 +157,6 @@ class InstancesApi(private val baseUrl: String) {
                 when (it) {
                     PatchValue.Null -> put("port", JsonNull)
                     is PatchValue.Set -> put("port", it.value)
-                    PatchValue.Unset -> Unit
-                }
-            }
-            runtimeCore?.let {
-                when (it) {
-                    PatchValue.Null -> put("runtimeCore", JsonNull)
-                    is PatchValue.Set -> put("runtimeCore", it.value.name)
                     PatchValue.Unset -> Unit
                 }
             }

@@ -40,6 +40,16 @@ fun formatRuntimeMs(ms: Long): String {
 fun formatRelativeAgo(iso: String?, now: Long = System.currentTimeMillis()): String {
     if (iso.isNullOrBlank()) return "-"
     val ms = runCatching { parseIsoMs(iso) }.getOrNull() ?: return "-"
+    return formatRelativeAgoMs(ms, now)
+}
+
+/**
+ * 相对时间(epoch ms 版)。给 Agent 会话列表用 —— transcript 的 `updatedAt` /
+ * `createdAt` 是 epoch 毫秒数字,不是 ISO 字符串。
+ * `0` 视为「未知」返回 "-"(服务端 stat 失败时会回 0,见 legacyTranscriptStore.ts:262)。
+ */
+fun formatRelativeAgoMs(ms: Long, now: Long = System.currentTimeMillis()): String {
+    if (ms <= 0L) return "-"
     val delta = now - ms
     if (delta < 0) return "刚刚"
     val sec = delta / 1000
@@ -47,7 +57,8 @@ fun formatRelativeAgo(iso: String?, now: Long = System.currentTimeMillis()): Str
     val min = sec / 60
     if (min < 60) return "${min} 分钟前"
     val hr = min / 60
-    return "${hr} 小时前"
+    if (hr < 24) return "${hr} 小时前"
+    return "${hr / 24} 天前"
 }
 
 private fun parseIsoMs(iso: String): Long {

@@ -13,8 +13,8 @@ android {
         applicationId = "io.github.hotmanxp.lanagent"
         minSdk = 26
         targetSdk = 34
-        versionCode = 32
-        versionName = "0.8.1"
+versionCode = 37
+        versionName = "0.9.3"
     }
 
     buildTypes {
@@ -61,4 +61,6 @@ dependencies {
     implementation(libs.mlkit.barcode.scanning)
     implementation(libs.okhttp)
     implementation(libs.jsch)
+
+    testImplementation(kotlin("test"))
 }

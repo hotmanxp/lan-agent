@@ -46,6 +46,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -65,11 +66,13 @@ fun InstancesScreen(
     baseUrl: String,
     onBack: () -> Unit,
     onOpenUrl: (String) -> Unit,
+    onOpenSessions: (instanceBaseUrl: String, instanceName: String) -> Unit = { _, _ -> },
 ) {
     val api = remember(baseUrl) { InstancesApi(baseUrl) }
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     val lifecycleOwner = LocalLifecycleOwner.current
+    val context = LocalContext.current
 
     var instances by remember { mutableStateOf<List<InstanceSnapshot>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
@@ -131,6 +134,25 @@ fun InstancesScreen(
     }
 
     fun performAction(inst: InstanceSnapshot, action: Action) {
+        if (action == Action.Sessions) {
+            val port = inst.port
+            if (port == null) {
+                scope.launch {
+                    snackbarHostState.showSnackbar(
+                        context.getString(R.string.instances_sessions_need_port)
+                    )
+                }
+                return
+            }
+            val host = Uri.parse(baseUrl).host ?: return
+            // 传实例自己的 host:port —— 原生会话列表 / 详情都直连这个 base,
+            // 不用 inst.id 走 /api/instances 转发(每个实例都是完整 zai 进程,
+            // 自带 /api/agent/* 与 /api/event)。
+            // name 兜底:route 里 instanceName 是 path 段,空串会让路由匹配不上
+            // (变成 ".../")。
+            onOpenSessions("http://$host:$port", inst.name.ifBlank { "实例" })
+            return
+        }
         if (action == Action.Open) {
             val port = inst.port
             if (port == null) {
@@ -161,6 +183,7 @@ fun InstancesScreen(
                         api.deleteInstance(inst.id); null
                     }
                     Action.Open -> null  // unreachable: handled above
+                    Action.Sessions -> null  // unreachable: handled above
                 }
             }
             actionBusy -= inst.id

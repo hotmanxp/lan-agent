@@ -16,6 +16,7 @@ package io.github.hotmanxp.lanagent.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,8 +30,10 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Favorite
@@ -53,6 +56,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -387,8 +391,12 @@ fun InstanceCard(
                 Spacer(Modifier.height(12.dp))
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 Spacer(Modifier.height(8.dp))
+                // 6 个动作按钮在窄屏(360dp)上会超出卡片宽度,所以整行可横滚 ——
+                // 不要靠删按钮或缩小点击区(40dp 已是可点性下限)。
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
@@ -417,6 +425,17 @@ fun InstanceCard(
                         destructive = true,
                         onClick = { onAction(Action.Delete) },
                     )
+                    // 0.9.0 新增:原生会话列表入口(不走 WebView)。只要有运行端口
+                    // 就能进 —— 会话列表只读,连当前实例(包括 __current__ supervisor
+                    // 本身,只要它 --lan 起了)也能看。
+                    if (inst.port != null) {
+                        ActionIconBtn(
+                            icon = Icons.AutoMirrored.Filled.Chat,
+                            label = stringResource(R.string.instances_action_sessions),
+                            enabled = true,
+                            onClick = { onAction(Action.Sessions) },
+                        )
+                    }
                     if (showOpen) {
                         ActionIconBtn(
                             icon = Icons.AutoMirrored.Filled.OpenInNew,
@@ -438,7 +457,7 @@ fun InstanceCard(
     }
 }
 
-enum class Action { Start, Stop, Restart, Delete, Open }
+enum class Action { Start, Stop, Restart, Delete, Open, Sessions }
 
 @Composable
 private fun ActionIconBtn(

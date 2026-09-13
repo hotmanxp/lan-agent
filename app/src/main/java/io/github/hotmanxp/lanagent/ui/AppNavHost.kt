@@ -1,5 +1,7 @@
 // ui/AppNavHost.kt — NavHost("home" → HomeScreen, "webview/{url}" → WebViewScreen,
-// "instances/{baseUrl}" → 原生 InstancesScreen)
+// "instances/{baseUrl}" → 原生 InstancesScreen,
+// "agent-sessions/{baseUrl}/{instanceName}" → 原生会话列表,
+// "agent-session/{baseUrl}/{sid}" → 原生会话详情)
 package io.github.hotmanxp.lanagent.ui
 
 import android.net.Uri
@@ -53,6 +55,52 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
                 baseUrl = baseUrl.ifBlank { "http://127.0.0.1:9201" },
                 onBack = { navController.popBackStack() },
                 onOpenUrl = { url ->
+                    navController.navigate("webview/${Uri.encode(url)}")
+                },
+                onOpenSessions = { instanceBaseUrl, instanceName ->
+                    navController.navigate(
+                        "agent-sessions/${Uri.encode(instanceBaseUrl)}/${Uri.encode(instanceName)}"
+                    )
+                },
+            )
+        }
+        // 原生 Agent 会话列表(0.9.0)。baseUrl 里带 "://" 和 ":",instanceName 可能
+        // 含空格/中文 —— 两者都必须 Uri.encode,否则 route 匹配会碎在 "/" 上。
+        composable(
+            route = "agent-sessions/{baseUrl}/{instanceName}",
+            arguments = listOf(
+                navArgument("baseUrl") { type = NavType.StringType },
+                navArgument("instanceName") { type = NavType.StringType },
+            )
+        ) { entry ->
+            val baseUrl = Uri.decode(entry.arguments?.getString("baseUrl").orEmpty())
+            val instanceName = Uri.decode(entry.arguments?.getString("instanceName").orEmpty())
+            AgentSessionsScreen(
+                baseUrl = baseUrl.ifBlank { "http://127.0.0.1:9201" },
+                instanceName = instanceName,
+                onBack = { navController.popBackStack() },
+                onOpenSession = { sid ->
+                    navController.navigate(
+                        "agent-session/${Uri.encode(baseUrl)}/${Uri.encode(sid)}"
+                    )
+                },
+            )
+        }
+        // 原生 Agent 会话详情(0.9.0)。
+        composable(
+            route = "agent-session/{baseUrl}/{sid}",
+            arguments = listOf(
+                navArgument("baseUrl") { type = NavType.StringType },
+                navArgument("sid") { type = NavType.StringType },
+            )
+        ) { entry ->
+            val baseUrl = Uri.decode(entry.arguments?.getString("baseUrl").orEmpty())
+            val sid = Uri.decode(entry.arguments?.getString("sid").orEmpty())
+            AgentSessionScreen(
+                baseUrl = baseUrl.ifBlank { "http://127.0.0.1:9201" },
+                sessionId = sid,
+                onBack = { navController.popBackStack() },
+                onOpenWeb = { url ->
                     navController.navigate("webview/${Uri.encode(url)}")
                 },
             )

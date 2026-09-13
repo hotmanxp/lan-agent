@@ -16,7 +16,7 @@ enum class InstanceState { stopped, starting, running, stopping, down }
  * 实例启动 profile(0.8.0 新增,0.8.1 加 `Weixin`) — 与 opencc-web
  * `InstanceDefinition.app` 字段对齐(见 `packages/zai/src/shared/instances.ts`)。
  *
- * 两种取值(没有 `'standard'` 字面量 — 标准实例对应字段缺省):
+* 三种取值(没有 `'standard'` 字面量 — 标准实例对应字段缺省):
  *   - `TaskFactory` = 任务工厂实例(spawn 时 `--app task-factory` 传给子进程,
  *     `cli/index.ts` 把 `process.env.ZAI_APP = 'task-factory'` 落到进程环境,
  *     `routes/agent.ts` 据此强制把 `mainAgent` 锁定,`/api/system` 回显后前端
@@ -72,7 +72,11 @@ data class InstanceSnapshot(
      * 实例存在;`null` / 缺省 = 标准实例。**只读** — 创建后不可改,
      * PATCH `/api/instances/:id` 不接受 `app` 字段。
      */
-    val app: InstanceAppProfile? = null,
+    val app: InstanceAppProfile? = null,    // 启动 profile(0.8.0 新增,0.8.1 加 weixin);
+                                            // null = 标准实例,TaskFactory = 任务工厂
+                                            // 实例,Weixin = 微信专用实例。**只读** —
+                                            // 创建后不可改,PATCH /api/instances/:id
+                                            // 不接受 `app` 字段。
     val state: InstanceState,
     val port: Int? = null,
     val pid: Int? = null,

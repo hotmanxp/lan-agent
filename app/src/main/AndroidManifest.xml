@@ -40,6 +40,24 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- 会话详情页输入条的语音转文字（ui/VoiceInput.kt）。
+         用平台 SpeechRecognizer，语音识别由系统「语音服务」提供（Google /
+         厂商 ROM 自带），App 侧不需要绑任何第三方 SDK；代价是必须联网 +
+         设备上得真的装了识别服务，所以 UI 要先 isRecognitionAvailable() 探测。
+         Android 6+ 是危险权限，运行时申请（VoiceInputEffect 里发）。 -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!-- SpeechRecognizer.createSpeechRecognizer() / isRecognitionAvailable()
+         内部走 PackageManager.queryIntentServices 找 SpeechService。targetSdk
+         30+ 的包可见性过滤会把没声明的服务直接藏掉 —— 漏掉这段会在真机上
+         稳定拿到 isRecognitionAvailable()==false，表现是「语音按钮点了没反应」，
+         而且不报任何错。 -->
+    <queries>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+    </queries>
+
     <application
         android:name=".LanAgentApp"
         android:allowBackup="false"

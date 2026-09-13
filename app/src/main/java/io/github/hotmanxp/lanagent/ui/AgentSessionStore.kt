@@ -1,0 +1,551 @@
+// ui/AgentSessionStore.kt — 会话详情页的状态机。
+//
+// 两件事:
+//   1. **hydrate** — 把 `GET /api/agent/sessions/:id` 的原始 JSONL 消息归一化成
+//      可渲染的 [AgentItem] 列表(对齐 web 端 useAgentStore.loadTranscriptMessages,
+//      见 useAgentStore.ts:435-564)。
+//   2. **apply** — 把 `GET /api/event?sid=` 的 SSE 事件 reduce 成
+//      items / status / queue / v2Tasks / pending(对齐 useAgentStore.ts:1492-1851
+//      的 applyRuntimeEvent)。
+//
+// 为什么不直接渲染原始 transcript:JSONL 一行是 Anthropic 原生信封
+// (`{type, message:{role, content: ContentBlock[]}}`),一条 assistant 消息里
+// 混着 thinking / text / tool_use,而 tool_result 又藏在**下一条 user 消息**里。
+// 不归一化的话渲染层要写一堆跨条目的状态拼装。
+//
+// 状态用 Compose 的 `mutableStateOf` / `mutableStateListOf` 直接持有 ——
+// 项目约定不引 ViewModel / Hilt(见 AGENTS.md「非目标」),屏内 `remember`
+// 一个实例即可。
+package io.github.hotmanxp.lanagent.ui
+
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import io.github.hotmanxp.lanagent.data.AgentEvent
+import io.github.hotmanxp.lanagent.data.AskQuestion
+import io.github.hotmanxp.lanagent.data.PendingInteraction
+import io.github.hotmanxp.lanagent.data.QueuedPrompt
+import io.github.hotmanxp.lanagent.data.SessionStateResponse
+import io.github.hotmanxp.lanagent.data.Transcript
+import io.github.hotmanxp.lanagent.data.TranscriptBody
+import io.github.hotmanxp.lanagent.data.V2Task
+import io.github.hotmanxp.lanagent.data.capForDisplay
+import io.github.hotmanxp.lanagent.data.DISPLAY_INPUT_CAP
+import io.github.hotmanxp.lanagent.data.pretty
+import io.github.hotmanxp.lanagent.data.str
+import io.github.hotmanxp.lanagent.data.toContentBlocks
+import io.github.hotmanxp.lanagent.data.toolResultText
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.decodeFromJsonElement
+
+/** 会话的运行态。`streaming` / `retrying` 时输入框变「停止」按钮。 */
+enum class AgentRunStatus { Idle, Streaming, Retrying, Aborted, Error }
+
+/**
+ * 渲染单元。`sealed interface` + 稳定 [key] —— LazyColumn 的 key 必须稳定,
+ * 否则流式追加时整表重建,滚动位置会跳。
+ */
+sealed interface AgentItem {
+    val key: String
+
+    data class UserText(
+        override val key: String,
+        val text: String,
+        val timestamp: Long?,
+        /** 图片附件数量(`image` block 的数量)。消息里只显示「N 张图片」。 */
+        val attachments: Int = 0,
+    ) : AgentItem
+
+    data class AssistantText(
+        override val key: String,
+        val text: String,
+        val timestamp: Long?,
+    ) : AgentItem
+
+    data class Thinking(
+        override val key: String,
+        val text: String,
+        val timestamp: Long?,
+    ) : AgentItem
+
+    /**
+     * 工具调用。`output == null && !isError` 视为还在跑(转圈),
+     * 有 output 或 isError 即终态。key 固定按 `toolUseId` —— 同一次调用
+     * 可能在 `assistant` 消息块和独立的 `tool_use` 行里各出现一次,靠 key
+     * 去重(web 端同款做法:`tool-${toolUseId}`)。
+     */
+    data class ToolCall(
+        override val key: String,
+        val toolUseId: String,
+        val name: String,
+        val input: String?,
+        val output: String?,
+        val isError: Boolean,
+        val timestamp: Long?,
+    ) : AgentItem {
+        val running: Boolean get() = output == null && !isError
+    }
+
+    /** 运行期提示(runtime.error / runtime.compacted)。`isError=false` 是中性的灰条。 */
+    data class Note(
+        override val key: String,
+        val text: String,
+        val timestamp: Long?,
+        val isError: Boolean,
+    ) : AgentItem
+}
+
+class AgentSessionStore(val sessionId: String) {
+
+    val items = mutableStateListOf<AgentItem>()
+
+    var status by mutableStateOf(AgentRunStatus.Idle)
+        private set
+    var title by mutableStateOf<String?>(null)
+        private set
+    var cwd by mutableStateOf<String?>(null)
+        private set
+    var model by mutableStateOf<String?>(null)
+        private set
+    var queue by mutableStateOf<List<QueuedPrompt>>(emptyList())
+        private set
+    var pending by mutableStateOf<PendingInteraction?>(null)
+        private set
+    var hydrated by mutableStateOf(false)
+        private set
+    var hydrateError by mutableStateOf<String?>(null)
+        private set
+
+    val v2Tasks = mutableStateListOf<V2Task>()
+
+    private val json = Json { ignoreUnknownKeys = true; isLenient = true; explicitNulls = false }
+
+    /**
+     * 流式气泡的**下标**缓存。items 只会 append(会话内不删),所以下标稳定。
+     * 用下标而不是每帧 `indexOfFirst { it.key == ... }`,避免长会话下
+     * 每个 delta 都 O(n) 扫一遍列表。
+     */
+    private var curTextIdx = -1
+    private var curThinkIdx = -1
+    private var turnIndex = -1
+    private var segCounter = 0
+
+    // ===== hydrate =====
+
+    fun hydrate(transcript: Transcript) {
+        title = transcript.meta.title
+        cwd = transcript.meta.cwd
+        model = transcript.meta.model
+
+        items.clear()
+        curTextIdx = -1
+        curThinkIdx = -1
+        turnIndex = -1
+        // 状态归零再让 SSE 重建 —— 断连期间这一轮可能已经结束,如果保留旧的
+        // Streaming,replay 里又没有对应的 runtime.done,UI 会永远卡在「运行中」。
+        // 归零后有两条自愈路径:replay 尾部的 runtime.done → Idle;
+        // 或者下一帧 runtime.delta → noteStreaming() → Streaming。
+        status = AgentRunStatus.Idle
+
+        for (entry in transcript.messages) {
+            // `isMeta=true` 是给 LLM 看的旁路内容(展开后的 slash 指令、inbox
+            // 注入等),UI 必须隐藏 —— 与 web 端 useAgentStore.ts:454/483 一致。
+            if (entry.isMeta) continue
+            val content = entry.message?.content ?: continue
+            when (entry.type) {
+                "user" -> ingestUser(content, entry.tsMs, entry.uuid)
+                "assistant" -> ingestAssistant(content, entry.tsMs, entry.uuid)
+                "tool_use" -> ingestToolUseOnly(content, entry.tsMs)
+                "tool_result" -> ingestToolResultOnly(content)
+                // system / attachment / compact_boundary / custom-title /
+                // session-meta 都不渲染(web 端同样跳过)。
+                else -> Unit
+            }
+        }
+        hydrated = true
+        hydrateError = null
+    }
+
+    fun hydrateFailed(message: String) {
+        hydrated = true
+        hydrateError = message
+    }
+
+    fun hydrateState(state: SessionStateResponse) {
+        state.cwd?.cwd?.takeIf { it.isNotBlank() }?.let { cwd = it }
+        v2Tasks.clear()
+        v2Tasks.addAll(state.v2Tasks)
+    }
+
+    private fun ingestUser(content: JsonElement, ts: Long?, uuid: String?) {
+        val blocks = TranscriptBody(content = content).toContentBlocks()
+        if (blocks.isEmpty()) return
+
+        var text = ""
+        var images = 0
+        for (b in blocks) {
+            when (b.type) {
+                "tool_result" -> applyToolResult(b.toolUseId, b.content, b.isError)
+                "text" -> text += b.text.orEmpty()
+                "image" -> images++
+                else -> Unit
+            }
+        }
+        if (text.isNotBlank() || images > 0) {
+            items.add(
+                AgentItem.UserText(
+                    key = "u-${uuid ?: items.size}",
+                    text = text.trim(),
+                    timestamp = ts,
+                    attachments = images,
+                )
+            )
+        }
+    }
+
+    private fun ingestAssistant(content: JsonElement, ts: Long?, uuid: String?) {
+        var n = 0
+        for (b in TranscriptBody(content = content).toContentBlocks()) {
+            when (b.type) {
+                "thinking" -> b.thinking?.takeIf { it.isNotBlank() }?.let {
+                    items.add(AgentItem.Thinking("t-${uuid ?: items.size}-${n++}", it, ts))
+                }
+
+                "text" -> b.text?.takeIf { it.isNotBlank() }?.let {
+                    items.add(AgentItem.AssistantText("a-${uuid ?: items.size}-${n++}", it, ts))
+                }
+
+                "tool_use" -> upsertToolCall(
+                    toolUseId = b.id.orEmpty(),
+                    name = b.name.orEmpty().ifEmpty { "tool" },
+                    input = b.input.cleanText(),
+                    output = null,
+                    isError = false,
+                    ts = ts,
+                )
+
+                else -> Unit
+            }
+        }
+    }
+
+    private fun ingestToolUseOnly(content: JsonElement, ts: Long?) {
+        for (b in TranscriptBody(content = content).toContentBlocks()) {
+            if (b.type != "tool_use") continue
+            upsertToolCall(
+                toolUseId = b.id.orEmpty(),
+                name = b.name.orEmpty().ifEmpty { "tool" },
+                input = b.input.cleanText(),
+                output = null,
+                isError = false,
+                ts = ts,
+            )
+        }
+    }
+
+    private fun ingestToolResultOnly(content: JsonElement) {
+        for (b in TranscriptBody(content = content).toContentBlocks()) {
+            if (b.type == "tool_result") applyToolResult(b.toolUseId, b.content, b.isError)
+        }
+    }
+
+    /**
+     * 把 tool_result 贴回对应的工具卡。找不到对应 tool_use 就丢弃 —— 同 web
+     * 端行为(`useAgentStore.ts:488-498` 只改已存在的卡)。正常 transcript 里
+     * tool_use 一定先于 tool_result 出现,所以命中率是 100%。
+     */
+    private fun applyToolResult(toolUseId: String?, content: JsonElement?, isError: Boolean) {
+        val key = toolKey(toolUseId.orEmpty()) ?: return
+        val idx = items.indexOfFirst { it.key == key }
+        if (idx < 0) return
+        val cur = items[idx] as? AgentItem.ToolCall ?: return
+        val text = content?.toolResultText().orEmpty().capForDisplay()
+        items[idx] = cur.copy(output = text, isError = isError)
+    }
+
+    // ===== SSE reduce =====
+
+    fun apply(ev: AgentEvent) {
+        when (ev.type) {
+            "runtime.started" -> {
+                status = AgentRunStatus.Streaming
+                val ti = ev.int("turnIndex")
+                if (ti != null && ti != turnIndex) {
+                    // 新一轮 → 下一个 text/thinking 开新气泡
+                    turnIndex = ti
+                    curTextIdx = -1
+                    curThinkIdx = -1
+                }
+            }
+
+            "runtime.delta" -> ev.str("delta")
+                ?.takeIf { it.isNotEmpty() }
+                ?.let {
+                    noteStreaming()
+                    appendText(it)
+                }
+
+            "runtime.thinking" -> ev.str("thinking")
+                ?.takeIf { it.isNotEmpty() }
+                ?.let {
+                    noteStreaming()
+                    appendThinking(it)
+                }
+
+            "runtime.tool_call" -> {
+                noteStreaming()
+                upsertToolCall(
+                    toolUseId = ev.str("toolUseId").orEmpty(),
+                    name = ev.str("toolName").orEmpty().ifEmpty { "tool" },
+                    input = ev.payload["input"].cleanText(),
+                    output = null,
+                    isError = false,
+                    ts = ev.long("ts"),
+                )
+            }
+
+            "runtime.tool_result" -> applyToolResult(
+                ev.str("toolUseId"),
+                ev.payload["output"],
+                false,
+            )
+
+            "runtime.retrying" -> status = AgentRunStatus.Retrying
+
+            "runtime.done" -> if (queue.isEmpty()) status = AgentRunStatus.Idle
+
+            "runtime.aborted" ->
+                status = if (queue.isEmpty()) AgentRunStatus.Aborted else AgentRunStatus.Streaming
+
+            "runtime.error" -> {
+                val toolUseId = ev.str("toolUseId")
+                val msg = ev.obj("error")?.str("message") ?: ev.str("error") ?: "运行出错"
+                if (!toolUseId.isNullOrEmpty()) {
+                    markToolError(toolUseId, msg)
+                } else {
+                    items.add(AgentItem.Note("err-${ev.seq}", msg, ev.long("ts"), isError = true))
+                    status = AgentRunStatus.Error
+                }
+            }
+
+            "runtime.compacted" -> {
+                val pre = ev.long("preTokens") ?: 0L
+                val post = ev.long("postTokens") ?: 0L
+                items.add(
+                    AgentItem.Note(
+                        key = "cmp-${ev.seq}",
+                        text = "上下文已压缩：$pre → $post tokens",
+                        timestamp = ev.long("ts"),
+                        isError = false,
+                    )
+                )
+            }
+
+            "queue.changed" -> queue = parseQueue(ev)
+
+            "cwd.changed" -> ev.str("cwd")?.takeIf { it.isNotBlank() }?.let { cwd = it }
+
+            "session.renamed" -> ev.str("title")?.let { title = it }
+
+            "v2_task.changed" -> upsertV2Task(ev)
+
+            "prompt.ask" -> pending = PendingInteraction(
+                kind = "ask",
+                toolUseId = ev.str("toolUseId").orEmpty(),
+                questions = parseAskQuestions(ev),
+            )
+
+            "prompt.permission" -> pending = PendingInteraction(
+                kind = "permission",
+                toolUseId = ev.str("toolUseId").orEmpty(),
+                toolName = ev.str("toolName"),
+                description = ev.str("description"),
+                input = ev.payload["input"],
+                message = ev.str("message"),
+            )
+
+            "prompt.approve" -> pending = PendingInteraction(
+                kind = "approve",
+                toolUseId = ev.str("toolUseId").orEmpty(),
+                title = ev.str("title"),
+                summary = ev.str("summary"),
+                filePath = ev.str("filePath"),
+            )
+        }
+    }
+
+    fun clearPending() {
+        pending = null
+    }
+
+    /**
+     * 本地乐观追加一条用户消息。
+     *
+     * **必要**,不是优化:服务端的 SSE 事件面里没有「用户发了消息」这一类
+     * (`runtime.*` 全是助手侧),用户消息只在 assistant 回复落盘时间接写进
+     * transcript。所以如果不本地追加,自己刚发的消息要等下一次 re-hydrate
+     * 才会出现(web 端也是这么做的)。
+     *
+     * 同时把流式气泡游标清掉 —— 回复必须开在用户消息**之后**。
+     */
+    /**
+     * 本地乐观追加一条用户消息。
+     *
+     * **必须本地追加**：SSE 事件面里没有「用户发了消息」这一类事件
+     * （`runtime.*` 全是助手侧），用户消息只在 assistant 回复落盘时间接进
+     * transcript。不追加的话，自己刚发的消息要等下一次 re-hydrate 才出现。
+     *
+     * [attachments] 是图片张数 —— 气泡上只显示「N 张图片」，不回显图片内容
+     * （原图 base64 在 [AgentApi.sendPrompt] 发完就丢了，没必要为回显留住）。
+     */
+    fun appendLocalUser(text: String, attachments: Int = 0) {
+        curTextIdx = -1
+        curThinkIdx = -1
+        items.add(
+            AgentItem.UserText(
+                key = nextKey("local-user"),
+                text = text,
+                timestamp = System.currentTimeMillis(),
+                attachments = attachments,
+            )
+        )
+    }
+
+    fun setError(message: String) {
+        status = AgentRunStatus.Error
+        items.add(AgentItem.Note("local-err-${System.currentTimeMillis()}", message, null, true))
+    }
+
+    private fun parseQueue(ev: AgentEvent): List<QueuedPrompt> {
+        val arr = ev.arr("pending") ?: return emptyList()
+        return arr.mapNotNull { el ->
+            val o = el as? JsonObject ?: return@mapNotNull null
+            val id = o.str("id") ?: return@mapNotNull null
+            QueuedPrompt(id = id, text = o.str("text").orEmpty())
+        }
+    }
+
+    private fun parseAskQuestions(ev: AgentEvent): List<AskQuestion> {
+        val arr = ev.arr("questions") ?: return emptyList()
+        return arr.mapNotNull { el ->
+            val o = el as? JsonObject ?: return@mapNotNull null
+            runCatching { json.decodeFromJsonElement<AskQuestion>(o) }.getOrNull()
+        }
+    }
+
+    private fun upsertV2Task(ev: AgentEvent) {
+        val taskObj = ev.obj("task") ?: return
+        val task = runCatching { json.decodeFromJsonElement<V2Task>(taskObj) }.getOrNull() ?: return
+        val idx = v2Tasks.indexOfFirst { it.id == task.id }
+        if (ev.str("action") == "delete") {
+            if (idx >= 0) v2Tasks.removeAt(idx)
+            return
+        }
+        if (idx >= 0) v2Tasks[idx] = task else v2Tasks.add(task)
+    }
+
+    // ===== 流式拼装 =====
+
+    /**
+     * 「有内容在流」的兜底信号。不能只依赖 `runtime.started` —— replay 切片
+     * (最近 256 条)可能已经把那一轮的 started 挤掉了,而 delta 还在源源不断
+     * 过来。所以每个流式事件都顺手把状态顶回 Streaming(已 Streaming/Retrying
+     * 时不动,避免覆盖 retrying)。
+     */
+    private fun noteStreaming() {
+        if (status != AgentRunStatus.Streaming && status != AgentRunStatus.Retrying) {
+            status = AgentRunStatus.Streaming
+        }
+    }
+
+    private fun nextKey(prefix: String): String = "$prefix-${sessionId}-${++segCounter}"
+
+    private fun appendText(delta: String) {
+        // 一旦开始出 text,上一段 thinking 收口;两者不共用气泡。
+        curThinkIdx = -1
+        val idx = curTextIdx
+        if (idx in items.indices && items[idx] is AgentItem.AssistantText) {
+            val cur = items[idx] as AgentItem.AssistantText
+            items[idx] = cur.copy(text = cur.text + delta)
+            return
+        }
+        items.add(AgentItem.AssistantText(nextKey("stream-text"), delta, System.currentTimeMillis()))
+        curTextIdx = items.lastIndex
+    }
+
+    private fun appendThinking(delta: String) {
+        curTextIdx = -1
+        val idx = curThinkIdx
+        if (idx in items.indices && items[idx] is AgentItem.Thinking) {
+            val cur = items[idx] as AgentItem.Thinking
+            items[idx] = cur.copy(text = cur.text + delta)
+            return
+        }
+        items.add(AgentItem.Thinking(nextKey("stream-think"), delta, System.currentTimeMillis()))
+        curThinkIdx = items.lastIndex
+    }
+
+    /**
+     * 工具卡的 upsert。`toolUseId` 为空时退回按名字兜底,避免所有匿名工具撞
+     * 同一个 key(协议没强制有 id,实测都有)。
+     */
+    private fun upsertToolCall(
+        toolUseId: String,
+        name: String,
+        input: String?,
+        output: String?,
+        isError: Boolean,
+        ts: Long?,
+    ) {
+        // 工具卡之后的 text 必须落在**新**气泡里(否则会 append 到工具卡前面
+        // 那个旧气泡,视觉顺序就错了)。
+        curTextIdx = -1
+        curThinkIdx = -1
+
+        val key = toolKey(toolUseId) ?: nextKey("tool-$name")
+        val idx = items.indexOfFirst { it.key == key }
+        if (idx >= 0) {
+            val cur = items[idx] as? AgentItem.ToolCall ?: return
+            items[idx] = cur.copy(
+                name = name.ifEmpty { cur.name },
+                input = input ?: cur.input,
+                // 已终态不被后续 start 覆盖
+                output = cur.output ?: output,
+                isError = cur.isError || isError,
+            )
+            return
+        }
+        items.add(
+            AgentItem.ToolCall(
+                key = key,
+                toolUseId = toolUseId,
+                name = name,
+                input = input,
+                output = output,
+                isError = isError,
+                timestamp = ts,
+            )
+        )
+    }
+
+    private fun markToolError(toolUseId: String, message: String) {
+        val key = toolKey(toolUseId) ?: return
+        val idx = items.indexOfFirst { it.key == key }
+        if (idx < 0) return
+        val cur = items[idx] as? AgentItem.ToolCall ?: return
+        items[idx] = cur.copy(output = message, isError = true)
+    }
+
+    private fun toolKey(toolUseId: String): String? =
+        toolUseId.takeIf { it.isNotEmpty() }?.let { "tool-$it" }
+}
+
+/**
+ * 工具入参的展示文本。除空白/null 归一外还做长度截断 —— 有些工具的 input
+ * 是一整份文件内容,把它原样塞进折叠卡会在展开时卡住渲染。
+ */
+private fun JsonElement?.cleanText(): String? =
+    this?.pretty()?.takeIf { it.isNotBlank() }?.capForDisplay(DISPLAY_INPUT_CAP, "入参")

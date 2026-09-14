@@ -1,6 +1,6 @@
-// ui/LanAgentTheme.kt — WorkBuddy 风格主题。
+// ui/LanAgentTheme.kt — WorkBuddy 视觉体系 + 平安橙品牌色。
 //
-// 改造要点(0.10.0):
+// 改造要点(0.10.0,0.10.2 微调品牌色):
 //   1. **关掉 Material You 动态取色**。上一版默认 `dynamicColor = true`,配色
 //      跟着手机壁纸跑 —— 截图里整屏泛紫,跟 WorkBuddy 完全不是一个东西。
 //      现在固定用 WorkBuddy 的色板(见 [WbPalette])。
@@ -11,8 +11,9 @@
 //      没有白条),而 Card / ModalBottomSheet / 会话卡 / 工具卡默认取
 //      `surfaceContainerHigh` = 白。全项目一百多处 `MaterialTheme.colorScheme`
 //      调用因此一次性对齐,不用逐个文件改。
-//   3. **品牌青绿 #0CC8A6**(取色自 WorkBuddy 官方图标)作为 primary,
-//      只用在「主按钮 / 发送按钮 / 运行中状态」这些点睛位置,正文保持黑白灰。
+//   3. **品牌平安橙 #ff6600**(沿用 0.10.0 之前的 zai `/m` AI-Agent 头像色)
+//      作为亮色 primary,只用在「主按钮 / 发送按钮 / 运行中状态」这些点睛位置,
+//      正文保持黑白灰。深色主题保持青绿 #35D6B6(0.10.0 的取值)。
 //   4. 状态栏图标明暗自适应,深色下自动切浅色图标。
 package io.github.hotmanxp.lanagent.ui
 
@@ -35,13 +36,20 @@ import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 
 /**
- * WorkBuddy 品牌色板。数值来自两处硬证据:
+ * WorkBuddy 视觉色板。数值来自两处硬证据:
  *   - 官方 App 图标(`icon.png`)—— 青绿渐变 #0DC8A6 → #14CA85;
  *   - WorkBuddy 手机端截图采样 —— 页底 #F8F8F8、卡面 #FFFFFF、正文 #242424、
  *     次要文字 #8C8C8C。
+ *
+ * **亮色主题品牌色** 在 0.10.2 改为平安橙 `#ff6600`(沿用 0.10.0 之前的 zai
+ * `/m` AI-Agent 头像色;0.10.0 临时改成青绿,现改回)。深色主题保持青绿
+ * `#35D6B6` 体系,启动图标底色统一走 [BrandOrange]。
  */
 object WbPalette {
-    /** 品牌青绿(图标左上角那个青):主按钮 / 发送按钮 / 选中态。 */
+    /** 亮色主题品牌主色:主按钮 / 发送按钮 / 选中态 / 启动图标底。 */
+    val BrandOrange = Color(0xFFff6600)
+
+    /** 深色主题 inversePrimary(深色下显示在反色面上的品牌色)。 */
     val Teal = Color(0xFF0CC8A6)
 
     /** 品牌绿(图标右下角那个绿):次级强调、模型标签。 */
@@ -57,7 +65,7 @@ object WbPalette {
 
     /**
      * 用户消息气泡底色。**这是 WorkBuddy 与常见「绿色气泡」IM 的分水岭** ——
-     * WorkBuddy 手机端的用户气泡是中性浅灰(不是品牌绿),品牌青绿只留给
+     * WorkBuddy 手机端的用户气泡是中性浅灰(不是品牌绿),品牌平安橙只留给
      * 发送按钮/主按钮。采样值 #E2E4E3。
      */
     val BubbleLight = Color(0xFFE2E4E3)
@@ -100,11 +108,11 @@ private val DarkExtras = WbExtras(
 val LocalWbExtras = staticCompositionLocalOf { LightExtras }
 
 private val LightScheme = lightColorScheme(
-    primary = WbPalette.Teal,
+    primary = WbPalette.BrandOrange,
     onPrimary = Color.White,
-    primaryContainer = Color(0xFFDDF6EF),
-    onPrimaryContainer = Color(0xFF04372E),
-    inversePrimary = Color(0xFF3AD9BC),
+    primaryContainer = Color(0xFFFFE2CC),
+    onPrimaryContainer = Color(0xFF5C2400),
+    inversePrimary = Color(0xFFFF944D),
 
     secondary = WbPalette.Green,
     onSecondary = Color.White,
@@ -112,7 +120,7 @@ private val LightScheme = lightColorScheme(
     onSecondaryContainer = Color(0xFF0A3A26),
 
     // tertiary 在本项目里被用作「运行中」的强调色(工具调用卡 / 状态徽标),
-    // 所以给一个暖橙而不是第三个品牌色 —— 跟青绿拉得开,又不抢眼。
+    // 给一个暖橙 —— 跟 primary(平安橙)同色族但更浅,不至于重复。
     tertiary = Color(0xFFE2932F),
     onTertiary = Color.White,
     tertiaryContainer = Color(0xFFFCF0DD),
@@ -125,7 +133,7 @@ private val LightScheme = lightColorScheme(
     onSurface = WbPalette.InkLight,
     surfaceVariant = WbPalette.SunkenLight,
     onSurfaceVariant = WbPalette.InkMutedLight,
-    surfaceTint = WbPalette.Teal,
+    surfaceTint = WbPalette.BrandOrange,
 
     // 卡片族:全部白色 —— Card / ModalBottomSheet(surfaceContainerLow)/
     // 会话行与工具卡(surfaceContainerHigh)/ AlertDialog 都落在这里。

@@ -18,6 +18,7 @@
 // 一个实例即可。
 package io.github.hotmanxp.lanagent.ui
 
+import android.net.Uri
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -55,8 +56,17 @@ sealed interface AgentItem {
         override val key: String,
         val text: String,
         val timestamp: Long?,
-        /** 图片附件数量(`image` block 的数量)。消息里只显示「N 张图片」。 */
+        /**
+         * 图片附件数量(`image` block 的数量)。
+         * 历史回放时没有 [attachmentUris](base64 没保留),UI 退化成「N 张图片」文字;
+         * 本地乐观追加时**同时**填 [attachmentUris],UI 渲染方形缩略图。
+         */
         val attachments: Int = 0,
+        /**
+         * 图片附件的本地 content:// URI —— 用来在气泡里直接渲染缩略图,
+         * 不必从 base64 重新解码(发送时 base64 已丢,见 [appendLocalUser])。
+         */
+        val attachmentUris: List<Uri> = emptyList(),
     ) : AgentItem
 
     data class AssistantText(
@@ -398,10 +408,16 @@ class AgentSessionStore(val sessionId: String) {
      * （`runtime.*` 全是助手侧），用户消息只在 assistant 回复落盘时间接进
      * transcript。不追加的话，自己刚发的消息要等下一次 re-hydrate 才出现。
      *
-     * [attachments] 是图片张数 —— 气泡上只显示「N 张图片」，不回显图片内容
-     * （原图 base64 在 [AgentApi.sendPrompt] 发完就丢了，没必要为回显留住）。
+     * [attachments] 是图片张数, [attachmentUris] 是 content:// URI 列表 —
+     * 气泡里渲染方形缩略图(0.10.2 起,见 [AgentItem.UserText.attachmentUris])。
+     * base64 在 [AgentApi.sendPrompt] 发完就丢了,所以**渲染**得用 URI,不能再
+     * 从 base64 解码;只要进程在 URI 就能读,跨配置变更也不会丢。
      */
-    fun appendLocalUser(text: String, attachments: Int = 0) {
+    fun appendLocalUser(
+        text: String,
+        attachments: Int = 0,
+        attachmentUris: List<Uri> = emptyList(),
+    ) {
         curTextIdx = -1
         curThinkIdx = -1
         items.add(
@@ -410,6 +426,7 @@ class AgentSessionStore(val sessionId: String) {
                 text = text,
                 timestamp = System.currentTimeMillis(),
                 attachments = attachments,
+                attachmentUris = attachmentUris,
             )
         )
     }

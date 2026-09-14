@@ -146,4 +146,29 @@ object ImageAttachments {
             }
         }.getOrNull()
     }
+
+    /**
+     * 全屏查看用的原图(0.10.2 起)。
+     *
+     * 跟 [thumbnail] 区别在长边上限不同 —— [thumbnail] 卡 220px 够输入条上方
+     * 的 64dp chip 用,全屏查看至少要 1600px 才不糊。失败返回 null(URI 失效 /
+     * 文件被删),UI 退化成空 Dialog。
+     */
+    suspend fun fullBitmap(context: Context, uri: Uri): Bitmap? = withContext(Dispatchers.IO) {
+        runCatching {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            context.contentResolver.openInputStream(uri)
+                ?.use { BitmapFactory.decodeStream(it, null, bounds) }
+            var sample = 1
+            val longEdge = maxOf(bounds.outWidth, bounds.outHeight)
+            while (longEdge / (sample * 2) >= MAX_EDGE) sample *= 2
+            context.contentResolver.openInputStream(uri)?.use {
+                BitmapFactory.decodeStream(
+                    it,
+                    null,
+                    BitmapFactory.Options().apply { inSampleSize = sample },
+                )
+            }
+        }.getOrNull()
+    }
 }

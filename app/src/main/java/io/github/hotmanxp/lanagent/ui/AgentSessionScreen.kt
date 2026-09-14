@@ -51,7 +51,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
@@ -99,9 +101,12 @@ import kotlinx.coroutines.launch
 @Composable
 fun AgentSessionScreen(
     baseUrl: String,
+    instanceName: String,
     sessionId: String,
     onBack: () -> Unit,
     onOpenWeb: (String) -> Unit,
+    onOpenSessions: () -> Unit,
+    onCreateNewSession: () -> Unit,
 ) {
     val context = LocalContext.current
     val api = remember(baseUrl) { AgentApi(baseUrl) }
@@ -179,7 +184,7 @@ fun AgentSessionScreen(
         attachments = emptyList()
         // 本地乐观追加:SSE 事件面里没有「用户发了消息」这类事件
         // (runtime.* 全是助手侧),不本地追加就得等下一次 re-hydrate 才看得到。
-        store.appendLocalUser(text, images.size)
+        store.appendLocalUser(text, images.size, images.map { it.uri })
         scope.launch {
             runCatching { api.sendPrompt(sessionId, text, images) }
                 .onFailure { toast("发送失败:${it.message ?: it}") }
@@ -334,10 +339,20 @@ fun AgentSessionScreen(
                     }
                 },
                 actions = {
-                    // 空闲是常态，常态不该占位置；只在真的在跑/出错时才提示。
-                    if (store.status != AgentRunStatus.Idle) {
-                        StatusBadge(store.status)
-                        Spacer(Modifier.width(8.dp))
+                    // WorkBuddy 风格的「新建会话 + 会话列表」一对按钮。
+                    IconButton(onClick = onCreateNewSession) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = stringResource(R.string.agent_session_new_cd),
+                        )
+                    }
+                    IconButton(onClick = onOpenSessions) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.List,
+                            contentDescription = stringResource(
+                                R.string.agent_session_open_sessions_cd
+                            ),
+                        )
                     }
                 },
             )
@@ -448,6 +463,19 @@ fun AgentSessionScreen(
                 }
             }
 
+            // 运行态提示条 —— 顶栏不放状态(对齐 WorkBuddy),改成在输入框
+            // 上面单起一行,空闲时整行不渲染,不占视觉位置。
+            if (store.status != AgentRunStatus.Idle) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 6.dp),
+                    horizontalArrangement = Arrangement.Center,
+                ) {
+                    StatusBadge(store.status)
+                }
+            }
+
             AgentInputBar(
                 value = input,
                 onValueChange = { input = it },
@@ -534,14 +562,14 @@ fun AgentSessionScreen(
     }
 }
 
-/** 空会话的占位:WorkBuddy 机器人 + 问候语 + 一行说明(对齐 WorkBuddy 欢迎页)。 */
+/** 空会话的占位:WorkBuddy 机器人 + 问候语(对齐 WorkBuddy 欢迎页)。 */
 @Composable
 private fun AgentSessionEmptyState() {
     Box(
         modifier = Modifier.fillMaxSize().padding(horizontal = 32.dp),
-        contentAlignment = Alignment.Center,
+        contentAlignment = Alignment.CenterStart,
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(horizontalAlignment = Alignment.Start) {
             Image(
                 painter = painterResource(R.drawable.wb_mascot),
                 contentDescription = stringResource(R.string.agent_session_empty_mascot_cd),
@@ -554,14 +582,6 @@ private fun AgentSessionEmptyState() {
                 lineHeight = 32.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface,
-            )
-            Spacer(Modifier.height(10.dp))
-            Text(
-                text = stringResource(R.string.agent_session_empty),
-                fontSize = 13.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
             )
         }
     }

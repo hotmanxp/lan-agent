@@ -11,6 +11,7 @@
 // 走 [LocalWbExtras] —— 所以这里不硬编码任何色值,深浅色自动适配。
 package io.github.hotmanxp.lanagent.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -24,6 +25,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -79,11 +81,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -122,6 +127,7 @@ internal fun clockOf(ms: Long?): String? = ms?.let { CLOCK.format(Date(it)) }
  */
 @Composable
 internal fun UserBubble(item: AgentItem.UserText) {
+    var viewerIndex by remember { mutableStateOf<Int?>(null) }
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.End,
@@ -131,21 +137,165 @@ internal fun UserBubble(item: AgentItem.UserText) {
             contentColor = MaterialTheme.colorScheme.onSurface,
             shape = RoundedCornerShape(18.dp),
         ) {
-            Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
                 if (item.text.isNotBlank()) {
-                    Text(text = item.text, fontSize = 15.sp, lineHeight = 22.sp)
+                    Text(
+                        text = item.text,
+                        fontSize = 15.sp,
+                        lineHeight = 22.sp,
+                        modifier = Modifier.padding(horizontal = 2.dp),
+                    )
                 }
-                if (item.attachments > 0) {
+                // 有 URI 时直接渲染方形缩略图;纯历史(URI 丢了)退化成「N 张图片」文字。
+                if (item.attachmentUris.isNotEmpty()) {
+                    if (item.text.isNotBlank()) Spacer(Modifier.height(8.dp))
+                    UserImageGrid(
+                        uris = item.attachmentUris,
+                        onTap = { idx -> viewerIndex = idx },
+                    )
+                } else if (item.attachments > 0) {
                     if (item.text.isNotBlank()) Spacer(Modifier.height(6.dp))
                     Text(
                         text = "${item.attachments} 张图片",
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 2.dp),
                     )
                 }
             }
         }
         clockOf(item.timestamp)?.let { MetaLine(it, Alignment.End) }
+
+        // 点击缩略图进全屏查看(0.10.2 起):Dialog 全屏,黑底,图片以 Fit 居中,
+        // 点空白或系统返回键关闭。
+        viewerIndex?.let { idx ->
+            FullScreenImageViewer(
+                uris = item.attachmentUris,
+                startIndex = idx,
+                onDismiss = { viewerIndex = null },
+            )
+        }
+    }
+}
+
+/**
+ * 用户消息气泡内的图片附件网格。
+ *
+ * 全部是**正方形**缩略图(WorkBuddy 风) —— 96dp 一格,跟输入条附件 chip
+ * 尺寸对齐(FlowRow 自动换行,1/2/3/4 张都用同一段代码)。
+ *
+ * 读图复用 [ImageAttachments.thumbnail](220px JPEG,跟输入条 chip 同一份),
+ * 避免在内存里同时持有 220px + 1600px 两份像素。
+ */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun UserImageGrid(
+    uris: List<android.net.Uri>,
+    onTap: (Int) -> Unit,
+) {
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        uris.forEachIndexed { idx, uri ->
+            UserImageThumb(uri = uri, onTap = { onTap(idx) })
+        }
+    }
+}
+
+@Composable
+private fun UserImageThumb(uri: android.net.Uri, onTap: () -> Unit) {
+    val context = LocalContext.current
+    val bitmap by produceState<android.graphics.Bitmap?>(initialValue = null, uri) {
+        value = ImageAttachments.thumbnail(context, uri)
+    }
+    val size = 96.dp
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+        modifier = Modifier
+            .size(size)
+            .clickable(onClick = onTap),
+    ) {
+        val bmp = bitmap
+        if (bmp != null) {
+            Image(
+                bitmap = bmp.asImageBitmap(),
+                contentDescription = stringResource(R.string.agent_input_attachment_cd),
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp),
+                    strokeWidth = 1.5.dp,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 全屏图片查看器(0.10.2 起,给用户气泡的缩略图用)。
+ *
+ * `Dialog(usePlatformDefaultWidth = false)` + 黑色 Box 撑满屏幕,图片
+ * 用 `ContentScale.Fit` 居中保持原比例。点图片/空白或系统返回键关闭。
+ * 多张时按 [startIndex] 起,左右切。
+ */
+@Composable
+private fun FullScreenImageViewer(
+    uris: List<android.net.Uri>,
+    startIndex: Int,
+    onDismiss: () -> Unit,
+) {
+    BackHandler(onBack = onDismiss)
+    var index by remember(startIndex) { mutableStateOf(startIndex) }
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false,
+        ),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+                .clickable(onClick = onDismiss),
+            contentAlignment = Alignment.Center,
+        ) {
+            val context = LocalContext.current
+            val bitmap by produceState<android.graphics.Bitmap?>(
+                initialValue = null,
+                uris.getOrNull(index),
+            ) {
+                value = uris.getOrNull(index)?.let { ImageAttachments.fullBitmap(context, it) }
+            }
+            val bmp = bitmap
+            if (bmp != null) {
+                Image(
+                    bitmap = bmp.asImageBitmap(),
+                    contentDescription = null,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+            // 关闭按钮(右上,白色圆形底,避免被全屏图盖掉视觉)
+            IconButton(
+                onClick = onDismiss,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(16.dp)
+                    .navigationBarsPadding(),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = stringResource(android.R.string.cancel),
+                    tint = Color.White,
+                )
+            }
+        }
     }
 }
 
@@ -234,10 +384,13 @@ internal fun ThinkingBubble(item: AgentItem.Thinking) {
 @Composable
 internal fun ToolCallCard(item: AgentItem.ToolCall) {
     var expanded by remember(item.key) { mutableStateOf(false) }
+    // 完成态用中性灰(对齐 onSurfaceVariant / InkMutedLight),不抢品牌色
+    // —— 品牌平安橙留给发送按钮 / 主按钮这些真正需要点睛的位置。
+    // running 用 tertiary 暖橙,error 用 error 红,差异由状态承担。
     val accent = when {
         item.isError -> MaterialTheme.colorScheme.error
         item.running -> MaterialTheme.colorScheme.tertiary
-        else -> MaterialTheme.colorScheme.primary
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
 
     Surface(
@@ -815,7 +968,7 @@ private fun ActionButton(
  *      在左图标在右,跟 WorkBuddy「文字在上、工具条在下」不是一回事。
  *   2. **模型 chip 进了卡内**(logo + 别名 + `⌄`),不再挂在卡下方的 icon row。
  *   3. **发送钮常驻**在最右:空输入 = 浅灰禁用态圆钮(点了没反应),
- *      有内容 = 品牌青绿,运行中 = 停止。上一版是「空输入时把发送钮换成 `+`」,
+ *      有内容 = 品牌平安橙,运行中 = 停止。上一版是「空输入时把发送钮换成 `+`」,
  *      按钮会随输入状态跳变,WorkBuddy 是 `+` 与发送钮**并存**。
  *   4. 卡下方的 icon row(图片/粘贴/模型/更多)**删掉** —— WorkBuddy 没有这行。
  *      功能没丢:图片/粘贴收进 `+` 弹出的面板,模型走卡内 chip。

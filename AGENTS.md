@@ -2,10 +2,11 @@
 
 > **lan-agent** — 简单 Android App,把局域网内多个 opencc-web 实例的入口收成卡片列表,点击卡片进入 WebView 详情加载对应 URL;同时**原生**展示 zai 实例管理 API(启动/停止/重启/删除/打开/二维码扫码添加);**原生 Agent 会话列表 + 会话详情**(直连 `/api/agent/sessions` + `/api/event` SSE,不走 WebView);**SSH 一键启动 zai**(当 Mac 没起来 zai 时)。配套工程是 `/Users/ethan/code/opencc-web`,zai 需用 `pnpm --filter @zn-ai/zai dev -- --lan` 启动才能让手机访问(SSH 模块则全局 `zai --lan --port <p>` 启动)。
 >
-> **0.10.0 起视觉体系整体对齐 WorkBuddy**:浅灰页底 + 白色卡片 + 品牌青绿 `#0CC8A6` + 官方机器人形象,并给助手正文接了**自研 Markdown 渲染**(见 §15)。
+> **0.10.0 起视觉体系整体对齐 WorkBuddy**:浅灰页底 + 白色卡片 + 官方机器人形象,并给助手正文接了**自研 Markdown 渲染**(见 §15)。
 > **0.10.1** 收尾两处「还是不像」的地方:**用户气泡改中性浅灰**(不是品牌绿)+ **输入条改 WorkBuddy 双行白卡**(上排文本域 / 下排工具条,发送钮常驻,删掉卡下方的 icon row)。
+> **0.10.2** 把亮色主题的**品牌色改回平安橙 `#ff6600`**(0.10.0 临时改成 WorkBuddy 青绿 `#0CC8A6`,现改回 zai `/m` 的 AI-Agent 头像家族色)。深色主题保持原青绿 `#35D6B6`。
 >
-> **当前 HEAD**: HEAD on `main` · **versionCode 39** · **versionName 0.10.1**
+> **当前 HEAD**: HEAD on `main` · **versionCode 40** · **versionName 0.10.2**
 
 ## 仓库用途
 
@@ -19,7 +20,7 @@
 - 首屏卡片列表(数据来源: 写死的 `defaultCards` + DataStore 运行时增删改)
 - **原生实例管理屏**(`InstancesScreen` + `InstanceCard`):直连 `/api/instances` 拉快照,2.5s 轮询
 - **原生 Agent 会话列表 + 会话详情**(0.9.0, 0.9.1 修 wire 兼容):从实例卡「会话」按钮进 → 会话列表 → 会话详情,直连该实例的 `/api/agent/sessions` / `/api/agent/sessions/:id` / `/api/event?sid=` SSE,支持发消息 / 中断 / 队列 steer / 权限确认 / 问询 / 文档审核,不走 WebView
-- **WorkBuddy 视觉体系**(0.10.0, 0.10.1 精修):固定色板(浅灰页底 + 白卡 + 品牌青绿,动态取色关闭)、官方机器人形象、启动图标、字号阶梯,全 App 一致;**用户消息气泡中性浅灰 + 四角同半径**(0.10.1);**输入条 = 双行白卡**(上排文本域 / 下排 `语音 · 模型 chip · + · 发送钮`,0.10.1);助手正文 / 思考过程 / 工具输出走 **Markdown 渲染**(`ui/Markdown.kt`)
+- **WorkBuddy 视觉体系**(0.10.0, 0.10.1 精修, 0.10.2 改品牌色):固定色板(浅灰页底 + 白卡 + 品牌平安橙,动态取色关闭)、官方机器人形象、启动图标、字号阶梯,全 App 一致;**用户消息气泡中性浅灰 + 四角同半径**(0.10.1);**输入条 = 双行白卡**(上排文本域 / 下排 `语音 · 模型 chip · + · 发送钮`,0.10.1);助手正文 / 思考过程 / 工具输出走 **Markdown 渲染**(`ui/Markdown.kt`)
 - **三种添加实例**:手动表单 / 目录选择器 / **QR 扫码**(CameraX + ML Kit)
 - **SSH 一键启动 zai**(`SshHostListScreen` + JSch):在 Mac 没起来 zai 时,通过 SSH 远程执行 `nohup zai --lan --port <zaiPort>` 一键拉起,自动探测端口 + 跳 InstancesScreen WebView
 - **WebView 长连接保活**:dataSync foreground service + detached WebView,Activity onPause 后 SSE / WebSocket / long-poll 仍跑
@@ -383,7 +384,7 @@ setBackgroundColor(android.graphics.Color.TRANSPARENT)
 
 - **卡**：`Surface(RoundedCornerShape(24.dp))` 白底 + `shadow(2.dp)`，**无描边**（描边会让它像输入框而不是卡片）；左右外边距 16dp
 - **第二行内容**（左 → 右）：语音图标（`voice.available` 才渲染）→ 模型 chip（`ModelChip`：图标 + 别名 + `⌄`，别名 `.widthIn(max = 116.dp)` 省略号）→ `+`（打开附件/粘贴面板）→ `Spacer(weight(1f))` → 发送/停止圆钮
-- **发送钮常驻、只有颜色变**（`InputBarCircle`，外层 40dp / 内层 38dp）：空输入 = 浅蓝灰 `#E0E3E8` + 白箭头（禁用，按下无反应）；有内容 = 品牌青绿；运行中 = `error` 实心圆 + 停止图标。**不要**再回到「空输入时把发送钮换成 `+`」——那样按钮会随输入状态跳变，WorkBuddy 是 `+` 与发送钮**并存**
+- **发送钮常驻、只有颜色变**（`InputBarCircle`，外层 40dp / 内层 38dp）：空输入 = 浅蓝灰 `#E0E3E8` + 白箭头（禁用，按下无反应）；有内容 = 品牌平安橙；运行中 = `error` 实心圆 + 停止图标。**不要**再回到「空输入时把发送钮换成 `+`」——那样按钮会随输入状态跳变，WorkBuddy 是 `+` 与发送钮**并存**
 - **卡下方的 icon row（图片/粘贴/模型/更多）已删除**：WorkBuddy 没有这一行。功能没丢 —— 图片/粘贴收进 `+` 的面板，模型走卡内 chip
 - 附件缩略图挂在白卡**上方**（横向可滚），不挤占输入宽度
 
@@ -422,7 +423,7 @@ setBackgroundColor(android.graphics.Color.TRANSPARENT)
 | `surfaceContainerLow/Lowest/Container/High` / `surfaceBright` | `#FFFFFF` | `#1F2124` | 卡片 / 输入条 / 弹层 / 对话框 |
 | `surfaceContainerHighest` | `#F3F4F6` | `#26282C` | 代码块 / 未选中项(唯一比卡片深一档的槽) |
 | `onSurface` / `onSurfaceVariant` | `#1F1F1F` / `#8C8C8C` | `#ECEDEF` / `#9AA0A8` | 正文 / 次要文字 |
-| `primary` | `#0CC8A6` | `#35D6B6` | 主按钮 / 发送按钮 / 运行中 |
+| `primary` | `#ff6600` | `#35D6B6` | 主按钮 / 发送按钮 / 运行中 |
 | `tertiary` | `#E2932F` | `#F0B160` | 「运行中」工具卡的强调色 |
 | `outlineVariant` | `#EBEDF0` | `#2B2D31` | 卡片发丝描边 |
 
@@ -440,7 +441,7 @@ M3 语义槽（硬塞 `surfaceVariant` 会连带改掉代码块底色等无关�
 `#DDF6F0`）+ 右下角 4dp 小尖角，跟 WorkBuddy 放在一起一眼就能看出不是一个产品。
 WorkBuddy 手机端采样结果：气泡底 **`#E2E4E3`**（中性灰）、正文 `#1F2120`、**四角同半径
 18dp（没有 IM 那种尖角尾巴）**、长文可以占到接近满宽（**不设 320dp 上限**）。
-品牌青绿只留给发送按钮/主按钮 —— 这是 WorkBuddy 与「绿色气泡 IM」的分水岭。
+品牌平安橙只留给发送按钮/主按钮 —— 这是 WorkBuddy 与「绿色气泡 IM」的分水岭。
 
 **两个关键设计**：
 
@@ -463,7 +464,7 @@ WorkBuddy 手机端采样结果：气泡底 **`#E2E4E3`**（中性灰）、正�
   （`renderer/assets/mascot-new-*.png`，1080×1038 RGBA，透明底）。
 - `drawable-nodpi/wb_mascot.png` = 去白边 + 缩到 640px，给空态用（会话空态 168dp、
   首页空态 132dp）。
-- 启动图标 = 品牌青绿底 + **机器人头**（从 mascot 上半部裁的头部，`app/src/main/res/mipmap-*`
+- 启动图标 = 品牌平安橙底 + **机器人头**（从 mascot 上半部裁的头部，`app/src/main/res/mipmap-*`
   各密度 PNG + `drawable-nodpi/ic_launcher_foreground.png` 自适应前景）。
   自适应前景按 108dp 画布的 **66dp 安全区**（内容 ≤61%）留白（`pad = 0.20`），
   这样任意启动器遮罩下耳朵都不会被切。
@@ -599,8 +600,8 @@ opencc-web 仓库在 `/Users/ethan/code/opencc-web/`,详见 `opencc-web/AGENTS.m
 
 ## 版本 / 发布
 
-- 当前: **0.10.1** (versionCode 39) — `style(ui): 用户气泡改中性浅灰 + 输入条改 WorkBuddy 双行白卡`
-- 上一版: **0.10.0** (versionCode 38) — `feat(ui): 视觉体系整体对齐 WorkBuddy + 助手正文接 Markdown 渲染(自研 ui/Markdown.kt)`
+- 当前: **0.10.2** (versionCode 40) — `style(theme): 亮色主题品牌色改回平安橙 #ff6600(深色不变)`
+- 上一版: **0.10.1** (versionCode 39) — `style(ui): 用户气泡改中性浅灰 + 输入条改 WorkBuddy 双行白卡`
 - 不发 release,只本地 debug APK
 - 每次改完手动 bump `versionCode` + `versionName`(`app/build.gradle.kts`),否则手机装上后版本号不变看不出是新版
 - 历史里程碑:`0.1.1` (WebView 基础) → `0.1.2/0.1.3/0.1.4` (WebView 边距/icon) → `0.6.0` (多实例管理 + 后台保活 + 文件上传) → `0.6.2` (portrait 锁定) → `0.7.0` (SSH 启动 zai) → `0.7.1` (`--runtime` 选项) → `0.7.2`(`kernel` → `runtimeCore` 重命名) → `0.7.3`(`runtimeCore` 加 `repl` 枚举值) → `0.8.0`(实例类型 `app` profile:标准 / 任务工厂 `task-factory`,对齐 opencc-web `InstanceDefinition.app`) → `0.8.1`(`InstanceAppProfile` 加 `Weixin` 防止反序列化崩溃 + 卡片 `WeixinTag`) → `0.9.0`(**原生 Agent 会话**:会话列表 + 会话详情,直连 `/api/agent/sessions` + `/api/event` SSE,支持发消息/中断/队列 steer/权限确认/问询/文档审核;实例卡加「会话」动作,动作行改可横滚) → `0.9.1`(修 `updatedAt` 浮点导致会话列表整页报错打不开;建 JVM 单测基建 `app/src/test/`) → `0.9.2`(**输入条对齐 WorkBuddy**:单胶囊三态(语音/文本/发送·停止·`+`)、系统 `SpeechRecognizer` 语音转文字、图片附件(Photo Picker → 重编码 JPEG → `contentBlocks`)、顶栏瘦身(刷新/分享收进副标题面板)、空态改大图标+文案)

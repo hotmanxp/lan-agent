@@ -1,17 +1,21 @@
 // ui/AppNavHost.kt — NavHost("home" → HomeScreen, "webview/{url}" → WebViewScreen,
 // "instances/{baseUrl}" → 原生 InstancesScreen,
 // "agent-sessions/{baseUrl}/{instanceName}" → 原生会话列表,
-// "agent-session/{baseUrl}/{sid}" → 原生会话详情)
+// "agent-session/{baseUrl}/{instanceName}/{sid}" → 原生会话详情)
 package io.github.hotmanxp.lanagent.ui
 
 import android.net.Uri
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import io.github.hotmanxp.lanagent.data.AgentApi
+import kotlinx.coroutines.launch
 
 @Composable
 fun AppNavHost(navController: NavHostController = rememberNavController()) {
@@ -81,27 +85,47 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
                 onBack = { navController.popBackStack() },
                 onOpenSession = { sid ->
                     navController.navigate(
-                        "agent-session/${Uri.encode(baseUrl)}/${Uri.encode(sid)}"
+                        "agent-session/${Uri.encode(baseUrl)}/${Uri.encode(instanceName)}/${Uri.encode(sid)}"
                     )
                 },
             )
         }
         // 原生 Agent 会话详情(0.9.0)。
         composable(
-            route = "agent-session/{baseUrl}/{sid}",
+            route = "agent-session/{baseUrl}/{instanceName}/{sid}",
             arguments = listOf(
                 navArgument("baseUrl") { type = NavType.StringType },
+                navArgument("instanceName") { type = NavType.StringType },
                 navArgument("sid") { type = NavType.StringType },
             )
         ) { entry ->
             val baseUrl = Uri.decode(entry.arguments?.getString("baseUrl").orEmpty())
+            val instanceName = Uri.decode(entry.arguments?.getString("instanceName").orEmpty())
             val sid = Uri.decode(entry.arguments?.getString("sid").orEmpty())
+            val api = remember(baseUrl) { AgentApi(baseUrl) }
+            val newSessionScope = rememberCoroutineScope()
             AgentSessionScreen(
                 baseUrl = baseUrl.ifBlank { "http://127.0.0.1:9201" },
+                instanceName = instanceName,
                 sessionId = sid,
                 onBack = { navController.popBackStack() },
                 onOpenWeb = { url ->
                     navController.navigate("webview/${Uri.encode(url)}")
+                },
+                onOpenSessions = {
+                    navController.navigate(
+                        "agent-sessions/${Uri.encode(baseUrl)}/${Uri.encode(instanceName)}"
+                    )
+                },
+                onCreateNewSession = {
+                    newSessionScope.launch {
+                        val newSid = runCatching { api.createSession() }.getOrNull()
+                        if (newSid != null) {
+                            navController.navigate(
+                                "agent-session/${Uri.encode(baseUrl)}/${Uri.encode(instanceName)}/${Uri.encode(newSid)}"
+                            )
+                        }
+                    }
                 },
             )
         }

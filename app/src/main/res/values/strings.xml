@@ -157,6 +157,8 @@
     <string name="agent_session_subtitle_fallback">未指定目录</string>
     <string name="agent_session_input_hint">输入消息…</string>
     <string name="agent_session_open_web">在网页打开</string>
+    <string name="agent_session_new_cd">新建会话</string>
+    <string name="agent_session_open_sessions_cd">会话列表</string>
     <!-- 顶栏副标题点开的会话信息面板(0.9.2 新增)。
          刷新 / 在网页打开这两个动作从顶栏 actions 挪进这里 —— 顶栏只留
          「返回 + 标题 + 副标题」,对齐 WorkBuddy 的顶栏密度。 -->

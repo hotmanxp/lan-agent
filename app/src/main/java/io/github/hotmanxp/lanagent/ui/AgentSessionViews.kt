@@ -12,6 +12,8 @@
 package io.github.hotmanxp.lanagent.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -1508,22 +1510,84 @@ private fun InputSheetAction(
 
 @Composable
 internal fun StatusBadge(status: AgentRunStatus) {
-    val (label, color) = when (status) {
-        AgentRunStatus.Idle -> "空闲" to MaterialTheme.colorScheme.onSurfaceVariant
-        AgentRunStatus.Streaming -> "运行中" to MaterialTheme.colorScheme.primary
-        AgentRunStatus.Retrying -> "重试中" to MaterialTheme.colorScheme.tertiary
-        AgentRunStatus.Aborted -> "已中断" to MaterialTheme.colorScheme.outline
-        AgentRunStatus.Error -> "出错" to MaterialTheme.colorScheme.error
-    }
+    // 全部走 onSurfaceVariant —— 状态条只做轻提示,不抢输入框注意力;
+    // 配色再花哨用户也不会停下来看,反而显得啰嗦。
+    val color = MaterialTheme.colorScheme.onSurfaceVariant
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(5.dp),
     ) {
-        if (status == AgentRunStatus.Streaming || status == AgentRunStatus.Retrying) {
-            CircularProgressIndicator(modifier = Modifier.size(10.dp), strokeWidth = 1.5.dp, color = color)
-        } else {
-            Box(modifier = Modifier.size(6.dp).background(color, CircleShape))
+        when (status) {
+            AgentRunStatus.Streaming,
+            AgentRunStatus.Retrying -> {
+                // 活跃态:三个小点循环淡入淡出,代替"运行中"/"重试中"文字。
+                PulsingDots(color = color)
+            }
+            AgentRunStatus.Aborted -> {
+                Box(modifier = Modifier.size(6.dp).background(color, CircleShape))
+                Text(text = "已中断", fontSize = 11.sp, color = color)
+            }
+            AgentRunStatus.Error -> {
+                Box(modifier = Modifier.size(6.dp).background(color, CircleShape))
+                Text(text = "出错", fontSize = 11.sp, color = color)
+            }
+            AgentRunStatus.Idle -> Unit // 调用方已用 `if (status != Idle)` 过滤
         }
-        Text(text = label, fontSize = 11.sp, color = color)
     }
+}
+
+/**
+ * 三个小点波浪式淡入淡出,代替"运行中..."文本(0.10.2 起)。颜色由调用方
+ * 传入 —— 这里刻意不取主题 primary,只做轻提示,不抢主按钮/发送按钮的
+ * 颜色身份。
+ *
+ * 实现:单个 0→1 循环进度,三个 dot 按相位偏移(0/0.33/0.66)采样
+ * `sin(progress * π)` —— sin 半周期天然给出"渐亮 → 渐暗"曲线,三个点
+ * 相位错开 1/3 周期就成波浪。比 `infiniteRepeatable` 配 `initialStartDelay`
+ * 更稳(后者不在所有 Compose 版本里都支持),也比三个独立 `animateFloat`
+ * 更省重组开销。
+ */
+@Composable
+private fun PulsingDots(color: Color) {
+    val transition = rememberInfiniteTransition(label = "status-dots")
+    val progress by transition.animateFloat(
+        initialValue = 0f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1200, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "p",
+    )
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        // alpha ∈ [0.25, 1.0],留 0.25 底线避免完全消失 —— 比"亮 → 全黑 → 亮"
+        // 更克制。
+        val baseMin = 0.25f
+        Box(
+            Modifier
+                .size(5.dp)
+                .alpha(baseMin + (1f - baseMin) * sinWave(progress, 0f))
+                .background(color, CircleShape),
+        )
+        Box(
+            Modifier
+                .size(5.dp)
+                .alpha(baseMin + (1f - baseMin) * sinWave(progress, 1f / 3f))
+                .background(color, CircleShape),
+        )
+        Box(
+            Modifier
+                .size(5.dp)
+                .alpha(baseMin + (1f - baseMin) * sinWave(progress, 2f / 3f))
+                .background(color, CircleShape),
+        )
+    }
+}
+
+/** `sin(cycle * π)` 半周期曲线,cycle ∈ [0, 1) → 返回 ∈ [0, 1],0.5 处峰值。 */
+private fun sinWave(progress: Float, phase: Float): Float {
+    val cycle = ((progress + phase) % 1f + 1f) % 1f
+    return kotlin.math.sin(cycle * Math.PI.toFloat())
 }

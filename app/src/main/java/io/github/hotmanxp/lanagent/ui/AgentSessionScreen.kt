@@ -464,13 +464,13 @@ fun AgentSessionScreen(
             }
 
             // 运行态提示条 —— 顶栏不放状态(对齐 WorkBuddy),改成在输入框
-            // 上面单起一行,空闲时整行不渲染,不占视觉位置。
+            // 上面单起一行,空闲时整行不渲染,不占视觉位置。左对齐 +
+            // 灰底淡动画,只做轻提示,不要抢输入框的注意力。
             if (store.status != AgentRunStatus.Idle) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 6.dp),
-                    horizontalArrangement = Arrangement.Center,
+                        .padding(start = 4.dp, top = 2.dp, bottom = 4.dp),
                 ) {
                     StatusBadge(store.status)
                 }

@@ -5,8 +5,9 @@
 > **0.10.0 起视觉体系整体对齐 WorkBuddy**:浅灰页底 + 白色卡片 + 官方机器人形象,并给助手正文接了**自研 Markdown 渲染**(见 §15)。
 > **0.10.1** 收尾两处「还是不像」的地方:**用户气泡改中性浅灰**(不是品牌绿)+ **输入条改 WorkBuddy 双行白卡**(上排文本域 / 下排工具条,发送钮常驻,删掉卡下方的 icon row)。
 > **0.10.2** 把亮色主题的**品牌色改回平安橙 `#ff6600`**(0.10.0 临时改成 WorkBuddy 青绿 `#0CC8A6`,现改回 zai `/m` 的 AI-Agent 头像家族色)。深色主题保持原青绿 `#35D6B6`。
+> **0.10.3** 收尾运行态徽标:**左对齐** + **三个小点波浪动画** 替代文字(0.10.2 还顶着「运行中/重试中」文字 + 主题色,稍重),颜色统一走 `onSurfaceVariant` 灰,只做轻提示不抢输入框。
 >
-> **当前 HEAD**: HEAD on `main` · **versionCode 40** · **versionName 0.10.2**
+> **当前 HEAD**: HEAD on `main` · **versionCode 41** · **versionName 0.10.3**
 
 ## 仓库用途
 
@@ -600,8 +601,9 @@ opencc-web 仓库在 `/Users/ethan/code/opencc-web/`,详见 `opencc-web/AGENTS.m
 
 ## 版本 / 发布
 
-- 当前: **0.10.2** (versionCode 40) — `style(theme): 亮色主题品牌色改回平安橙 #ff6600(深色不变)`
-- 上一版: **0.10.1** (versionCode 39) — `style(ui): 用户气泡改中性浅灰 + 输入条改 WorkBuddy 双行白卡`
+- 当前: **0.10.3** (versionCode 41) — `style(ui): 运行态徽标左对齐 + 三点波浪动画 + 灰底`
+- 上一版: **0.10.2** (versionCode 40) — `style(theme): 亮色主题品牌色改回平安橙 #ff6600(深色不变)`
+- 再上一版: **0.10.1** (versionCode 39) — `style(ui): 用户气泡改中性浅灰 + 输入条改 WorkBuddy 双行白卡`
 - 不发 release,只本地 debug APK
 - 每次改完手动 bump `versionCode` + `versionName`(`app/build.gradle.kts`),否则手机装上后版本号不变看不出是新版
 - 历史里程碑:`0.1.1` (WebView 基础) → `0.1.2/0.1.3/0.1.4` (WebView 边距/icon) → `0.6.0` (多实例管理 + 后台保活 + 文件上传) → `0.6.2` (portrait 锁定) → `0.7.0` (SSH 启动 zai) → `0.7.1` (`--runtime` 选项) → `0.7.2`(`kernel` → `runtimeCore` 重命名) → `0.7.3`(`runtimeCore` 加 `repl` 枚举值) → `0.8.0`(实例类型 `app` profile:标准 / 任务工厂 `task-factory`,对齐 opencc-web `InstanceDefinition.app`) → `0.8.1`(`InstanceAppProfile` 加 `Weixin` 防止反序列化崩溃 + 卡片 `WeixinTag`) → `0.9.0`(**原生 Agent 会话**:会话列表 + 会话详情,直连 `/api/agent/sessions` + `/api/event` SSE,支持发消息/中断/队列 steer/权限确认/问询/文档审核;实例卡加「会话」动作,动作行改可横滚) → `0.9.1`(修 `updatedAt` 浮点导致会话列表整页报错打不开;建 JVM 单测基建 `app/src/test/`) → `0.9.2`(**输入条对齐 WorkBuddy**:单胶囊三态(语音/文本/发送·停止·`+`)、系统 `SpeechRecognizer` 语音转文字、图片附件(Photo Picker → 重编码 JPEG → `contentBlocks`)、顶栏瘦身(刷新/分享收进副标题面板)、空态改大图标+文案)

@@ -101,6 +101,7 @@ import io.github.hotmanxp.lanagent.data.ImageAttachments
 import io.github.hotmanxp.lanagent.data.ModelEntry
 import io.github.hotmanxp.lanagent.data.PatchSessionRequest
 import io.github.hotmanxp.lanagent.voice.VoiceAsrConfig
+import io.github.hotmanxp.lanagent.voice.HoldToTalkOverlay
 import io.github.hotmanxp.lanagent.voice.rememberHoldToTalk
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -516,6 +517,9 @@ fun AgentSessionScreen(
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
+        // 录音动效层（HoldToTalkOverlay）盖在整个内容区上：无 pointerInput，
+        // 不吃触摸，按住手势仍在胶囊上。
+        Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
 
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
@@ -704,6 +708,10 @@ fun AgentSessionScreen(
                     }
                 },
             )
+        }
+
+        // 录音中的全屏动效：绿浪涌起 + 波形（见 voice/HoldToTalkOverlay.kt）。
+        holdToTalk?.let { HoldToTalkOverlay(it) }
         }
     }
 

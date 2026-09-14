@@ -150,18 +150,50 @@ sealed interface AsrUrlProvider {
     ) : AsrUrlProvider {
         override fun provide(engine: String): SignedAsrUrl {
             val body = httpGet(baseUrl.trimEnd('/') + tokenPath)
-            val json = org.json.JSONObject(body)
-            if (json.optBoolean("ok", true) == false) {
-                throw IllegalStateException(json.optString("error").ifBlank { "服务端拒绝下发 ASR token" })
-            }
-            val accessToken = json.optString("accessToken")
-            require(accessToken.isNotBlank()) { "服务端响应里没有 accessToken" }
-
+            val parsed = parseResponse(body)
             return WorkBuddy(
-                endpoint = json.optString("endpoint").ifBlank { WorkBuddyAsrAuth.DEFAULT_ENDPOINT },
-                tokenProvider = { accessToken }, // 同一次 provide 内复用，不二次请求
-                uid = json.optString("uid").takeIf { it.isNotBlank() },
+                endpoint = parsed.endpoint.ifBlank { WorkBuddyAsrAuth.DEFAULT_ENDPOINT },
+                // 同一次 provide 内复用，不二次请求
+                tokenProvider = { parsed.accessToken },
+                uid = parsed.uid,
             ).provide(engine)
+        }
+
+        companion object {
+            /**
+             * 服务端响应解析后的结构。[endpoint] 缺省时由调用方回落
+             * [WorkBuddyAsrAuth.DEFAULT_ENDPOINT]；[uid] 缺省 / 空白 = 不带
+             * `X-User-Id`。
+             */
+            internal data class ParsedResponse(
+                val endpoint: String,
+                val accessToken: String,
+                val uid: String?,
+            )
+
+            /**
+             * 解析服务端 JSON 响应。抽出来是为了单测能直接喂字符串构造 —
+             * 端到端路径需要真 HTTP，调 `provide()` 拿不到注入点。
+             *
+             * 错误语义与生产一致：
+             *   - `{ok: false, error: "..."}` → IllegalStateException
+             *   - `accessToken` 缺失 / 空白 → IllegalArgumentException
+             */
+            internal fun parseResponse(body: String): ParsedResponse {
+                val json = org.json.JSONObject(body)
+                if (json.optBoolean("ok", true) == false) {
+                    throw IllegalStateException(
+                        json.optString("error").ifBlank { "服务端拒绝下发 ASR token" }
+                    )
+                }
+                val accessToken = json.optString("accessToken")
+                require(accessToken.isNotBlank()) { "服务端响应里没有 accessToken" }
+                return ParsedResponse(
+                    endpoint = json.optString("endpoint"),
+                    accessToken = accessToken,
+                    uid = json.optString("uid").takeIf { it.isNotBlank() },
+                )
+            }
         }
     }
 

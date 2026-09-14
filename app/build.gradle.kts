@@ -125,4 +125,6 @@ dependencies {
     implementation(libs.jsch)
 
     testImplementation(kotlin("test"))
+    // 真实 org.json 实现，覆盖 Android stub —— voice/WorkBuddyApi 解析用。
+    testImplementation(libs.org.json)
 }

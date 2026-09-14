@@ -75,6 +75,7 @@ lan-agent/
 ├── AGENTS.md                          # ← 本文件
 ├── docs/superpowers/
 │   ├── specs/2026-08-24-lan-agent-android-app-design.md
+│   ├── specs/2026-09-14-workbuddy-api-token-applicability.md
 │   └── plans/2026-08-24-lan-agent-android-app.md
 └── app/
     ├── build.gradle.kts              # compileSdk 34 / minSdk 26
@@ -402,7 +403,7 @@ setBackgroundColor(android.graphics.Color.TRANSPARENT)
 
 - 判定顺序在 `voice/VoiceAsrConfig.kt`：后端签发 → WorkBuddy 直连 → 腾讯云自签 → 都没配就回落 `SpeechRecognizer`（行为跟加之前一致）。
 - 协议差异抽在 `AsrDialect { TencentCloud, WorkBuddy }`；采集与上行两家一致（16k/mono/PCM16、100ms 一片、裸二进制帧）。
-- WorkBuddy 那条的凭据位置/续期/风险见 `hold-to-talk/wb-auth/README.md`。⚠️ 它的 refresh_token 是**一次性轮换**的，别在桌面端和后端同时刷，会把桌面端踢下线。
+- WorkBuddy 那条的凭据位置/续期/风险见 [`docs/superpowers/specs/2026-09-14-workbuddy-api-token-applicability.md`](docs/superpowers/specs/2026-09-14-workbuddy-api-token-applicability.md)（含 JWT claims 解码、`acc-product-config-v3.json` 配置、app.asar 反编译出的端点表、`copilot.tencent.com` 真机探测矩阵）。⚠️ 它的 refresh_token 是**一次性轮换**的，别在桌面端和后端同时刷，会把桌面端踢下线。**通用结论**：同一把 JWT 在 `copilot.tencent.com` 下覆盖绝大多数业务接口（对话/定时任务/连接器/配额/自定义技能/项目等），仅续期/切账号走 `X-Refresh-Token`、`/console/as/*` 管理面被 403、pre-login 流程需 `X-No-Authorization: true`。
 - 为什么非绕开 `SpeechRecognizer` 不可：国行无 Google 服务的 ROM 上 `isRecognitionAvailable()` 恒为 false，按钮**直接不渲染**（`if (voice.available)`）—— 云 ASR 没这个依赖。
 
 **语音输入走平台 `SpeechRecognizer`**（`ui/VoiceInput.kt`），不引第三方 SDK：零依赖 / 零 key / 零体积，代价是必须联网且设备得真有识别服务。三个必须知道的点：
@@ -623,4 +624,4 @@ opencc-web 仓库在 `/Users/ethan/code/opencc-web/`,详见 `opencc-web/AGENTS.m
 - 不发 release,只本地 debug APK
 - 每次改完手动 bump `versionCode` + `versionName`(`app/build.gradle.kts`),否则手机装上后版本号不变看不出是新版
 - 历史里程碑:`0.1.1` (WebView 基础) → `0.1.2/0.1.3/0.1.4` (WebView 边距/icon) → `0.6.0` (多实例管理 + 后台保活 + 文件上传) → `0.6.2` (portrait 锁定) → `0.7.0` (SSH 启动 zai) → `0.7.1` (`--runtime` 选项) → `0.7.2`(`kernel` → `runtimeCore` 重命名) → `0.7.3`(`runtimeCore` 加 `repl` 枚举值) → `0.8.0`(实例类型 `app` profile:标准 / 任务工厂 `task-factory`,对齐 opencc-web `InstanceDefinition.app`) → `0.8.1`(`InstanceAppProfile` 加 `Weixin` 防止反序列化崩溃 + 卡片 `WeixinTag`) → `0.9.0`(**原生 Agent 会话**:会话列表 + 会话详情,直连 `/api/agent/sessions` + `/api/event` SSE,支持发消息/中断/队列 steer/权限确认/问询/文档审核;实例卡加「会话」动作,动作行改可横滚) → `0.9.1`(修 `updatedAt` 浮点导致会话列表整页报错打不开;建 JVM 单测基建 `app/src/test/`) → `0.9.2`(**输入条对齐 WorkBuddy**:单胶囊三态(语音/文本/发送·停止·`+`)、系统 `SpeechRecognizer` 语音转文字、图片附件(Photo Picker → 重编码 JPEG → `contentBlocks`)、顶栏瘦身(刷新/分享收进副标题面板)、空态改大图标+文案)
-- 详细开发产物见 `docs/superpowers/specs/2026-08-24-lan-agent-android-app-design.md`(原 v0.1 spec)+ `docs/superpowers/plans/2026-08-24-lan-agent-android-app.md`(10-task 实现 plan)。**注意**:spec/plan 在 0.6.0 / 0.7.x 大幅扩展后已过期,但作为初始设计参考仍可读;后续新增功能没再写独立 spec/plan。
+- 详细开发产物见 `docs/superpowers/specs/2026-08-24-lan-agent-android-app-design.md`(原 v0.1 spec)+ `docs/superpowers/plans/2026-08-24-lan-agent-android-app.md`(10-task 实现 plan)+ `docs/superpowers/specs/2026-09-14-workbuddy-api-token-applicability.md`(WorkBuddy accessToken 适用面调研,含真机探测矩阵)。**注意**:spec/plan 在 0.6.0 / 0.7.x 大幅扩展后已过期,但作为初始设计参考仍可读;后续新增功能没再写独立 spec/plan,只有 0.10.x 的 ASR 路线在 2026-09-14 这份调研里留下了 WorkBuddy 鉴权与端点适用面的最新事实底座。

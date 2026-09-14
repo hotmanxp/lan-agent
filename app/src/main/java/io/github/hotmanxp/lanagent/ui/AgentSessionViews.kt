@@ -73,6 +73,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -108,7 +109,8 @@ import io.github.hotmanxp.lanagent.data.pretty
 import io.github.hotmanxp.lanagent.data.QueuedPrompt
 import io.github.hotmanxp.lanagent.data.V2Task
 import io.github.hotmanxp.lanagent.data.tupleKey
-import io.github.hotmanxp.lanagent.voice.HoldToTalkButton
+import io.github.hotmanxp.lanagent.voice.HoldPhase
+import io.github.hotmanxp.lanagent.voice.HoldToTalkCapsule
 import io.github.hotmanxp.lanagent.voice.HoldToTalkState
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -1032,8 +1034,23 @@ internal fun AgentInputBar(
 ) {
     var showMoreMenu by remember { mutableStateOf(false) }
     var showModelPicker by remember { mutableStateOf(false) }
+    // 语音模式两段式：点语音图标 → 输入框区域变成「按住 说话」大胶囊（WorkBuddy
+    // 同款）；识别完成回填文本后自动收回，也可以点胶囊左侧的键盘按钮手动收回。
+    var voiceMode by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState()
     val modelSheetState = rememberModalBottomSheetState()
+
+    // 识别完成自动退出语音模式：phase 从 Recording/Recognizing 回到 Idle 时，
+    // onResult 已经把 final 文本写进 value —— 这时收回胶囊让用户看到/编辑文本。
+    // 上一帧 phase 用 remember 记，避免 Idle→Idle 的无关重组误触发。
+    var prevPhase by remember { mutableStateOf(HoldPhase.Idle) }
+    LaunchedEffect(holdToTalk?.phase) {
+        val now = holdToTalk?.phase ?: HoldPhase.Idle
+        if (prevPhase != HoldPhase.Idle && now == HoldPhase.Idle) {
+            voiceMode = false
+        }
+        prevPhase = now
+    }
 
     // 有内容才让发送钮「亮」起来。注意:圆钮**始终渲染**,只是禁用态换颜色 ——
     // WorkBuddy 就是这么做的,空输入时按钮不消失,布局因此不跳。
@@ -1090,7 +1107,15 @@ internal fun AgentInputBar(
                         .fillMaxWidth()
                         .padding(start = 18.dp, end = 8.dp, top = 14.dp, bottom = 8.dp),
                 ) {
-                    // ---- 第一行:文本域(占满整行宽度,不与按钮抢横向空间) ----
+                    // ---- 第一行:文本域,语音模式下变成「按住 说话」大胶囊 ----
+                    if (voiceMode && holdToTalk != null) {
+                        HoldToTalkCapsule(
+                            state = holdToTalk,
+                            baseText = value,
+                            onCollapse = { voiceMode = false },
+                            modifier = Modifier.padding(end = 10.dp, bottom = 10.dp),
+                        )
+                    } else {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1123,6 +1148,7 @@ internal fun AgentInputBar(
                                 .heightIn(min = 24.dp, max = 150.dp),
                         )
                     }
+                    } // else:非语音模式的文本域
 
                     // ---- 第二行:工具条(左:语音/模型/附件;右:发送) ----
                     Row(
@@ -1130,10 +1156,20 @@ internal fun AgentInputBar(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
-                        // 按住说话优先:走腾讯云实时 ASR,不依赖系统识别服务,
-                        // 国行无 Google 服务的 ROM 上也照常能用。
+                        // 云 ASR:点语音图标进入语音模式(输入框变「按住 说话」大胶囊),
+                        // 不依赖系统识别服务,国行无 Google 服务的 ROM 上也照常能用。
                         if (holdToTalk != null) {
-                            HoldToTalkButton(state = holdToTalk, baseText = value)
+                            InputBarIcon(
+                                icon = Icons.Default.GraphicEq,
+                                contentDescription = stringResource(R.string.agent_input_voice),
+                                tint = if (voiceMode) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurface
+                                },
+                                modifier = Modifier.alpha(if (voiceMode) voiceAlpha else 1f),
+                                onClick = { voiceMode = true },
+                            )
                         } else if (voice.available) {
                             InputBarIcon(
                                 icon = Icons.Default.GraphicEq,

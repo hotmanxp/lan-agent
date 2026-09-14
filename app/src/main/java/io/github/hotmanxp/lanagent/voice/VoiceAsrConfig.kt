@@ -1,6 +1,6 @@
 // voice/VoiceAsrConfig.kt — 语音识别凭据 / 握手地址来源的唯一取值点。
 //
-// 三条路，按下面的顺序判定，**先命中先用**：
+// 四条路，按下面的顺序判定，**先命中先用**：
 //
 //   1. **后端签发**（推荐，凭据不进安装包）
 //      打开 `local.properties` 的 `asrSignViaBackend=true`，App 每次按住会打
@@ -8,18 +8,25 @@
 //      后端返回 `{"url":"wss://…","voice_id":"…","headers":{},"dialect":"workbuddy"}`。
 //      腾讯云形态可省掉后两个字段。实例 baseUrl 由调用方从实例快照（host+port）带进来。
 //
-//   2. **直连 WorkBuddy 自己的 ASR**（复用现成登录态，不用开通腾讯云）
+//   2. **后端下发 WorkBuddy 登录态**（opencc-web 的 getASRToken，凭据不进安装包）
+//      实例 baseUrl 非空即启用。App 每次按住打
+//      `GET <实例 baseUrl>/api/voice/getASRToken`，服务端现读桌面端落盘的
+//      auth 文件返回 `{"ok":true,"endpoint":…,"accessToken":…,"uid":…,"expiresAt":…}`。
+//      客户端**只拿不刷** —— refreshToken 一次性轮换，客户端刷一次就把桌面端
+//      踢下线；token 新鲜度由桌面端自己的续期保证。见 AsrUrlProvider.WorkBuddyApi。
+//
+//   3. **直连 WorkBuddy 自己的 ASR**（兜底：服务端没起但本地灌过凭据）
 //      `local.properties` 里 `asrUseWorkBuddy=true` + `asrWbAccessToken=<JWT>`，
 //      可选 `asrWbRefreshToken` / `asrWbUid` / `asrWbEndpoint`。
 //      凭据从哪来、怎么续期，见 WorkBuddyAsrAuth.kt 的文件头。
-//      ⚠️ accessToken 默认 3 天、refreshToken 7 天 —— 想长期跑必须走第 1 条。
+//      ⚠️ accessToken 默认 3 天、refreshToken 7 天 —— 想长期跑必须走第 2 条。
 //
-//   3. **端上自签腾讯云**（联调 / 内网自用）
+//   4. **端上自签腾讯云**（联调 / 内网自用）
 //      在 `local.properties` 里填 `asrAppId` / `asrSecretId` / `asrSecretKey`。
 //      `local.properties` 在 .gitignore 里，不会进 git —— 但 **APK 反编译能拿到**，
 //      所以这条路只适合自己用/局域网，别对外分发。
 //
-// 三条都没配 → [providerOrNull] 返回 null → 输入条回落到系统 SpeechRecognizer
+// 四条都没配 → [providerOrNull] 返回 null → 输入条回落到系统 SpeechRecognizer
 // （旧的 `ui/VoiceInput.kt`），行为跟改动前完全一致。
 //
 // 关于「鉴权」：腾讯云是 **签名鉴权**（没有登录环节，签名即 token，见
@@ -40,6 +47,9 @@ object VoiceAsrConfig {
 
     /** 后端签发接口的路径（挂在实例的 baseUrl 上）。 */
     const val TOKEN_PATH = "/api/voice/asr-token"
+
+    /** opencc-web 下发 WorkBuddy 登录态的路径（挂在实例的 baseUrl 上）。 */
+    const val WB_TOKEN_PATH = "/api/voice/getASRToken"
 
     val engine: String
         get() = BuildConfig.ASR_ENGINE.ifBlank { ENGINE_DEFAULT }

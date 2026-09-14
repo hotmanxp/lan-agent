@@ -20,9 +20,9 @@
 // AsrUrlProvider.Remote 让后端签发（凭据只在服务端）。
 package io.github.hotmanxp.lanagent.voice
 
-import android.util.Base64
 import java.net.URLEncoder
 import java.security.SecureRandom
+import java.util.Base64 as JdkBase64
 import java.util.UUID
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
@@ -128,6 +128,44 @@ sealed interface AsrUrlProvider {
     }
 
     /**
+     * 生产（WorkBuddy 路线）：向实例后端要一份**现成的 WorkBuddy 登录态**。
+     *
+     * 后端（opencc-web / zai）`GET <baseUrl>/api/voice/getASRToken` 直接读桌面端
+     * 落盘的 auth 文件返回：
+     * `{"ok":true,"endpoint":"https://copilot.tencent.com","accessToken":…,
+     *   "refreshToken":…,"uid":…,"expiresAt":<epoch ms>}`。
+     *
+     * 关键取舍：**客户端只拿不刷**。refreshToken 一次性轮换，客户端刷一次就把
+     * 桌面端踢下线 —— 这里每次按住都现要一份（服务端现读文件），token 的新鲜度
+     * 由桌面端自己的续期保证。客户端无状态，也不用 WorkBuddyAsrAuth。
+     *
+     * 请求失败（服务端没起 / 没登录 / 文件加密）直接抛 —— 上层 onError 会 toast，
+     * 下次按住再试。不做静默回落（用户需要知道云识别为什么不可用）。
+     */
+    class WorkBuddyApi(
+        private val baseUrl: String,
+        private val httpGet: (String) -> String,
+        /** 请求路径。与服务端 routes/voice.ts 的挂载点保持一致。 */
+        private val tokenPath: String = "/api/voice/getASRToken",
+    ) : AsrUrlProvider {
+        override fun provide(engine: String): SignedAsrUrl {
+            val body = httpGet(baseUrl.trimEnd('/') + tokenPath)
+            val json = org.json.JSONObject(body)
+            if (json.optBoolean("ok", true) == false) {
+                throw IllegalStateException(json.optString("error").ifBlank { "服务端拒绝下发 ASR token" })
+            }
+            val accessToken = json.optString("accessToken")
+            require(accessToken.isNotBlank()) { "服务端响应里没有 accessToken" }
+
+            return WorkBuddy(
+                endpoint = json.optString("endpoint").ifBlank { WorkBuddyAsrAuth.DEFAULT_ENDPOINT },
+                tokenProvider = { accessToken }, // 同一次 provide 内复用，不二次请求
+                uid = json.optString("uid").takeIf { it.isNotBlank() },
+            ).provide(engine)
+        }
+    }
+
+    /**
      * 生产：向后端要一条拼好的握手地址（腾讯云或 WorkBuddy 都走这里）。
      * 后端返回 `{"url":"wss://…","voice_id":"…","headers":{},"dialect":"workbuddy"}`，
      * 客户端拿到就用，凭据不落地。后两个字段可省，缺省即腾讯云形态。
@@ -209,7 +247,10 @@ object TencentAsrSignature {
             init(SecretKeySpec(secretKey.toByteArray(Charsets.UTF_8), "HmacSHA1"))
         }
         val raw = mac.doFinal(canonical.toByteArray(Charsets.UTF_8))
-        val base64 = Base64.encodeToString(raw, Base64.NO_WRAP)
+        // 等价 android.util.Base64.encodeToString(raw, Base64.NO_WRAP)：
+        // JDK 默认 76 字符换行，strip 掉；padding 保留。
+        val base64 = JdkBase64.getEncoder().encodeToString(raw)
+            .replace("\r", "").replace("\n", "")
 
         // URLEncoder 会把 + → %2B、/ → %2F、= → %3D，正是官方要求的编码强度。
         val signature = URLEncoder.encode(base64, "UTF-8")

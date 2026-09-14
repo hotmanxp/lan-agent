@@ -466,11 +466,15 @@ fun AgentSessionScreen(
             // 运行态提示条 —— 顶栏不放状态(对齐 WorkBuddy),改成在输入框
             // 上面单起一行,空闲时整行不渲染,不占视觉位置。左对齐 +
             // 灰底淡动画,只做轻提示,不要抢输入框的注意力。
+            //
+            // start = 12.dp:对齐消息气泡左边距(AgentSessionViews.kt 里消息
+            // 内容大量用 start = 12.dp / horizontal = 12.dp),让 StatusBadge
+            // 的三个 dot 起点跟消息文本对齐,而不是贴屏幕左边。
             if (store.status != AgentRunStatus.Idle) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = 4.dp, top = 2.dp, bottom = 4.dp),
+                        .padding(start = 12.dp, top = 2.dp, bottom = 4.dp),
                 ) {
                     StatusBadge(store.status)
                 }

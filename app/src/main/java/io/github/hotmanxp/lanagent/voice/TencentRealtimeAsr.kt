@@ -70,6 +70,12 @@ class TencentRealtimeAsr(
 
         /** 失败。[code] 为 0 表示本地/网络异常（非服务端错误码）。 */
         fun onError(code: Int, message: String)
+
+        /**
+         * 非致命提示（如「网络不稳丢了 N 片音频，结果可能不完整」）。
+         * 默认空实现，调用方按需覆盖。
+         */
+        fun onWarning(message: String) = Unit
     }
 
     private val main = Handler(Looper.getMainLooper())
@@ -81,6 +87,13 @@ class TencentRealtimeAsr(
     private var socket: WebSocket? = null
     private var closed = false
     private var connected = false
+
+    /**
+     * OkHttp WebSocket.send 返回 false 的次数（内部队列满 / 通道已关闭）。
+     * feed() 跑在 capture 线程上，读写必须在同一处同步 —— 简化为 `synchronized` 块。
+     * 仅用于最终提醒「网络不稳，结果可能不完整」，不参与识别逻辑。
+     */
+    private var droppedChunks = 0
 
     /** 本次连接的服务端方言，由 [AsrUrlProvider] 决定收尾帧形态与下行解析方式。 */
     private var dialect: AsrDialect = AsrDialect.TencentCloud
@@ -150,6 +163,10 @@ class TencentRealtimeAsr(
     /**
      * 灌一片音频。200ms 一片（16k → 6400 字节），保持 1:1 实时率。
      * 握手未完成时会自动缓冲，不会丢。
+     *
+     * `ws.send` 在 OkHttp 内部队列满（默认约 16 MiB）/ 通道已关闭时会返回 false。
+     * 队列满在 200ms 一片的常规节奏下不会触发；返回 false 多半是网络真的抖了，
+     * 累加到 [droppedChunks]，最终一并 surface 给上层。
      */
     fun feed(chunk: ByteArray) {
         if (closed || chunk.isEmpty()) return
@@ -158,7 +175,9 @@ class TencentRealtimeAsr(
             synchronized(lock) { pending.addLast(chunk) }
             return
         }
-        ws.send(chunk.toByteString())
+        if (!ws.send(chunk.toByteString())) {
+            synchronized(lock) { droppedChunks++ }
+        }
     }
 
     /**
@@ -289,9 +308,13 @@ class TencentRealtimeAsr(
         finalWaiter = null
         closed = true
         val full = committed.toString().trim()
+        val dropped = synchronized(lock) { droppedChunks }
         post {
             listener.onText(full, "")
             listener.onFinal(full)
+            if (dropped > 0) {
+                listener.onWarning("网络不稳丢了 $dropped 片音频，结果可能不完整")
+            }
             waiter?.invoke(full)
         }
         closeQuietly()

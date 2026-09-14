@@ -228,6 +228,12 @@ class HoldToTalkState internal constructor(
                     // 4007 解码失败（采样率或 voice_format 不对）/ 6001 走了境外代理
                     onError(if (code == 0) message else "识别失败($code)：$message")
                 }
+
+                override fun onWarning(message: String) {
+                    // 非致命（如「网络不稳丢了 N 片」）走 hint 通道，让 UI toast 提示。
+                    // 复用 onHint 而不是 onError，因为识别其实成功了，不该改用户已看到的文本。
+                    onHint(message)
+                }
             },
         )
         asr = client

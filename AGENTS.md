@@ -7,7 +7,9 @@
 > **0.10.2** 把亮色主题的**品牌色改回平安橙 `#ff6600`**(0.10.0 临时改成 WorkBuddy 青绿 `#0CC8A6`,现改回 zai `/m` 的 AI-Agent 头像家族色)。深色主题保持原青绿 `#35D6B6`。
 > **0.10.3** 收尾运行态徽标:**左对齐** + **三个小点波浪动画** 替代文字(0.10.2 还顶着「运行中/重试中」文字 + 主题色,稍重),颜色统一走 `onSurfaceVariant` 灰,只做轻提示不抢输入框。
 >
-> **当前 HEAD**: HEAD on `main` · **versionCode 41** · **versionName 0.10.3**
+> **未发版(versionCode 仍 44 / 0.10.6)** 输入条接上 **「按住说话」语音输入**,走**腾讯云实时语音识别(WebSocket)**(新包 `voice/`,见 §16)。**不是替换**系统 SpeechRecognizer,而是**优先**:`voice/VoiceAsrConfig.providerOrNull(baseUrl)` 返回 null(没配密钥)时输入条行为跟改动前完全一致。凭据从 `local.properties`(已 gitignore)读,经 `BuildConfig.ASR_*` 注入;**SecretKey 不硬编码**。要出局域网需切后端签发(实例侧 `/api/voice/asr-token`)。
+>
+> **当前 HEAD**: HEAD on `main` · **versionCode 44** · **versionName 0.10.6**
 
 ## 仓库用途
 
@@ -388,6 +390,20 @@ setBackgroundColor(android.graphics.Color.TRANSPARENT)
 - **发送钮常驻、只有颜色变**（`InputBarCircle`，外层 40dp / 内层 38dp）：空输入 = 浅蓝灰 `#E0E3E8` + 白箭头（禁用，按下无反应）；有内容 = 品牌平安橙；运行中 = `error` 实心圆 + 停止图标。**不要**再回到「空输入时把发送钮换成 `+`」——那样按钮会随输入状态跳变，WorkBuddy 是 `+` 与发送钮**并存**
 - **卡下方的 icon row（图片/粘贴/模型/更多）已删除**：WorkBuddy 没有这一行。功能没丢 —— 图片/粘贴收进 `+` 的面板，模型走卡内 chip
 - 附件缩略图挂在白卡**上方**（横向可滚），不挤占输入宽度
+
+**「按住说话」走云 ASR**（`voice/` 包）。与上面的 `SpeechRecognizer` **并存**，由 `local.properties` 开关切换：
+
+| | 腾讯云实时 ASR | 复用 WorkBuddy 登录态 |
+|---|---|---|
+| 开关 | `asrAppId`/`asrSecretId`/`asrSecretKey`，或 `asrSignViaBackend=true` | `asrUseWorkBuddy=true` + `asrWbAccessToken` |
+| 鉴权 | URL 签名（HMAC-SHA1，无登录环节） | `Authorization: Bearer <Keycloak JWT>` + `X-User-Id` |
+| 收尾 | 文本帧 `{"type":"end"}` | **空二进制帧** |
+| 下行 | `result.slice_type` 切片（1 非稳态 / 2 稳态） | **整段全量 `text`，覆盖，不能追加** |
+
+- 判定顺序在 `voice/VoiceAsrConfig.kt`：后端签发 → WorkBuddy 直连 → 腾讯云自签 → 都没配就回落 `SpeechRecognizer`（行为跟加之前一致）。
+- 协议差异抽在 `AsrDialect { TencentCloud, WorkBuddy }`；采集与上行两家一致（16k/mono/PCM16、100ms 一片、裸二进制帧）。
+- WorkBuddy 那条的凭据位置/续期/风险见 `hold-to-talk/wb-auth/README.md`。⚠️ 它的 refresh_token 是**一次性轮换**的，别在桌面端和后端同时刷，会把桌面端踢下线。
+- 为什么非绕开 `SpeechRecognizer` 不可：国行无 Google 服务的 ROM 上 `isRecognitionAvailable()` 恒为 false，按钮**直接不渲染**（`if (voice.available)`）—— 云 ASR 没这个依赖。
 
 **语音输入走平台 `SpeechRecognizer`**（`ui/VoiceInput.kt`），不引第三方 SDK：零依赖 / 零 key / 零体积，代价是必须联网且设备得真有识别服务。三个必须知道的点：
 

@@ -108,6 +108,8 @@ import io.github.hotmanxp.lanagent.data.pretty
 import io.github.hotmanxp.lanagent.data.QueuedPrompt
 import io.github.hotmanxp.lanagent.data.V2Task
 import io.github.hotmanxp.lanagent.data.tupleKey
+import io.github.hotmanxp.lanagent.voice.HoldToTalkButton
+import io.github.hotmanxp.lanagent.voice.HoldToTalkState
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -993,8 +995,12 @@ private fun ActionButton(
  *   4. 卡下方的 icon row(图片/粘贴/模型/更多)**删掉** —— WorkBuddy 没有这行。
  *      功能没丢:图片/粘贴收进 `+` 弹出的面板,模型走卡内 chip。
  *
- * 注:左侧图标是真的语音输入(走系统 SpeechRecognizer,见
- * [VoiceInputController]),设备不支持时**不渲染**而不是画个灰图标占位。
+ * 注:左侧图标是真的语音输入,**两条路,优先按住说话**:
+ *   1. 配了腾讯云实时 ASR(见 `voice/VoiceAsrConfig`)→ [HoldToTalkButton]
+ *      (按住说话 / 上滑取消 / 边说边出字)。这条**不依赖系统识别服务**,
+ *      国行无 Google 服务的 ROM 上也能用 —— 正是平台方案的老死穴。
+ *   2. 没配 → 回落到系统 SpeechRecognizer(见 [VoiceInputController]),点按切换;
+ *      设备不支持时**不渲染**而不是画个灰图标占位。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1005,6 +1011,11 @@ internal fun AgentInputBar(
     attachments: List<AttachedImage>,
     onRemoveAttachment: (AttachedImage) -> Unit,
     voice: VoiceInputController,
+    /**
+     * 按住说话的腾讯云 ASR 状态机。null = 没配密钥,回落到 [voice]。
+     * 两者只会有一个在用:非 null 时 hold-to-talk 优先。
+     */
+    holdToTalk: HoldToTalkState?,
     canSend: Boolean,
     onSend: () -> Unit,
     onStop: () -> Unit,
@@ -1119,7 +1130,11 @@ internal fun AgentInputBar(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
-                        if (voice.available) {
+                        // 按住说话优先:走腾讯云实时 ASR,不依赖系统识别服务,
+                        // 国行无 Google 服务的 ROM 上也照常能用。
+                        if (holdToTalk != null) {
+                            HoldToTalkButton(state = holdToTalk, baseText = value)
+                        } else if (voice.available) {
                             InputBarIcon(
                                 icon = Icons.Default.GraphicEq,
                                 contentDescription = stringResource(R.string.agent_input_voice),

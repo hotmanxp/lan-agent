@@ -100,6 +100,8 @@ import io.github.hotmanxp.lanagent.data.AttachedImage
 import io.github.hotmanxp.lanagent.data.ImageAttachments
 import io.github.hotmanxp.lanagent.data.ModelEntry
 import io.github.hotmanxp.lanagent.data.PatchSessionRequest
+import io.github.hotmanxp.lanagent.voice.VoiceAsrConfig
+import io.github.hotmanxp.lanagent.voice.rememberHoldToTalk
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -321,6 +323,24 @@ fun AgentSessionScreen(
         onMessage = { toast(it) },
         onText = { input = it },
     )
+
+    // 按住说话（腾讯云实时 ASR）。**优先于**上面的系统识别：
+    //   - 系统识别依赖设备上装了 RecognitionService，国行无 Google 服务的
+    //     ROM 上 isRecognitionAvailable() 恒 false，按钮直接不渲染；
+    //   - 腾讯云这条路只依赖网络，且支持上滑取消 / 边说边出字。
+    // 没配密钥时 providerOrNull() 返回 null → 整条路不启用，安静回落到系统识别。
+    val asrProvider = remember(baseUrl) { VoiceAsrConfig.providerOrNull(baseUrl) }
+    val holdToTalk = if (asrProvider != null) {
+        rememberHoldToTalk(
+            asrUrlProvider = asrProvider,
+            engine = VoiceAsrConfig.engine,
+            onResult = { input = it },
+            onError = { toast(it) },
+            onHint = { toast(it) },
+        )
+    } else {
+        null
+    }
 
     /** 一次性动作统一加忙锁 + 失败弹 snackbar,避免连点重复提交。 */
     fun guarded(block: suspend () -> Unit) {
@@ -629,12 +649,14 @@ fun AgentSessionScreen(
                 attachments = attachments,
                 onRemoveAttachment = { img -> attachments = attachments - img },
                 voice = voice,
+                holdToTalk = holdToTalk,
                 canSend = input.isNotBlank() || attachments.isNotEmpty(),
                 onSend = {
                     // 录音中的话直接丢弃（discard 而不是 stop）—— stop 之后识别
                     // 服务仍会异步回调结果，会把刚发出去的话重新填回已清空的
                     // 输入框，看着像「发出去的话又回来了」。
                     voice.discard()
+                    holdToTalk?.cancel()
                     send()
                 },
                 onStop = { stop() },

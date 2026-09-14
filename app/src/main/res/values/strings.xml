@@ -150,9 +150,12 @@
     <string name="agent_sessions_error">加载失败:%1$s</string>
     <string name="agent_session_untitled">未命名会话</string>
     <string name="agent_session_empty">发送消息开始与 Agent 对话</string>
-    <string name="agent_session_empty_title">有什么可以帮你的？</string>
+    <!-- 空会话时的问候语。形态照搬 WorkBuddy 的「XXX,我帮你」,换成自己的
+         产品名即可;想改文案只动这一处。 -->
+    <string name="agent_session_empty_title">LAN Agent，我帮你</string>
+    <string name="agent_session_empty_mascot_cd">LAN Agent 机器人</string>
     <string name="agent_session_subtitle_fallback">未指定目录</string>
-    <string name="agent_session_input_hint">发消息给 Agent…</string>
+    <string name="agent_session_input_hint">输入消息…</string>
     <string name="agent_session_open_web">在网页打开</string>
     <!-- 顶栏副标题点开的会话信息面板(0.9.2 新增)。
          刷新 / 在网页打开这两个动作从顶栏 actions 挪进这里 —— 顶栏只留

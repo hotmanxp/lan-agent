@@ -1,4 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.LanAgent" parent="android:Theme.Material.Light.NoActionBar" />
+    <!-- 主题壳:真正的配色在 Compose 层(ui/LanAgentTheme.kt)。这里只负责
+         「冷启动那一帧」—— 窗口底色跟 WorkBuddy 一样是浅灰 #F8F8F8,
+         避免白屏闪一下再被 Compose 盖住。 -->
+    <style name="Theme.LanAgent" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/wb_window_background</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
 </resources>

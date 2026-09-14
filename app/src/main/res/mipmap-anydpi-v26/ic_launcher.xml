@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    WorkBuddy 风格启动图标:品牌青绿底(#0CC8A6) + 机器人头。
+    前景是 PNG(drawable-nodpi/ic_launcher_foreground.png),已按 108dp
+    画布的 66dp 安全区留白,所以任意启动器遮罩下耳朵都不会被切。
+-->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-    <background android:drawable="@drawable/ic_launcher_background" />
+    <background android:drawable="@color/ic_launcher_background" />
     <foreground android:drawable="@drawable/ic_launcher_foreground" />
 </adaptive-icon>

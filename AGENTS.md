@@ -2,7 +2,10 @@
 
 > **lan-agent** — 简单 Android App,把局域网内多个 opencc-web 实例的入口收成卡片列表,点击卡片进入 WebView 详情加载对应 URL;同时**原生**展示 zai 实例管理 API(启动/停止/重启/删除/打开/二维码扫码添加);**原生 Agent 会话列表 + 会话详情**(直连 `/api/agent/sessions` + `/api/event` SSE,不走 WebView);**SSH 一键启动 zai**(当 Mac 没起来 zai 时)。配套工程是 `/Users/ethan/code/opencc-web`,zai 需用 `pnpm --filter @zn-ai/zai dev -- --lan` 启动才能让手机访问(SSH 模块则全局 `zai --lan --port <p>` 启动)。
 >
-> **当前 HEAD**: HEAD on `main` · **versionCode 36** · **versionName 0.9.2**
+> **0.10.0 起视觉体系整体对齐 WorkBuddy**:浅灰页底 + 白色卡片 + 品牌青绿 `#0CC8A6` + 官方机器人形象,并给助手正文接了**自研 Markdown 渲染**(见 §15)。
+> **0.10.1** 收尾两处「还是不像」的地方:**用户气泡改中性浅灰**(不是品牌绿)+ **输入条改 WorkBuddy 双行白卡**(上排文本域 / 下排工具条,发送钮常驻,删掉卡下方的 icon row)。
+>
+> **当前 HEAD**: HEAD on `main` · **versionCode 39** · **versionName 0.10.1**
 
 ## 仓库用途
 
@@ -16,6 +19,7 @@
 - 首屏卡片列表(数据来源: 写死的 `defaultCards` + DataStore 运行时增删改)
 - **原生实例管理屏**(`InstancesScreen` + `InstanceCard`):直连 `/api/instances` 拉快照,2.5s 轮询
 - **原生 Agent 会话列表 + 会话详情**(0.9.0, 0.9.1 修 wire 兼容):从实例卡「会话」按钮进 → 会话列表 → 会话详情,直连该实例的 `/api/agent/sessions` / `/api/agent/sessions/:id` / `/api/event?sid=` SSE,支持发消息 / 中断 / 队列 steer / 权限确认 / 问询 / 文档审核,不走 WebView
+- **WorkBuddy 视觉体系**(0.10.0, 0.10.1 精修):固定色板(浅灰页底 + 白卡 + 品牌青绿,动态取色关闭)、官方机器人形象、启动图标、字号阶梯,全 App 一致;**用户消息气泡中性浅灰 + 四角同半径**(0.10.1);**输入条 = 双行白卡**(上排文本域 / 下排 `语音 · 模型 chip · + · 发送钮`,0.10.1);助手正文 / 思考过程 / 工具输出走 **Markdown 渲染**(`ui/Markdown.kt`)
 - **三种添加实例**:手动表单 / 目录选择器 / **QR 扫码**(CameraX + ML Kit)
 - **SSH 一键启动 zai**(`SshHostListScreen` + JSch):在 Mac 没起来 zai 时,通过 SSH 远程执行 `nohup zai --lan --port <zaiPort>` 一键拉起,自动探测端口 + 跳 InstancesScreen WebView
 - **WebView 长连接保活**:dataSync foreground service + detached WebView,Activity onPause 后 SSE / WebSocket / long-poll 仍跑
@@ -42,6 +46,7 @@
 | 导航 | Navigation Compose | 2.8.4 |
 | 持久化 | DataStore Preferences | 1.1.1 |
 | 序列化 | kotlinx-serialization-json | 1.7.3 |
+| Markdown | **自研**(`ui/Markdown.kt`,不引第三方库) | — |
 | WebView | AndroidX Webkit | 1.12.1 |
 | 相机 | CameraX (core/camera2/lifecycle/view) | 1.3.4 |
 | 扫码 | ML Kit Barcode Scanning | 17.3.0 |
@@ -74,15 +79,19 @@ lan-agent/
         ├── AndroidManifest.xml        # 单 Activity + 6 类权限 + service
         ├── res/
         │   ├── values/{strings,themes,colors}.xml
+        │   ├── values-night/{themes,colors}.xml          # 深色冷启动底色 #141517
         │   ├── xml/network_security_config.xml   # base-config cleartextTrafficPermitted="true"
-        │   ├── mipmap-anydpi-v26/                 # adaptive icon(Wi-Fi hub 风格)
-        │   ├── mipmap-{hdpi,mdpi,xhdpi,xxhdpi,xxxhdpi}/
-        │   └── drawable/ic_launcher_{background,foreground}.xml
+        │   ├── mipmap-anydpi-v26/                 # 自适应图标(青绿底 + 机器人头前景)
+        │   ├── mipmap-{hdpi,mdpi,xhdpi,xxhdpi,xxxhdpi}/  # 各密度 PNG(青绿底 + 机器人头)
+        │   └── drawable-nodpi/
+        │       ├── wb_mascot.png                 # WorkBuddy 机器人形象(空态用)
+        │       └── ic_launcher_foreground.png    # 自适应前景(108dp 画布,66dp 安全区)
         └── java/io/github/hotmanxp/lanagent/
             ├── MainActivity.kt        # setContent + immersive + 媒体权限申请
             ├── LanAgentApp.kt         # Application;注册 WebViewKeepAlive 通知 channel
             ├── ui/
-            │   ├── LanAgentTheme.kt   # Material3 + dynamicColor
+            │   ├── LanAgentTheme.kt   # WorkBuddy 色板 + 字号阶梯 + 状态栏明暗(无动态取色)
+            │   ├── Markdown.kt        # 自研 Markdown:块级解析(纯函数)+ Compose 渲染 + CodeBox
             │   ├── AppNavHost.kt      # NavHost: home / scan / instances/{baseUrl} / agent-sessions/{baseUrl}/{instanceName} / agent-session/{baseUrl}/{sid} / ssh-hosts / webview/{url}
             │   ├── HomeScreen.kt      # 首页卡片列表 + 4 按钮(scan/instances/edit/add)+ 编辑模式(增删改拖拽)
             │   ├── EditCardDialog.kt  # 旧卡片增改对话框(HomeScreen 用)
@@ -96,7 +105,7 @@ lan-agent/
             │   ├── AgentSessionsScreen.kt  # 原生会话列表(5s 轮询 + 新建会话)
             │   ├── AgentSessionScreen.kt   # 原生会话详情(hydrate transcript + SSE reduce + 发消息/中断/队列/权限/审核)
             │   ├── AgentSessionStore.kt    # 会话状态机:transcript 归一化 + SSE 事件 reduce → AgentItem 列表
-            │   ├── AgentSessionViews.kt    # 消息渲染组件(用户气泡/助手正文/思考折叠/工具卡/ask·permission·approve 卡/单胶囊输入条)
+            │   ├── AgentSessionViews.kt    # 消息渲染组件(用户气泡/助手正文/思考折叠/工具卡/ask·permission·approve 卡/双行白卡输入条)
             │   └── VoiceInput.kt           # 语音转文字(平台 SpeechRecognizer + 权限申请 + 部分结果回填)
             ├── data/
             │   ├── Cards.kt           # 5 张 hardcode 默认卡片 + findManagerBaseUrl
@@ -259,6 +268,11 @@ Box(Modifier.fillMaxSize().background(Color(0xFF1F2937))) {
 - `WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE` — 边缘 swipe 临时显示
 - **状态栏保留可见**(用户要看到时间/电池)
 - 状态栏背景设 `Color.TRANSPARENT`
+- **状态栏图标颜色跟着主题切**(0.10.0):`LanAgentTheme` 里
+  `WindowInsetsControllerCompat.isAppearanceLightStatusBars = !darkTheme` —— 内容画到状态栏
+  后面,浅色页面必须配深色图标,否则状态栏等于隐形。`values/themes.xml` /
+  `values-night/themes.xml` 只负责冷启动那一帧的窗口底色(`#F8F8F8` / `#141517`),
+  别把配色逻辑写进 XML。
 
 `WebViewScreen` AndroidView 加 `windowInsetsPadding(WindowInsets.statusBars)` + `padding(top = 4.dp)` + `imePadding()`(让出状态栏 + 软键盘,避免输入框被 IME 盖住)。**不要用负 padding**(`(-8).dp`),某些 Compose 版本会抛 IllegalArgumentException。
 
@@ -348,7 +362,7 @@ setBackgroundColor(android.graphics.Color.TRANSPARENT)
 **渲染细节**：
 - 消息列表用 `reverseLayout = true`（index 0 贴底）—— 流式追加时视口自动跟住新内容，不需要每帧手算滚动偏移；「贴底」判据是 `firstVisibleItemIndex <= 3`
 - 工具输出/入参入库即截断（`capForDisplay`，输出 20k / 入参 6k 字符 + 尾部标注原始长度）。不截断的话单条 200KB Bash 输出塞进 Compose `Text` 会真的卡住布局（单 Text 长文本是 O(n)）
-- `Markdown` 只认 ``` 围栏代码块（`splitFences`），其余纯文本 —— 不引 markdown 依赖，但代码块用等宽 + 独立底框 + 横滚，读 diff / Bash 输出够用；**未闭合围栏也渲染**（流式输出中间态就是没闭合的）
+- **正文按 Markdown 渲染**（0.10.0 起，见 §15）：`ui/Markdown.kt` 自研子集解析器，不引 markdown 依赖；助手正文 / 思考过程 / 工具输出都走同一套渲染，代码块带复制按钮；**未闭合围栏也渲染**（流式输出中间态就是没闭合的）
 - 三种待处理交互（`prompt.ask` / `prompt.permission` / `prompt.approve`）统一走 `respondPending`：**无论成败都 `clearPending()`** —— 服务端对过期请求回 404，只在成功时清卡片会让用户被一张永远点不掉的卡片卡住（SSE replay 也可能带出旧请求）
 - 文档审核「驳回」必须带非空 `comment`（服务端 schema 强制 1..2000），UI 固定填「手机端驳回」；批准可不带
 - **不确定图标存不存在就直接查，别猜名字**（写错编译就红，但改一次要一轮构建）：
@@ -358,11 +372,20 @@ setBackgroundColor(android.graphics.Color.TRANSPARENT)
   ```
   `Add` / `Close` / `Check` / `Refresh` / `MoreVert` / `KeyboardArrow*` 这些在 **material-icons-core**（另一个 jar）；`Stop` / `GraphicEq` / `ArrowUpward` / `AddPhotoAlternate` / `ContentPaste` / `SmartToy` / `OpenInNew` 在 extended。
 
-**输入条：单胶囊三态（0.9.2 重做，对齐 WorkBuddy）**。上一版是「独立输入框 + 框外挂圆形按钮」，两套圆角并排显碎、窄屏把文本框压掉近一半。现在是一个 `Surface(RoundedCornerShape(26.dp))` 装下 `[语音图标] [BasicTextField weight(1f)] [右按钮]`：
+**输入条：WorkBuddy 双行白卡（0.10.1 定稿）**。演进过程：0.9.2 是「独立输入框 + 框外圆按钮」（两套圆角、窄屏压掉文本框）→ 0.10.0 改成单胶囊（语音 / 文本 / 右按钮同一行）→ **0.10.1 定稿为双行白卡**，因为 WorkBuddy 的输入区是「上排纯文本域 + 下排工具条」，不是一行的胶囊：
 
-- **右按钮三态**：有内容 → 发送箭头（primary 实心圆 36dp）；运行中 → 停止（error 实心圆）；空输入 → `+`（无底色），点开 BottomSheet「添加图片 / 粘贴剪贴板」
-- **三态不要跳**：外层统一 44dp 空白盒（点击区），内层才是可见圆。`vertical padding` 必须 4dp（4+44=52dp），跟左侧语音图标、单行文本区等高 —— 三者在 `Alignment.Bottom` 下圆心都落在距底 26dp，单行状态视觉居中；给 6dp 会让圆钮比左边图标明显「下沉」
-- 附件缩略图挂在药丸**上方**（横向可滚），不挤占输入宽度
+```
+┌────────────────────────────────────────────┐
+│ 输入消息…                                   │   ← 第一行：BasicTextField 独占整行（maxLines=6）
+│ (波形)  ◍ deepseek-v4.1 ⌄   (＋)      (➤)  │   ← 第二行：工具条，发送钮贴右
+└────────────────────────────────────────────┘
+```
+
+- **卡**：`Surface(RoundedCornerShape(24.dp))` 白底 + `shadow(2.dp)`，**无描边**（描边会让它像输入框而不是卡片）；左右外边距 16dp
+- **第二行内容**（左 → 右）：语音图标（`voice.available` 才渲染）→ 模型 chip（`ModelChip`：图标 + 别名 + `⌄`，别名 `.widthIn(max = 116.dp)` 省略号）→ `+`（打开附件/粘贴面板）→ `Spacer(weight(1f))` → 发送/停止圆钮
+- **发送钮常驻、只有颜色变**（`InputBarCircle`，外层 40dp / 内层 38dp）：空输入 = 浅蓝灰 `#E0E3E8` + 白箭头（禁用，按下无反应）；有内容 = 品牌青绿；运行中 = `error` 实心圆 + 停止图标。**不要**再回到「空输入时把发送钮换成 `+`」——那样按钮会随输入状态跳变，WorkBuddy 是 `+` 与发送钮**并存**
+- **卡下方的 icon row（图片/粘贴/模型/更多）已删除**：WorkBuddy 没有这一行。功能没丢 —— 图片/粘贴收进 `+` 的面板，模型走卡内 chip
+- 附件缩略图挂在白卡**上方**（横向可滚），不挤占输入宽度
 
 **语音输入走平台 `SpeechRecognizer`**（`ui/VoiceInput.kt`），不引第三方 SDK：零依赖 / 零 key / 零体积，代价是必须联网且设备得真有识别服务。三个必须知道的点：
 
@@ -385,6 +408,96 @@ setBackgroundColor(android.graphics.Color.TRANSPARENT)
 **顶栏只留「返回 + 标题 + 副标题」**：刷新 / 在网页打开 / 全部会话元信息都收进**副标题点开的 BottomSheet**（`SessionInfoSheet`），状态标签只在非空闲时出现。对齐 WorkBuddy 的顶栏密度 —— 之前塞了 4 个 action，标题被挤得只剩几个字。
 
 **限制（已知）**：超大会话（实测有 13MB / ~1300 条消息的 jsonl）hydrate 时要把整份 JSON 读进内存解析，峰值可能到几十 MB；极端长会话在低端机上可能 OOM。会话列表轮询 5s，本身不做 SSE（实时性由详情页负责）。图片附件图片张数上限 4（`ImageAttachments.MAX_COUNT`），因为 `AttachedImage` 持有 base64 常驻内存。
+
+### 15. WorkBuddy 视觉体系 + Markdown 渲染（0.10.0 / 0.10.1 精修）
+
+**为什么改**：0.9.x 用的是 Material You 动态取色（`dynamicColor = true`），配色跟着手机壁纸跑 —— 真机截图整屏泛紫，跟本项目一直对标的 WorkBuddy 完全不是一个东西。0.10.0 把视觉体系钉成一套固定 token。
+
+**色板（唯一来源 `ui/LanAgentTheme.kt`）**：数值取自两处硬证据 —— WorkBuddy 官方图标
+（青绿渐变，`ascii` 采样 `#0DC8A6 → #14CA85`）和 WorkBuddy 手机端截图采样。
+
+| 槽位 | 亮色 | 深色 | 用途 |
+|------|------|------|------|
+| `background` **=` `surface`** | `#F8F8F8` | `#141517` | 页面底 + **顶栏**(所以顶栏不再是白条) |
+| `surfaceContainerLow/Lowest/Container/High` / `surfaceBright` | `#FFFFFF` | `#1F2124` | 卡片 / 输入条 / 弹层 / 对话框 |
+| `surfaceContainerHighest` | `#F3F4F6` | `#26282C` | 代码块 / 未选中项(唯一比卡片深一档的槽) |
+| `onSurface` / `onSurfaceVariant` | `#1F1F1F` / `#8C8C8C` | `#ECEDEF` / `#9AA0A8` | 正文 / 次要文字 |
+| `primary` | `#0CC8A6` | `#35D6B6` | 主按钮 / 发送按钮 / 运行中 |
+| `tertiary` | `#E2932F` | `#F0B160` | 「运行中」工具卡的强调色 |
+| `outlineVariant` | `#EBEDF0` | `#2B2D31` | 卡片发丝描边 |
+
+**M3 槽位装不下的两个色（0.10.1）**：用户气泡底色、发送钮禁用态底色**没有**对应的
+M3 语义槽（硬塞 `surfaceVariant` 会连带改掉代码块底色等无关位置），所以单开一个
+`LocalWbExtras`（`ui/LanAgentTheme.kt`，`@Immutable data class WbExtras`），由
+`LanAgentTheme` 用 `CompositionLocalProvider` 提供：
+
+| 字段 | 亮色 | 深色 | 用途 |
+|------|------|------|------|
+| `userBubble` | `#E2E4E3` | `#2A2D2C` | 用户消息气泡 |
+| `sendDisabled` | `#E0E3E8` | `#34383D` | 发送钮禁用态 |
+
+**用户气泡：中性浅灰，不是品牌绿（0.10.1 修正）**。0.10.0 用 `primaryContainer`（薄荷绿
+`#DDF6F0`）+ 右下角 4dp 小尖角，跟 WorkBuddy 放在一起一眼就能看出不是一个产品。
+WorkBuddy 手机端采样结果：气泡底 **`#E2E4E3`**（中性灰）、正文 `#1F2120`、**四角同半径
+18dp（没有 IM 那种尖角尾巴）**、长文可以占到接近满宽（**不设 320dp 上限**）。
+品牌青绿只留给发送按钮/主按钮 —— 这是 WorkBuddy 与「绿色气泡 IM」的分水岭。
+
+**两个关键设计**：
+
+1. **`surface` 直接设成页底色，卡片族全设成白色** —— 于是 `Scaffold` / `TopAppBar`
+   默认取 `surface`（灰，跟页面连成一片），`Card` / `ModalBottomSheet`
+   （`surfaceContainerLow`）/ AlertDialog / 会话行 / 工具卡（`surfaceContainerHigh`）
+   默认取白色。全项目一百多处 `MaterialTheme.colorScheme.*` 调用一次性对齐，
+   不用逐个屏幕改颜色。
+2. **`dynamicColor` 默认关**（参数保留，默认 `false`）。真要开 Material You 才显式传 `true`。
+3. **状态栏图标明暗自适应**：状态栏透明 + 内容画到状态栏后面，所以 `LanAgentTheme`
+   里用 `WindowInsetsControllerCompat.isAppearanceLightStatusBars = !darkTheme` 跟着页面深浅切，
+   否则浅色页面上白图标 = 隐形状态栏。
+
+**字号阶梯**：`WbTypography` 只覆盖高频档位 —— 顶栏标题 `titleMedium` 16sp/SemiBold、
+正文 15sp/22sp、次要 12sp、说明 10–11sp。Markdown 内部另有一套（h1 21sp → h4 15.5sp，
+代码 12sp/18sp 等宽），见下。
+
+**机器人形象 / 图标**：
+- 素材来源：从 WorkBuddy 桌面端 `app.asar` 里抽出来的官方资源
+  （`renderer/assets/mascot-new-*.png`，1080×1038 RGBA，透明底）。
+- `drawable-nodpi/wb_mascot.png` = 去白边 + 缩到 640px，给空态用（会话空态 168dp、
+  首页空态 132dp）。
+- 启动图标 = 品牌青绿底 + **机器人头**（从 mascot 上半部裁的头部，`app/src/main/res/mipmap-*`
+  各密度 PNG + `drawable-nodpi/ic_launcher_foreground.png` 自适应前景）。
+  自适应前景按 108dp 画布的 **66dp 安全区**（内容 ≤61%）留白（`pad = 0.20`），
+  这样任意启动器遮罩下耳朵都不会被切。
+- 空态问候语「LAN Agent,我帮你」照搬 WorkBuddy 的「XXX,我帮你」句式，
+  文案在 `strings.xml` 的 `agent_session_empty_title`，改文案只动这一处。
+
+**Markdown 渲染（`ui/Markdown.kt`）**：
+
+- **不引第三方库**：通用 markdown 库（多平台版）会带语法高亮 / 数学公式 / HTML 子集，
+  体积几 MB 而本项目只需要一个子集。
+- **解析与渲染分离**：`MarkdownParser.parse(String): List<MdBlock>` 是**纯 Kotlin 函数**
+  （不 import 任何 Compose 类），渲染层只做 `when (block)` 映射。
+  以后想加单测 / 换渲染实现都只动一层。
+- **覆盖范围**：块级 `#{1,6}` / 段落 / ``` 围栏代码 / `>` 引用 / `-`·`1.` 列表(嵌套 +
+  `- [x]` 任务框) / 表格 / `---` 分割线；行内 `**粗**` `*斜*` `` `码` `` `~~删~~`
+  `[文字](url)` 裸链接 `\` 转义。行内是**递归下降**，所以「粗体里套行内码」天然支持。
+- **链接点击**：用 Compose 1.7 的 `LinkAnnotation.Url` + `TextLinkStyles`，
+  `Text` 自动走 `LocalUriHandler` 打开系统浏览器 —— 不需要 `ClickableText` / 手动命中测试。
+- **流式安全（两条硬约束）**：
+  1. **未闭合的围栏**直接当代码块渲染到结尾 —— 不能把后面所有内容吞进代码块后再也不吐出来；
+  2. **找不到闭合标记的行内标记**（半截 `**` / 半截 `` ` ``）原样输出，不能吞掉后面的字。
+  这两点决定了「先 hydrate 再 SSE 逐字渲染」的观感，改动解析器时必须守住。
+- **表格**：整表包一层 `horizontalScroll`，列宽 `widthIn(min = 96.dp)` —— 窄屏横向滚动
+  而不是把每列挤成竖排单字。
+- **`CodeBox` 也住在 Markdown.kt**（工具卡 / 权限卡 / 文档审核卡都在用）：
+  等宽 + 独立底框 + 横滚 + 右上角「复制」。
+- **`MarkdownText(compact = true)`** 给思考过程这类副文本用（块间距 4dp 而不是 7dp，
+  配 12sp 次要文字色）。
+
+**改配色 / 改字号 / 换机器人形象要动哪里**：
+配色 → `ui/LanAgentTheme.kt` 的 `WbPalette` + 两个 scheme；字号 → 同文件的 `WbTypography`；
+空态文案 → `strings.xml`；机器人图 → 覆盖 `drawable-nodpi/wb_mascot.png`；
+启动图标 → 覆盖 `mipmap-*` 各密度 PNG + `drawable-nodpi/ic_launcher_foreground.png`
+（`values/colors.xml` 的 `ic_launcher_background` 是底色）。
 
 ## 强制开发规则
 
@@ -486,7 +599,8 @@ opencc-web 仓库在 `/Users/ethan/code/opencc-web/`,详见 `opencc-web/AGENTS.m
 
 ## 版本 / 发布
 
-- 当前: **0.9.2** (versionCode 36) — `feat(agent): 输入条改 WorkBuddy 单胶囊 + 语音输入 + 图片附件`
+- 当前: **0.10.1** (versionCode 39) — `style(ui): 用户气泡改中性浅灰 + 输入条改 WorkBuddy 双行白卡`
+- 上一版: **0.10.0** (versionCode 38) — `feat(ui): 视觉体系整体对齐 WorkBuddy + 助手正文接 Markdown 渲染(自研 ui/Markdown.kt)`
 - 不发 release,只本地 debug APK
 - 每次改完手动 bump `versionCode` + `versionName`(`app/build.gradle.kts`),否则手机装上后版本号不变看不出是新版
 - 历史里程碑:`0.1.1` (WebView 基础) → `0.1.2/0.1.3/0.1.4` (WebView 边距/icon) → `0.6.0` (多实例管理 + 后台保活 + 文件上传) → `0.6.2` (portrait 锁定) → `0.7.0` (SSH 启动 zai) → `0.7.1` (`--runtime` 选项) → `0.7.2`(`kernel` → `runtimeCore` 重命名) → `0.7.3`(`runtimeCore` 加 `repl` 枚举值) → `0.8.0`(实例类型 `app` profile:标准 / 任务工厂 `task-factory`,对齐 opencc-web `InstanceDefinition.app`) → `0.8.1`(`InstanceAppProfile` 加 `Weixin` 防止反序列化崩溃 + 卡片 `WeixinTag`) → `0.9.0`(**原生 Agent 会话**:会话列表 + 会话详情,直连 `/api/agent/sessions` + `/api/event` SSE,支持发消息/中断/队列 steer/权限确认/问询/文档审核;实例卡加「会话」动作,动作行改可横滚) → `0.9.1`(修 `updatedAt` 浮点导致会话列表整页报错打不开;建 JVM 单测基建 `app/src/test/`) → `0.9.2`(**输入条对齐 WorkBuddy**:单胶囊三态(语音/文本/发送·停止·`+`)、系统 `SpeechRecognizer` 语音转文字、图片附件(Photo Picker → 重编码 JPEG → `contentBlocks`)、顶栏瘦身(刷新/分享收进副标题面板)、空态改大图标+文案)

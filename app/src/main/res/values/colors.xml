@@ -1,6 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- zai brand orange (#ff6600) so the white robot icon matches the
-         AI-Agent avatar family zai uses on the /m page. -->
-    <color name="ic_launcher_background">#ff6600</color>
+    <!-- 启动图标底色 —— 取自 WorkBuddy 官方图标主色(品牌青绿 #0CC8A6),
+         前景是同款机器人头(drawable-nodpi/ic_launcher_foreground.png)。 -->
+    <color name="ic_launcher_background">#0CC8A6</color>
+
+    <!-- 窗口底色:避免冷启动时先闪一下系统白再被 Compose 覆盖。 -->
+    <color name="wb_window_background">#F8F8F8</color>
+
+    <!-- 品牌色(& 界面色板的正本在 ui/LanAgentTheme.kt 的 WbPalette,
+         Compose 侧改一处即可全应用生效)。 -->
+    <color name="wb_brand_teal">#0CC8A6</color>
+    <color name="wb_brand_green">#14CA85</color>
 </resources>

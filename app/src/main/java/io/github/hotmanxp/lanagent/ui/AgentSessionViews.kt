@@ -1,11 +1,14 @@
 // ui/AgentSessionViews.kt — 会话详情页的渲染组件。
 //
-// 视觉参考 WorkBuddy 手机端对话页:用户气泡靠右,助手内容靠左无气泡(读起来
-// 更像文档),工具调用/思考过程折叠成卡片默认收起,底部是 pill 形输入条
-// (圆角 + outline 边框 + 右侧圆形发送/停止按钮)。
+// 视觉参考 WorkBuddy 手机端对话页:浅灰页底 + 白色卡片;用户消息是**右侧中性
+// 浅灰气泡**(不是品牌绿,也不是 IM 常见的尖角尾巴);助手正文靠左**不加气泡**
+// (读起来像文档,并且支持 Markdown,见 ui/Markdown.kt);工具调用/思考过程折叠成
+// 卡片默认收起;底部是**白色圆角卡**输入条 —— 上排纯文本域,下排工具条
+// (语音 / 模型 chip / `+` / 右侧实心圆发送钮)。
 //
-// 全部状态用 Material3 的 dynamic color scheme,不硬编码亮暗色 —— 与项目
-// 既有屏幕(InstanceCard / InstancesScreen)保持一致。
+// 颜色全部走 Material3 语义槽位(见 LanAgentTheme.kt 的注释:surface = 页底灰,
+// surfaceContainer* = 卡片白),M3 没有对应槽位的两处(用户气泡底色、发送钮禁用态)
+// 走 [LocalWbExtras] —— 所以这里不硬编码任何色值,深浅色自动适配。
 package io.github.hotmanxp.lanagent.ui
 
 import androidx.compose.animation.core.RepeatMode
@@ -51,6 +54,7 @@ import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.CircularProgressIndicator
@@ -74,6 +78,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -106,6 +111,15 @@ internal fun clockOf(ms: Long?): String? = ms?.let { CLOCK.format(Date(it)) }
 
 // ===== 用户消息 =====
 
+/**
+ * 用户消息气泡。对齐 WorkBuddy 手机端的三条硬特征:
+ *   1. **中性浅灰底**(`#E2E4E3`),不是品牌绿 —— 青绿只给发送按钮。
+ *      上一版用 `primaryContainer`(薄荷绿),整屏跟 WorkBuddy 放在一起
+ *      一眼就能看出不是同一个产品。
+ *   2. **四角同半径**(18dp)。上一版右下角是 4dp 的「小尖角」(IM 常见尾巴),
+ *      WorkBuddy 没有尾巴。
+ *   3. 气泡**右贴、宽度随内容**,长文可以占到接近满宽(不设 320dp 上限)。
+ */
 @Composable
 internal fun UserBubble(item: AgentItem.UserText) {
     Column(
@@ -113,21 +127,20 @@ internal fun UserBubble(item: AgentItem.UserText) {
         horizontalAlignment = Alignment.End,
     ) {
         Surface(
-            color = MaterialTheme.colorScheme.primaryContainer,
-            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-            shape = RoundedCornerShape(18.dp, 18.dp, 4.dp, 18.dp),
-            modifier = Modifier.widthIn(max = 320.dp),
+            color = LocalWbExtras.current.userBubble,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            shape = RoundedCornerShape(18.dp),
         ) {
             Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
                 if (item.text.isNotBlank()) {
-                    Text(text = item.text, fontSize = 15.sp, lineHeight = 21.sp)
+                    Text(text = item.text, fontSize = 15.sp, lineHeight = 22.sp)
                 }
                 if (item.attachments > 0) {
                     if (item.text.isNotBlank()) Spacer(Modifier.height(6.dp))
                     Text(
                         text = "${item.attachments} 张图片",
                         fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
@@ -138,95 +151,15 @@ internal fun UserBubble(item: AgentItem.UserText) {
 
 // ===== 助手正文 =====
 
+/**
+ * 助手正文。**不加气泡** —— 跟 WorkBuddy 一样让正文像文档一样铺开,Markdown
+ * 由 [MarkdownText] 渲染(标题 / 列表 / 代码块 / 表格 / 引用,见 ui/Markdown.kt)。
+ */
 @Composable
 internal fun AssistantBubble(item: AgentItem.AssistantText) {
     Column(modifier = Modifier.fillMaxWidth()) {
-        RichText(item.text)
+        MarkdownText(item.text)
         clockOf(item.timestamp)?.let { MetaLine(it, Alignment.Start) }
-    }
-}
-
-/**
- * 极简「Markdown 子集」渲染:只认 ``` 围栏代码块,其余按纯文本。不引 markdown
- * 依赖(项目约定不加库),但代码块用等宽字体 + 可横滚的独立底框,读长 Bash
- * 输出和 diff 时不至于糊成一团。
- */
-@Composable
-private fun RichText(text: String) {
-    val segments = remember(text) { splitFences(text) }
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        segments.forEach { seg ->
-            when (seg) {
-                is Seg.Text -> if (seg.body.isNotBlank()) {
-                    Text(
-                        text = seg.body.trim('\n'),
-                        fontSize = 15.sp,
-                        lineHeight = 22.sp,
-                    )
-                }
-
-                is Seg.Code -> CodeBox(seg.body, seg.lang)
-            }
-        }
-    }
-}
-
-private sealed interface Seg {
-    data class Text(val body: String) : Seg
-    data class Code(val lang: String?, val body: String) : Seg
-}
-
-private fun splitFences(raw: String): List<Seg> {
-    if (!raw.contains("```")) return listOf(Seg.Text(raw))
-    val out = mutableListOf<Seg>()
-    var i = 0
-    while (i < raw.length) {
-        val start = raw.indexOf("```", i)
-        if (start < 0) {
-            out += Seg.Text(raw.substring(i))
-            break
-        }
-        if (start > i) out += Seg.Text(raw.substring(i, start))
-        val lineEnd = raw.indexOf('\n', start + 3).let { if (it < 0) raw.length else it }
-        val lang = raw.substring(start + 3, lineEnd).trim().takeIf { it.isNotEmpty() }
-        val end = raw.indexOf("```", lineEnd)
-        if (end < 0) {
-            // 未闭合围栏(流式输出中间态)→ 整段当代码,先渲染出来
-            out += Seg.Code(lang, raw.substring(lineEnd))
-            break
-        }
-        out += Seg.Code(lang, raw.substring(lineEnd, end))
-        i = end + 3
-    }
-    return out
-}
-
-@Composable
-internal fun CodeBox(body: String, lang: String? = null) {
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceContainerHighest,
-        shape = RoundedCornerShape(10.dp),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column {
-            if (!lang.isNullOrBlank()) {
-                Text(
-                    text = lang,
-                    fontSize = 10.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 12.dp, top = 8.dp),
-                )
-            }
-            Text(
-                text = body.trim('\n'),
-                fontFamily = FontFamily.Monospace,
-                fontSize = 12.sp,
-                lineHeight = 17.sp,
-                modifier = Modifier
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-            )
-        }
     }
 }
 
@@ -237,7 +170,11 @@ internal fun ThinkingBubble(item: AgentItem.Thinking) {
     var expanded by remember(item.key) { mutableStateOf(false) }
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerLow,
-        shape = RoundedCornerShape(10.dp),
+        shape = RoundedCornerShape(12.dp),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant,
+        ),
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column {
@@ -275,11 +212,16 @@ internal fun ThinkingBubble(item: AgentItem.Thinking) {
                 )
             }
             if (expanded) {
-                Text(
-                    text = item.text,
-                    fontSize = 12.sp,
-                    lineHeight = 18.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                // 思考过程也走 Markdown 渲染(Agent 的思考里经常带列表/代码),
+                // 用 compact 间距 + 次要文字色,视觉上仍从属于正文。
+                MarkdownText(
+                    markdown = item.text,
+                    compact = true,
+                    baseStyle = androidx.compose.ui.text.TextStyle(
+                        fontSize = 12.sp,
+                        lineHeight = 18.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    ),
                     modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 10.dp),
                 )
             }
@@ -301,6 +243,10 @@ internal fun ToolCallCard(item: AgentItem.ToolCall) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         shape = RoundedCornerShape(12.dp),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant,
+        ),
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column {
@@ -440,6 +386,10 @@ internal fun V2TaskStrip(tasks: List<V2Task>) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         shape = RoundedCornerShape(12.dp),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant,
+        ),
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column {
@@ -768,11 +718,11 @@ private fun ActionCard(
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         shape = RoundedCornerShape(14.dp),
-        modifier = Modifier.fillMaxWidth(),
         border = androidx.compose.foundation.BorderStroke(
             1.dp,
             accent.copy(alpha = 0.35f),
         ),
+        modifier = Modifier.fillMaxWidth(),
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
             Row(
@@ -850,27 +800,28 @@ private fun ActionButton(
     }
 }
 
-// ===== 底部输入条(WorkBuddy 单胶囊结构) =====
+// ===== 底部输入条(WorkBuddy 双行白卡) =====
 
 /**
- * 底部输入条。结构对齐 WorkBuddy 手机端：
+ * 底部输入条。**结构照抄 WorkBuddy 手机端** —— 一张白色圆角卡,里面上下两行:
  *
- *     ┌───────────────────────────────────────────┐
- *     │  (波形)   发消息给 Agent…             (+)  │
- *     └───────────────────────────────────────────┘
+ *     ┌────────────────────────────────────────────┐
+ *     │ 输入消息…                                   │   ← 第一行:纯文本域
+ *     │ (波形)  ◍ deepseek-v4.1  ⌄   (＋)      (➤) │   ← 第二行:工具条
+ *     └────────────────────────────────────────────┘
  *
- * **关键是一个 Surface 装下全部**（语音图标 + 文本 + 动作按钮）。上一版是
- * 「独立输入框 + 框外挂一个圆形按钮」，两套圆角并排既占宽度又显碎，窄屏上
- * 文本框被压掉近一半。
+ * 与上一版的差异(这版才真的像 WorkBuddy):
+ *   1. **两行**,不是一行 —— 上一版把语音图标、文本、`+` 挤在同一行,且文本
+ *      在左图标在右,跟 WorkBuddy「文字在上、工具条在下」不是一回事。
+ *   2. **模型 chip 进了卡内**(logo + 别名 + `⌄`),不再挂在卡下方的 icon row。
+ *   3. **发送钮常驻**在最右:空输入 = 浅灰禁用态圆钮(点了没反应),
+ *      有内容 = 品牌青绿,运行中 = 停止。上一版是「空输入时把发送钮换成 `+`」,
+ *      按钮会随输入状态跳变,WorkBuddy 是 `+` 与发送钮**并存**。
+ *   4. 卡下方的 icon row(图片/粘贴/模型/更多)**删掉** —— WorkBuddy 没有这行。
+ *      功能没丢:图片/粘贴收进 `+` 弹出的面板,模型走卡内 chip。
  *
- * 右侧按钮按 WorkBuddy 约定三态：
- *   - 有内容 → 发送箭头(primary 实心圆)
- *   - 运行中 → 停止(error 实心圆)
- *   - 空输入 → `+`（无底色），点开「添加图片 / 粘贴剪贴板」
- *
- * 注：截图里 WorkBuddy 的右侧是 `+`、左侧是语音；lan-agent 的左侧图标同样
- * 是语音（`GraphicEq` 波形），但**功能是真的**——走系统 SpeechRecognizer
- * （见 [VoiceInputController]），设备不支持时置灰而不是点了没反应。
+ * 注:左侧图标是真的语音输入(走系统 SpeechRecognizer,见
+ * [VoiceInputController]),设备不支持时**不渲染**而不是画个灰图标占位。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -889,7 +840,7 @@ internal fun AgentInputBar(
     /**
      * 当前 session 的模型 + 后端可选项。picker 直接用 `(providerId, model)`
      * 元组判「当前」(见 [tupleKey]),`availableModels` 为空时 chip 退化为
-     * 只读 + 锁头图标(不让用户点开空 picker)。
+     * 只读(不让用户点开空 picker)。
      */
     currentModel: ModelEntry?,
     availableModels: List<ModelEntry>,
@@ -900,10 +851,13 @@ internal fun AgentInputBar(
     val sheetState = rememberModalBottomSheetState()
     val modelSheetState = rememberModalBottomSheetState()
 
+    // 有内容才让发送钮「亮」起来。注意:圆钮**始终渲染**,只是禁用态换颜色 ——
+    // WorkBuddy 就是这么做的,空输入时按钮不消失,布局因此不跳。
     val hasContent = value.isNotBlank() || attachments.isNotEmpty()
+    val reallyCanSend = hasContent && canSend
 
-    // 收音中的呼吸感反馈。没有它的话，用户按下后 1–2 秒内毫无动静
-    // （识别服务首字延迟就是这么久），会以为按钮坏了。
+    // 收音中的呼吸感反馈。没有它的话,用户按下后 1–2 秒内毫无动静
+    // (识别服务首字延迟就是这么久),会以为按钮坏了。
     val pulse = rememberInfiniteTransition(label = "voice-pulse")
     val voiceAlpha by pulse.animateFloat(
         initialValue = 0.35f,
@@ -921,9 +875,9 @@ internal fun AgentInputBar(
                 .fillMaxWidth()
                 .navigationBarsPadding()
                 .imePadding()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+                .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 10.dp),
         ) {
-            // 附件条只在有图时出现，挂在药丸上方（不挤占输入宽度）
+            // 附件条只在有图时出现,挂在白卡上方(不挤占输入宽度)
             if (attachments.isNotEmpty()) {
                 Row(
                     modifier = Modifier
@@ -938,51 +892,25 @@ internal fun AgentInputBar(
                 }
             }
 
+            // 输入白卡。WorkBuddy 的输入区观感 = 「浮在浅灰页面上的一张白色圆角卡」:
+            // 24dp 圆角 + 极轻投影,不要描边(描边会让它看起来像输入框,而不是卡片)。
             Surface(
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                shape = RoundedCornerShape(26.dp),
+                shape = RoundedCornerShape(24.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .border(
-                        width = 1.dp,
-                        color = MaterialTheme.colorScheme.outlineVariant,
-                        shape = RoundedCornerShape(26.dp),
-                    ),
+                    .shadow(2.dp, RoundedCornerShape(24.dp), clip = false),
             ) {
-                Row(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(min = 52.dp)
-                        .padding(horizontal = 6.dp),
-                    verticalAlignment = Alignment.Bottom,
-                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                        .padding(start = 18.dp, end = 8.dp, top = 14.dp, bottom = 8.dp),
                 ) {
-                    // 模型切换不放在输入框左侧 —— 下方 icon row 已经有「模型」入口,
-                    // 重复展示只会让左侧挤掉语音/输入区的横向空间。模型
-                    // 入口由 icon row 的 Psychology 项统一承担。
-
-                    // 语音图标:设备识别服务不可用时**直接不渲染**(而不是画个
-                    // 灰图标让人以为能用)。原来置灰 + 可点 + 点开 toast 的
-                    // 体验被人吐槽过 —— 不可用就别让它出现在界面上占位,
-                    // 用户的视觉认知里就不存在这个功能。
-                    if (voice.available) {
-                        InputBarIcon(
-                            icon = Icons.Default.GraphicEq,
-                            contentDescription = stringResource(R.string.agent_input_voice),
-                            tint = if (voice.listening) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                            modifier = Modifier.alpha(if (voice.listening) voiceAlpha else 1f),
-                            onClick = { voice.toggle(value) },
-                        )
-                    }
-
+                    // ---- 第一行:文本域(占满整行宽度,不与按钮抢横向空间) ----
                     Box(
                         modifier = Modifier
-                            .weight(1f)
-                            .padding(horizontal = 4.dp, vertical = 15.dp),
+                            .fillMaxWidth()
+                            .padding(end = 10.dp, bottom = 10.dp),
                         contentAlignment = Alignment.CenterStart,
                     ) {
                         if (value.isEmpty()) {
@@ -999,83 +927,79 @@ internal fun AgentInputBar(
                             onValueChange = onValueChange,
                             textStyle = TextStyle(
                                 fontSize = 15.sp,
+                                lineHeight = 22.sp,
                                 color = MaterialTheme.colorScheme.onSurface,
                             ),
                             cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                             maxLines = 6,
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                            keyboardActions = KeyboardActions(onSend = { if (canSend) onSend() }),
+                            keyboardActions = KeyboardActions(onSend = { if (reallyCanSend) onSend() }),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .heightIn(min = 22.dp, max = 150.dp),
+                                .heightIn(min = 24.dp, max = 150.dp),
                         )
                     }
 
-                    when {
-                        busy -> InputBarCircle(
-                            icon = Icons.Default.Stop,
-                            contentDescription = stringResource(R.string.agent_input_stop),
-                            container = MaterialTheme.colorScheme.errorContainer,
-                            content = MaterialTheme.colorScheme.onErrorContainer,
-                            enabled = true,
-                            onClick = onStop,
+                    // ---- 第二行:工具条(左:语音/模型/附件;右:发送) ----
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        if (voice.available) {
+                            InputBarIcon(
+                                icon = Icons.Default.GraphicEq,
+                                contentDescription = stringResource(R.string.agent_input_voice),
+                                tint = if (voice.listening) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurface
+                                },
+                                modifier = Modifier.alpha(if (voice.listening) voiceAlpha else 1f),
+                                onClick = { voice.toggle(value) },
+                            )
+                        }
+
+                        ModelChip(
+                            model = currentModel,
+                            enabled = availableModels.isNotEmpty(),
+                            onClick = { showModelPicker = true },
                         )
 
-                        hasContent -> InputBarCircle(
-                            icon = Icons.Default.ArrowUpward,
-                            contentDescription = stringResource(R.string.agent_input_send),
-                            container = MaterialTheme.colorScheme.primary,
-                            content = MaterialTheme.colorScheme.onPrimary,
-                            enabled = canSend,
-                            onClick = onSend,
-                        )
-
-                        else -> InputBarIcon(
+                        // `+` 与发送钮**并存**(WorkBuddy 行为)。附件/粘贴收进
+                        // 这个面板,所以卡下方不再需要 icon row。
+                        InputBarIcon(
                             icon = Icons.Default.Add,
                             contentDescription = stringResource(R.string.agent_input_more),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            tint = MaterialTheme.colorScheme.onSurface,
                             onClick = { showMoreMenu = true },
                         )
+
+                        Spacer(Modifier.weight(1f))
+
+                        if (busy) {
+                            InputBarCircle(
+                                icon = Icons.Default.Stop,
+                                contentDescription = stringResource(R.string.agent_input_stop),
+                                container = MaterialTheme.colorScheme.error,
+                                content = MaterialTheme.colorScheme.onError,
+                                enabled = true,
+                                onClick = onStop,
+                            )
+                        } else {
+                            InputBarCircle(
+                                icon = Icons.Default.ArrowUpward,
+                                contentDescription = stringResource(R.string.agent_input_send),
+                                container = MaterialTheme.colorScheme.primary,
+                                // 禁用态:浅灰底 + 白箭头(对齐 WorkBuddy 空输入时的样子)
+                                containerDisabled = LocalWbExtras.current.sendDisabled,
+                                content = MaterialTheme.colorScheme.onPrimary,
+                                enabled = reallyCanSend,
+                                onClick = onSend,
+                            )
+                        }
                     }
                 }
-            }
-
-            // 输入卡下方的 icon row(对齐 WorkBuddy 的「快捷入口」行)。
-            // 4 个图标:添加图片 / 粘贴 / 切换模型(快捷触发 chip 等价行为) /
-            // 「更多」收纳菜单。horizontalArrangement.spacedBy 让按钮均布,
-            // 第一枚左贴,最后一枚右贴,中间等间距 —— 视觉密度感更像工具栏
-            // 而不是按钮列表。
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 4.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                IconRowAction(
-                    icon = Icons.Default.AddPhotoAlternate,
-                    label = stringResource(R.string.agent_input_add_image_short),
-                    enabled = attachments.size < ImageAttachments.MAX_COUNT,
-                    onClick = onPickImage,
-                )
-                IconRowAction(
-                    icon = Icons.Default.ContentPaste,
-                    label = stringResource(R.string.agent_input_paste_short),
-                    onClick = onPaste,
-                )
-                IconRowAction(
-                    icon = Icons.Default.Psychology,
-                    label = currentModel?.alias ?: stringResource(R.string.agent_input_model_short),
-                    enabled = availableModels.isNotEmpty(),
-                    onClick = {
-                        if (availableModels.isNotEmpty()) showModelPicker = true
-                    },
-                )
-                IconRowAction(
-                    icon = Icons.Default.Add,
-                    label = stringResource(R.string.agent_input_more_short),
-                    onClick = { showMoreMenu = true },
-                )
             }
         }
     }
@@ -1129,39 +1053,52 @@ internal fun AgentInputBar(
 }
 
 /**
- * icon row 里的单个图标按钮。尺寸对齐语音/发送的视觉量级(22dp icon),
- * 但点中区走 44dp 标准触摸目标,避免窄屏误触。clickable 比 IconButton
- * 更省事:不会撞 minimumInteractiveComponentSize=48dp 覆盖 (webview 踩过)。
+ * 卡内工具条上的模型 chip:`(圆点/图标) 别名 ⌄`。
+ *
+ * 对齐 WorkBuddy:模型选择器是**输入卡的一部分**,而不是输入卡下方的独立入口。
+ * 无底色、无描边(点中区靠 clip 后的 ripple 提示),窄屏上别名超长时省略号 ——
+ * chip 最大 150dp,不跟发送钮抢宽度。
+ *
+ * `enabled = false`(拿不到模型列表)时整块变淡且不可点,避免点开一个空 picker。
  */
 @Composable
-private fun IconRowAction(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    label: String,
-    enabled: Boolean = true,
+private fun ModelChip(
+    model: ModelEntry?,
+    enabled: Boolean,
     onClick: () -> Unit,
 ) {
-    Column(
+    val tint = if (enabled) {
+        MaterialTheme.colorScheme.onSurface
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+    }
+    Row(
         modifier = Modifier
             .clip(RoundedCornerShape(10.dp))
             .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 6.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(2.dp),
+            .padding(horizontal = 8.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Icon(
-            imageVector = icon,
-            contentDescription = label,
-            tint = if (enabled) MaterialTheme.colorScheme.onSurfaceVariant
-                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
-            modifier = Modifier.size(22.dp),
+            imageVector = Icons.Default.Psychology,
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.size(18.dp),
         )
         Text(
-            text = label,
-            fontSize = 10.sp,
-            color = if (enabled) MaterialTheme.colorScheme.onSurfaceVariant
-                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+            text = model?.alias ?: stringResource(R.string.agent_input_model_short),
+            fontSize = 14.sp,
+            color = tint,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.widthIn(max = 116.dp),
+        )
+        Icon(
+            imageVector = Icons.Default.KeyboardArrowDown,
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.size(16.dp),
         )
     }
 }
@@ -1256,7 +1193,7 @@ private fun ModelPickerSheetContent(
     }
 }
 
-/** 药丸里的裸图标按钮（无底色），用于语音和 `+`。 */
+/** 卡内工具条上的裸图标按钮（无底色），用于语音和 `+`。 */
 @Composable
 private fun InputBarIcon(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
@@ -1267,7 +1204,6 @@ private fun InputBarIcon(
 ) {
     Box(
         modifier = Modifier
-            .padding(vertical = 4.dp)
             .size(44.dp)
             .clip(CircleShape)
             .clickable(onClick = onClick),
@@ -1277,12 +1213,21 @@ private fun InputBarIcon(
             imageVector = icon,
             contentDescription = contentDescription,
             tint = tint,
-            modifier = modifier.size(22.dp),
+            modifier = modifier.size(21.dp),
         )
     }
 }
 
-/** 药丸里的实心圆按钮（发送 / 停止）。 */
+/**
+ * 工具条最右的实心圆钮(发送 / 停止)。
+ *
+ * 外层 44dp 保点击区、内层 38dp 才是可见圆 —— 内层几乎填满,所以圆看起来是
+ * 「整块实心」而不是「按钮里嵌了个小圆」(WorkBuddy 的发送钮就是一个饱满的
+ * 实心圆)。永不变尺寸,只有颜色变,所以空输入 → 有内容时布局不跳。
+ *
+ * 禁用态用 [containerDisabled](浅蓝灰 #E0E3E8 + 白箭头),这是 WorkBuddy
+ * 空输入时的样子:按钮**在**,只是按不动。
+ */
 @Composable
 private fun InputBarCircle(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
@@ -1291,20 +1236,13 @@ private fun InputBarCircle(
     content: androidx.compose.ui.graphics.Color,
     enabled: Boolean,
     onClick: () -> Unit,
+    containerDisabled: androidx.compose.ui.graphics.Color? = null,
 ) {
-    // 外层固定 44dp 保点击区、内层 36dp 才是可见圆。外层不变，
-    // 所以三态切换时整条不会左右跳。
-    //
-    // vertical padding 必须是 4dp：这样「4 + 44」= 52dp，与左侧语音图标
-    // 和单行文本区的高度完全一致 —— 三者在 `Bottom` 对齐下圆心都落在
-    // 距底 26dp，视觉上就是居中的。padding 给 6dp 会让圆钮比语音图标高
-    // 8dp，单行状态下看着比左边的图标「往下沉」。
     // 用 Box + clickable 而不是 IconButton —— IconButton 的
     // minimumInteractiveComponentSize=48dp 会覆盖 Modifier.size
     // (WebViewScreen 踩过同一个坑)。
     Box(
         modifier = Modifier
-            .padding(vertical = 4.dp)
             .size(44.dp)
             .clip(CircleShape)
             .clickable(enabled = enabled, onClick = onClick),
@@ -1312,9 +1250,12 @@ private fun InputBarCircle(
     ) {
         Box(
             modifier = Modifier
-                .size(36.dp)
+                .size(38.dp)
                 .clip(CircleShape)
-                .background(if (enabled) container else container.copy(alpha = 0.4f)),
+                .background(
+                    if (enabled) container
+                    else (containerDisabled ?: container.copy(alpha = 0.4f))
+                ),
             contentAlignment = Alignment.Center,
         ) {
             Icon(

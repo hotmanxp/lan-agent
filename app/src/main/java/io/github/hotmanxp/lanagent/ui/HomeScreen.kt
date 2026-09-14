@@ -2,6 +2,7 @@
 package io.github.hotmanxp.lanagent.ui
 
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
@@ -9,10 +10,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -53,6 +57,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import io.github.hotmanxp.lanagent.R
 import io.github.hotmanxp.lanagent.data.cardsFlow
@@ -146,11 +151,24 @@ fun HomeScreen(
         }
     ) { padding ->
         if (currentCards.isEmpty()) {
+            // 空态放机器人 + 一行提示 —— 跟会话页的空态同一套观感(WorkBuddy 风格)。
             Box(
                 modifier = Modifier.fillMaxSize().padding(padding),
                 contentAlignment = Alignment.Center
             ) {
-                Text(stringResource(R.string.empty_cards_hint))
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Image(
+                        painter = androidx.compose.ui.res.painterResource(R.drawable.wb_mascot),
+                        contentDescription = null,
+                        modifier = Modifier.width(132.dp),
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        text = stringResource(R.string.empty_cards_hint),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 13.sp,
+                    )
+                }
             }
         } else {
             LazyColumn(

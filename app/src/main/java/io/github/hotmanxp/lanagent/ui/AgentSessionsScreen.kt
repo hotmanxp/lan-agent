@@ -295,6 +295,10 @@ private fun SessionRow(meta: AgentSessionMeta, now: Long, onClick: () -> Unit) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         shape = RoundedCornerShape(14.dp),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant,
+        ),
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
     ) {
         Row(

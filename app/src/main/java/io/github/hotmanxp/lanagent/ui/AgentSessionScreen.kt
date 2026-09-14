@@ -28,7 +28,7 @@ import android.content.Context
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -46,15 +46,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -79,6 +78,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -300,17 +300,25 @@ fun AgentSessionScreen(
                             overflow = TextOverflow.Ellipsis,
                         )
                         // 可点的副标题：刷新 / 在浏览器打开 / 全部会话元信息都
-                        // 收进这个面板，顶栏才干净得下来。
+                        // 收进这个面板，顶栏才干净得下来。形态对齐 WorkBuddy 的
+                        // 「小图标 + 一行灰字」面包屑。
                         Row(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(6.dp))
                                 .clickable { showInfo = true }
                                 .padding(vertical = 2.dp, horizontal = 2.dp),
                             verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(3.dp),
                         ) {
+                            Icon(
+                                imageVector = Icons.Default.Folder,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(13.dp),
+                            )
                             Text(
                                 text = subtitle,
-                                fontSize = 11.sp,
+                                fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -526,36 +534,28 @@ fun AgentSessionScreen(
     }
 }
 
-/** 空会话的占位（大图标 + 主文案 + 副文案，对齐 WorkBuddy 的空态观感）。 */
+/** 空会话的占位:WorkBuddy 机器人 + 问候语 + 一行说明(对齐 WorkBuddy 欢迎页)。 */
 @Composable
 private fun AgentSessionEmptyState() {
     Box(
-        modifier = Modifier.fillMaxSize().padding(32.dp),
+        modifier = Modifier.fillMaxSize().padding(horizontal = 32.dp),
         contentAlignment = Alignment.Center,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(
-                modifier = Modifier
-                    .size(84.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = Icons.Default.SmartToy,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(42.dp),
-                )
-            }
-            Spacer(Modifier.height(20.dp))
+            Image(
+                painter = painterResource(R.drawable.wb_mascot),
+                contentDescription = stringResource(R.string.agent_session_empty_mascot_cd),
+                modifier = Modifier.width(168.dp),
+            )
+            Spacer(Modifier.height(18.dp))
             Text(
                 text = stringResource(R.string.agent_session_empty_title),
-                fontSize = 22.sp,
-                fontWeight = FontWeight.SemiBold,
+                fontSize = 24.sp,
+                lineHeight = 32.sp,
+                fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface,
             )
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(10.dp))
             Text(
                 text = stringResource(R.string.agent_session_empty),
                 fontSize = 13.sp,

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 深色下的冷启动底色,与 Compose 深色页底 #141517 对齐。 -->
+    <color name="wb_window_background">#141517</color>
+</resources>

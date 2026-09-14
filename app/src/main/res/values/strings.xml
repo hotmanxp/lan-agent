@@ -26,6 +26,12 @@
     <string name="dialog_cancel">取消</string>
     <string name="dialog_ok">知道了</string>
     <string name="home_scan_cd">扫码进入</string>
+    <!-- 卡片右侧双按钮(0.10.5):左「启动原生 Agent」右「打开网页」。
+         URL 不合法时两按钮都不显示,避免点了再弹 snackbar 更克制。 -->
+    <string name="home_card_native_cd">启动原生 Agent</string>
+    <string name="home_card_web_cd">打开网页</string>
+    <string name="home_card_native_no_instance">该地址下没有可用实例</string>
+    <string name="home_card_native_failed">启动原生失败:%1$s</string>
     <string name="scan_back_cd">返回</string>
     <string name="scan_hint">将二维码对准框内</string>
     <string name="scan_permission_denied">需要相机权限才能扫码</string>

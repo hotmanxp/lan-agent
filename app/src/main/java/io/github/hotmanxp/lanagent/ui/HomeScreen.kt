@@ -1,4 +1,13 @@
 // ui/HomeScreen.kt — 卡片列表(支持运行时增删改+拖拽排序)
+//
+// 0.10.5 起每张卡片右下挂「启动原生 Agent」+「打开网页」双按钮:
+//   - 原生按钮:从卡片 url 抽 baseUrl,调 `${baseUrl}/api/instances` 找到当前
+//     实例,跳 `agent-sessions/{baseUrl}/{name}`。URL 不合法/接口不可达时
+//     两按钮都不显示,避免点了再弹 snackbar 噪声。
+//   - Web 按钮:同卡片整体点击行为,直接 `webview/{url}`(保留原行为)。
+//
+// 编辑模式(editMode=true)下仍只显示删除 + 拖拽手柄,这两颗按钮不该出现 —
+// 否则会把「编辑」和「打开」混淆。
 package io.github.hotmanxp.lanagent.ui
 
 import androidx.compose.animation.core.animateDpAsState
@@ -23,10 +32,11 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Memory
@@ -38,10 +48,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -60,11 +71,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import io.github.hotmanxp.lanagent.R
+import io.github.hotmanxp.lanagent.data.AgentApi
 import io.github.hotmanxp.lanagent.data.cardsFlow
+import io.github.hotmanxp.lanagent.data.extractBaseUrl
 import io.github.hotmanxp.lanagent.data.findManagerBaseUrl
 import io.github.hotmanxp.lanagent.data.saveCards
 import io.github.hotmanxp.lanagent.model.Card
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -74,6 +86,7 @@ fun HomeScreen(
     onScanClick: () -> Unit,
     onInstancesClick: (String) -> Unit,
     onSshHostsClick: () -> Unit,
+    onOpenNative: (baseUrl: String, instanceName: String, sid: String) -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -87,6 +100,49 @@ fun HomeScreen(
     var showAddDialog by remember { mutableStateOf(false) }
     var showNoManagerHint by remember { mutableStateOf(false) }
     val managerBaseUrl = remember(currentCards) { findManagerBaseUrl(currentCards) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    // 防止同 baseUrl 的请求并发打两次(用户连点 / 同一端口多张卡)。
+    // 0.10.6 起去掉了 nativeKnown 缓存 —— 旧路径要拉 /api/instances 拿实例名,
+    // child 实例 404 才会失败;新路径直接 createSession,每次都拿全新 sid,
+    // 缓存没意义。
+    var agentBusy by remember { mutableStateOf<Set<String>>(emptySet()) }
+
+    /**
+     * 「启动原生 Agent」统一入口(0.10.6 重写)—— 直接调
+     * `AgentApi.createSession()` 拿新 sid 进详情页,绕开 supervisor
+     * 专属的 `/api/instances` 端点(child 实例没有,会 404
+     * "instance management not available on child")。
+     *
+     * 用 lambda + `remember` 持有是因为 Compose 要求函数在调用前声明,local
+     * function 在源码顺序上也得在 itemsIndexed 之前;提到 Scaffold 之前
+     * 是为了避免和 itemsIndexed 抢 scope 闭包时的可读性。
+     */
+    val launchAgent: (String) -> Unit = launchAgent@{ baseUrl ->
+        if (baseUrl in agentBusy) return@launchAgent
+        agentBusy = agentBusy + baseUrl
+        scope.launch {
+            try {
+                // /api/agent/sessions 在所有 zai 实例(supervisor + child)都开放,
+                // 不依赖 supervisor-only 的 /api/instances。
+                val sid = AgentApi(baseUrl).createSession()
+                // instanceName 用 baseUrl 的 host:port 部分作显示 —— 不打 API
+                // 就拿不到 supervisor 视角的实例名,而 child 实例上 supervisor
+                // API 又不可用,直接拿 host:port 既稳又能辨识(多张卡指向同一
+                // 实例时副标题一致)。
+                val instanceName = baseUrl.substringAfter("://").substringBefore('/')
+                onOpenNative(baseUrl, instanceName, sid)
+            } catch (t: Throwable) {
+                snackbarHostState.showSnackbar(
+                    context.getString(
+                        R.string.home_card_native_failed,
+                        t.message ?: t.toString(),
+                    )
+                )
+            } finally {
+                agentBusy = agentBusy - baseUrl
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -148,7 +204,8 @@ fun HomeScreen(
                     }
                 }
             )
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         if (currentCards.isEmpty()) {
             // 空态放机器人 + 一行提示 —— 跟会话页的空态同一套观感(WorkBuddy 风格)。
@@ -178,13 +235,18 @@ fun HomeScreen(
                 contentPadding = PaddingValues(vertical = 8.dp)
             ) {
                 itemsIndexed(items = currentCards, key = { _, it -> it.id }) { index, card ->
+                    val baseUrl = remember(card.url) { extractBaseUrl(card.url) }
                     DraggableCardItem(
                         card = card,
                         editMode = editMode,
                         listState = listState,
                         index = index,
                         totalCount = currentCards.size,
+                        hasNative = baseUrl != null,
                         onClick = {
+                            // 编辑模式点卡 = 弹编辑对话框;非编辑模式 = 走 Web(原行为)。
+                            // URL 不合法的卡片在非编辑模式下整张卡不可点(改 onClick
+                            // 逻辑被 hasNative 短路,见 DraggableCardItem 的 Card.onClick)。
                             if (editMode) editingCard = card else onCardClick(card)
                         },
                         onDelete = {
@@ -198,7 +260,12 @@ fun HomeScreen(
                                 it.add(to, moved)
                             }
                             scope.launch { context.saveCards(next) }
-                        }
+                        },
+                        onNativeClick = {
+                            if (baseUrl == null) return@DraggableCardItem
+                            launchAgent(baseUrl)
+                        },
+                        onWebClick = { onCardClick(card) },
                     )
                 }
             }
@@ -249,16 +316,22 @@ private fun DraggableCardItem(
     listState: LazyListState,
     index: Int,
     totalCount: Int,
+    hasNative: Boolean,
     onClick: () -> Unit,
     onDelete: () -> Unit,
-    onMove: (from: Int, to: Int) -> Unit
+    onMove: (from: Int, to: Int) -> Unit,
+    onNativeClick: () -> Unit,
+    onWebClick: () -> Unit,
 ) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     var dragged by remember { mutableStateOf(false) }
     val elevation by animateDpAsState(if (dragged) 8.dp else 0.dp, label = "elevation")
 
     Card(
+        // 非编辑模式 + URL 不合法 → 卡片整体不响应点击(改走 Web 等于「点了没反应」)。
+        // 否则维持原有 onClick(card 整体 = 编辑模式弹对话框;否则原 onCardClick)。
+        // 用 `enabled = false` 比传空 lambda 干净 —— Compose Card.onClick 是必填参数,
+        // 空 lambda 编译时会报 "Lambda type was inferred as Any" 的类型推断错。
+        enabled = editMode || hasNative,
         onClick = onClick,
         modifier = Modifier
             .fillMaxWidth()
@@ -328,10 +401,29 @@ private fun DraggableCardItem(
                     modifier = Modifier.padding(start = 4.dp)
                 )
             } else {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                    contentDescription = stringResource(R.string.card_open_cd)
-                )
+                // 右下「启动原生 / 打开网页」双按钮(0.10.5)。两按钮都靠
+                // `extractBaseUrl` 抽出的 baseUrl 决定是否显示 —— URL 不合法时整
+                // 张卡片只有色条 + 标题副标题,不能点(避免点了再 snackbar 噪声)。
+                if (hasNative) {
+                    IconButton(onClick = onNativeClick) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.Chat,
+                            contentDescription = stringResource(R.string.home_card_native_cd),
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    IconButton(onClick = onWebClick) {
+                        Icon(
+                            imageVector = Icons.Default.Language,
+                            contentDescription = stringResource(R.string.home_card_web_cd),
+                        )
+                    }
+                } else {
+                    // 没合法 URL 时的占位 —— 让卡片仍然有「右端留白」避免标题
+                    // 莫名贴右边。比原来直接挂一个箭头图标(误导用户以为可点)
+                    // 更诚实。
+                    Spacer(Modifier.width(8.dp))
+                }
             }
         }
     }

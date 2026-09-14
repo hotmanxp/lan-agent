@@ -7,15 +7,12 @@ package io.github.hotmanxp.lanagent.ui
 import android.net.Uri
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import io.github.hotmanxp.lanagent.data.AgentApi
-import kotlinx.coroutines.launch
 
 @Composable
 fun AppNavHost(navController: NavHostController = rememberNavController()) {
@@ -33,6 +30,19 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
                 },
                 onSshHostsClick = {
                     navController.navigate("ssh-hosts")
+                },
+                // 0.10.6:HomeScreen 卡片右下「启动原生」按钮直接调
+                // `AgentApi.createSession()` 拿到新 sid,跳
+                // `agent-session/{baseUrl}/{name}/{sid}` —— 不再经
+                // `agent-sessions` 中转。原中转是因为 launchNative 要先调
+                // `/api/instances` 拿当前实例名,但 child 实例没这个端点
+                // 会 404("instance management not available on child")。
+                // 现在直接 createSession 拿 sid 进详情,绕开 supervisor
+                // 依赖。name 由 HomeScreen 从 baseUrl 抽 host:port。
+                onOpenNative = { baseUrl, instanceName, sid ->
+                    navController.navigate(
+                        "agent-session/${Uri.encode(baseUrl)}/${Uri.encode(instanceName)}/${Uri.encode(sid)}"
+                    )
                 },
             )
         }
@@ -102,8 +112,6 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
             val baseUrl = Uri.decode(entry.arguments?.getString("baseUrl").orEmpty())
             val instanceName = Uri.decode(entry.arguments?.getString("instanceName").orEmpty())
             val sid = Uri.decode(entry.arguments?.getString("sid").orEmpty())
-            val api = remember(baseUrl) { AgentApi(baseUrl) }
-            val newSessionScope = rememberCoroutineScope()
             AgentSessionScreen(
                 baseUrl = baseUrl.ifBlank { "http://127.0.0.1:9201" },
                 instanceName = instanceName,
@@ -112,21 +120,10 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
                 onOpenWeb = { url ->
                     navController.navigate("webview/${Uri.encode(url)}")
                 },
-                onOpenSessions = {
-                    navController.navigate(
-                        "agent-sessions/${Uri.encode(baseUrl)}/${Uri.encode(instanceName)}"
-                    )
-                },
-                onCreateNewSession = {
-                    newSessionScope.launch {
-                        val newSid = runCatching { api.createSession() }.getOrNull()
-                        if (newSid != null) {
-                            navController.navigate(
-                                "agent-session/${Uri.encode(baseUrl)}/${Uri.encode(instanceName)}/${Uri.encode(newSid)}"
-                            )
-                        }
-                    }
-                },
+                // 0.10.6:onOpenSessions / onCreateNewSession 都被屏内抽屉
+                // + startNewSession() 替代,这里不再传。AgentSessionsScreen
+                // 仍是单独路由(供 InstancesScreen 的"会话"按钮入口用),
+                // 但 AgentSessionScreen 自身不再 navigate 过去。
             )
         }
         composable("ssh-hosts") {

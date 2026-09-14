@@ -51,23 +51,27 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -91,10 +95,12 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import io.github.hotmanxp.lanagent.R
 import io.github.hotmanxp.lanagent.data.AgentApi
+import io.github.hotmanxp.lanagent.data.AgentSessionMeta
 import io.github.hotmanxp.lanagent.data.AttachedImage
 import io.github.hotmanxp.lanagent.data.ImageAttachments
 import io.github.hotmanxp.lanagent.data.ModelEntry
 import io.github.hotmanxp.lanagent.data.PatchSessionRequest
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -105,16 +111,32 @@ fun AgentSessionScreen(
     sessionId: String,
     onBack: () -> Unit,
     onOpenWeb: (String) -> Unit,
-    onOpenSessions: () -> Unit,
-    onCreateNewSession: () -> Unit,
+    // 0.10.6 移除 onOpenSessions / onCreateNewSession 参数:
+    //   - 顶栏右侧"会话列表"按钮被左侧 ModalNavigationDrawer 替代
+    //   - 新建会话由本屏自己 createSession + 切 currentSid(in-place 切换,
+    //     避免重建整屏让 SSE / 输入框抖动)
 ) {
     val context = LocalContext.current
     val api = remember(baseUrl) { AgentApi(baseUrl) }
-    val store = remember(sessionId) { AgentSessionStore(sessionId) }
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     val lifecycleOwner = LocalLifecycleOwner.current
     val listState = rememberLazyListState()
+
+    // 0.10.6:抽屉 state + 当前 sid state。抽屉打开时是「从主会话屏外侧」
+    // 滑入的会话列表(对齐 WorkBuddy 抽屉形态)。currentSid 是「路由传入的
+    // sid 的 in-place 覆盖」—— 抽屉点其他会话或新建会话就改这个 state,
+    // LaunchedEffect(currentSid) 自动重启 hydrate + SSE,主屏 UI 切到新会话。
+    // 路由参数 sessionId 只在首次进入时作 seed,之后不再读。
+    val drawerState = rememberDrawerState(DrawerValue.Closed)
+    var currentSid by remember { mutableStateOf(sessionId) }
+    var drawerSessions by remember { mutableStateOf<List<AgentSessionMeta>>(emptyList()) }
+    var drawerLoading by remember { mutableStateOf(true) }
+    var creating by remember { mutableStateOf(false) }
+    var drawerNow by remember { mutableStateOf(System.currentTimeMillis()) }
+    var drawerRefreshTick by remember { mutableStateOf(0) }
+
+    val store = remember(currentSid) { AgentSessionStore(currentSid) }
 
     var input by remember { mutableStateOf("") }
     var attachments by remember { mutableStateOf<List<AttachedImage>>(emptyList()) }
@@ -132,19 +154,45 @@ fun AgentSessionScreen(
     var currentModel by remember { mutableStateOf<ModelEntry?>(null) }
 
     // hydrate + SSE。两个阶段串行(理由见文件头注释),整体随 STARTED 起停。
-    LaunchedEffect(api, sessionId, refreshTick) {
+    // currentSid 变(抽屉切会话)时整个 effect 重启 —— 等价于切到新会话,
+    // 旧 SSE 连接跟着 store 一起被 cancel,新 store / 新 SSE / 新 transcript
+    // 接力。这是 in-place 切会话的核心机制。
+    LaunchedEffect(api, currentSid, refreshTick) {
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
             try {
-                store.hydrate(api.readTranscript(sessionId))
+                store.hydrate(api.readTranscript(currentSid))
                 // state 是可选增强(cwd / v2Tasks),拿不到不影响对话
-                runCatching { store.hydrateState(api.readState(sessionId)) }
+                runCatching { store.hydrateState(api.readState(currentSid)) }
             } catch (t: Throwable) {
                 store.hydrateFailed(t.message ?: t.toString())
             }
             // 模型清单独立于 transcript,失败降级空列表(见 AgentApi.listAvailableModels)
             availableModels = api.listAvailableModels()
             approveFile = null
-            api.eventStream(sessionId).collect { store.apply(it) }
+            api.eventStream(currentSid).collect { store.apply(it) }
+        }
+    }
+
+    // 抽屉会话列表轮询(0.10.6)—— 对齐 AgentSessionsScreen 的 5s 节奏。
+    // drawerRefreshTick++ 立即触发一次刷新(新建会话后用)。
+    LaunchedEffect(api, drawerRefreshTick) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                runCatching { drawerSessions = api.listSessions() }
+                    .onFailure {
+                        // 抽屉失败静默 —— 主会话屏已经在跑 SSE,失败不该
+                        // 弹错打断用户当前工作。下次 5s 后自然重试。
+                    }
+                drawerLoading = false
+                delay(5_000)
+            }
+        }
+    }
+    // 相对时间 tick —— 让抽屉列表的「N 分钟前」不卡在同一数字。
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(15_000)
+            drawerNow = System.currentTimeMillis()
         }
     }
 
@@ -186,16 +234,50 @@ fun AgentSessionScreen(
         // (runtime.* 全是助手侧),不本地追加就得等下一次 re-hydrate 才看得到。
         store.appendLocalUser(text, images.size, images.map { it.uri })
         scope.launch {
-            runCatching { api.sendPrompt(sessionId, text, images) }
+            runCatching { api.sendPrompt(currentSid, text, images) }
                 .onFailure { toast("发送失败:${it.message ?: it}") }
         }
     }
 
     fun stop() {
         scope.launch {
-            runCatching { api.abort(sessionId) }
+            runCatching { api.abort(currentSid) }
                 .onFailure { toast("中断失败:${it.message ?: it}") }
         }
+    }
+
+    /**
+      * 抽屉 / 顶栏 `+` 触发的「新建会话」统一入口。流程:
+      *   1. POST /api/agent/sessions 拿新 sid
+      *   2. drawerRefreshTick++ 立刻把新会话刷进抽屉列表
+      *   3. 关闭抽屉,currentSid → 新 sid(LaunchedEffect(currentSid) 自动
+      *      切 hydrate + SSE 到新会话)
+      *
+      * 失败 → 抽屉不关,toast 提示。creating 防抖避免连点重复提交。
+      */
+    fun startNewSession() {
+        if (creating) return
+        creating = true
+        scope.launch {
+            val res = runCatching { api.createSession() }
+            creating = false
+            res.fold(
+                onSuccess = { newSid ->
+                    drawerRefreshTick++
+                    drawerState.close()
+                    currentSid = newSid
+                },
+                onFailure = { t ->
+                    toast("新建会话失败:${t.message ?: t}")
+                },
+            )
+        }
+    }
+
+    /** 抽屉里点某条会话:in-place 切 sid + 关抽屉。点当前会话只关抽屉。 */
+    fun switchToSession(sid: String) {
+        if (sid != currentSid) currentSid = sid
+        scope.launch { drawerState.close() }
     }
 
     /** 读系统剪贴板拼到输入框尾部。 */
@@ -283,15 +365,76 @@ fun AgentSessionScreen(
         }
     }.ifEmpty { stringResource(R.string.agent_session_subtitle_fallback) }
 
+        // 抽屉(0.10.6 新增)—— WorkBuddy 风格的左侧会话列表。
+    // 抽屉内容:标题 + NewSessionPill + SessionRow 列表,各自 5s 轮询 +
+    // 15s 相对时间 tick(对齐 AgentSessionsScreen 的节奏)。
+    //
+    // **抽屉打开时主屏不卸载**:ModalNavigationDrawer 是 window-level
+    // 的 overlay,主屏 Composable 不重建,SSE / 输入框状态全保留。
+    // 用户从抽屉切会话 = 改 currentSid state,LaunchedEffect(currentSid)
+    // 重启 hydrate + SSE,Scaffold 内容自动刷成新会话。
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            ModalDrawerSheet {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = stringResource(R.string.agent_sessions_title),
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 4.dp),
+                    )
+                    NewSessionPill(busy = creating, onClick = { startNewSession() })
+                    if (drawerSessions.isEmpty() && !drawerLoading) {
+                        Box(
+                            modifier = Modifier.fillMaxWidth().padding(top = 24.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = stringResource(R.string.agent_sessions_empty),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 13.sp,
+                            )
+                        }
+                    }
+                    drawerSessions.forEach { meta ->
+                        SessionRow(
+                            meta = meta,
+                            now = drawerNow,
+                            onClick = { switchToSession(meta.sessionId) },
+                        )
+                    }
+                }
+            }
+        },
+    ) {
     Scaffold(
         topBar = {
             TopAppBar(
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.webview_back_cd),
-                        )
+                    // 0.10.6:左侧加抽屉按钮(汉堡图标),点击展开
+                    // ModalNavigationDrawer 显示会话列表。WorkBuddy 的抽屉
+                    // 在最左,back 在其次 —— 维持这个顺序。
+                    Row {
+                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                            Icon(
+                                imageVector = Icons.Default.Menu,
+                                contentDescription = stringResource(
+                                    R.string.agent_session_open_sessions_cd
+                                ),
+                            )
+                        }
+                        IconButton(onClick = onBack) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = stringResource(R.string.webview_back_cd),
+                            )
+                        }
                     }
                 },
                 title = {
@@ -339,19 +482,13 @@ fun AgentSessionScreen(
                     }
                 },
                 actions = {
-                    // WorkBuddy 风格的「新建会话 + 会话列表」一对按钮。
-                    IconButton(onClick = onCreateNewSession) {
+                    // 0.10.6:只留「新建会话」按钮。「会话列表」被左侧抽屉替代,
+                    // 不再挂在顶栏 actions。「新建」走 startNewSession() 内部
+                    // createSession + 切 currentSid(in-place),不走 navigate。
+                    IconButton(onClick = { startNewSession() }) {
                         Icon(
                             imageVector = Icons.Default.Add,
                             contentDescription = stringResource(R.string.agent_session_new_cd),
-                        )
-                    }
-                    IconButton(onClick = onOpenSessions) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.List,
-                            contentDescription = stringResource(
-                                R.string.agent_session_open_sessions_cd
-                            ),
                         )
                     }
                 },
@@ -401,14 +538,14 @@ fun AgentSessionScreen(
                         .padding(horizontal = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    V2TaskStrip(store.v2Tasks)
+                    V2TaskStrip(store.v2Tasks, store.status)
                     QueueStrip(
                         queue = store.queue,
                         onCancel = { q ->
-                            queueAction("取消失败") { api.cancelQueued(sessionId, q.id) }
+                            queueAction("取消失败") { api.cancelQueued(currentSid, q.id) }
                         },
                         onSteer = { q ->
-                            queueAction("插入失败") { api.steerQueued(sessionId, q.id) }
+                            queueAction("插入失败") { api.steerQueued(currentSid, q.id) }
                         },
                     )
                     if (pending != null) {
@@ -421,7 +558,7 @@ fun AgentSessionScreen(
                                 if (!approveFileLoading) {
                                     approveFileLoading = true
                                     scope.launch {
-                                        runCatching { api.readApproveFile(sessionId, pending.toolUseId) }
+                                        runCatching { api.readApproveFile(currentSid, pending.toolUseId) }
                                             .onSuccess { approveFile = it.content }
                                             .onFailure { toast("读取文件失败:${it.message ?: it}") }
                                         approveFileLoading = false
@@ -430,28 +567,28 @@ fun AgentSessionScreen(
                             },
                             onSubmitAsk = { answers ->
                                 respondPending {
-                                    api.submitAnswer(sessionId, pending.toolUseId, answers)
+                                    api.submitAnswer(currentSid, pending.toolUseId, answers)
                                 }
                             },
                             onReject = {
                                 respondPending {
                                     if (pending.kind == "ask") {
-                                        api.rejectAsk(sessionId, pending.toolUseId)
+                                        api.rejectAsk(currentSid, pending.toolUseId)
                                     } else {
                                         // 服务端 schema 要求 rejected 必须带非空 comment
-                                        api.respondApprove(sessionId, pending.toolUseId, false, "手机端驳回")
+                                        api.respondApprove(currentSid, pending.toolUseId, false, "手机端驳回")
                                     }
                                 }
                             },
                             onPermission = { allow ->
                                 respondPending {
-                                    api.respondPermission(sessionId, pending.toolUseId, allow)
+                                    api.respondPermission(currentSid, pending.toolUseId, allow)
                                 }
                             },
                             onApprove = { ok ->
                                 respondPending {
                                     api.respondApprove(
-                                        sessionId = sessionId,
+                                        sessionId = currentSid,
                                         toolUseId = pending.toolUseId,
                                         approved = ok,
                                         comment = if (ok) null else "手机端驳回",
@@ -467,10 +604,15 @@ fun AgentSessionScreen(
             // 上面单起一行,空闲时整行不渲染,不占视觉位置。左对齐 +
             // 灰底淡动画,只做轻提示,不要抢输入框的注意力。
             //
+            // **0.10.5 起仅在没有任务清单时单起一行**:有任务清单时 status 已经
+            // inline 到 V2TaskStrip 的 header(见 `AgentSessionViews.kt` 的
+            // V2TaskStrip),否则 strip header 一行 + status 行 + 输入卡
+            // 挤在屏幕底端,视觉很噪。
+            //
             // start = 12.dp:对齐消息气泡左边距(AgentSessionViews.kt 里消息
             // 内容大量用 start = 12.dp / horizontal = 12.dp),让 StatusBadge
             // 的三个 dot 起点跟消息文本对齐,而不是贴屏幕左边。
-            if (store.status != AgentRunStatus.Idle) {
+            if (store.status != AgentRunStatus.Idle && store.v2Tasks.isEmpty()) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -518,7 +660,7 @@ fun AgentSessionScreen(
                     scope.launch {
                         runCatching {
                             api.patchSession(
-                                sessionId = sessionId,
+                                sessionId = currentSid,
                                 body = PatchSessionRequest(
                                     model = picked.model,
                                     providerId = picked.providerId,
@@ -549,7 +691,7 @@ fun AgentSessionScreen(
             sheetState = infoSheetState,
         ) {
             SessionInfoSheet(
-                sessionId = sessionId,
+                sessionId = currentSid,
                 baseUrl = baseUrl,
                 store = store,
                 onCopy = { toast("已复制会话 ID") },
@@ -559,10 +701,11 @@ fun AgentSessionScreen(
                 },
                 onOpenWeb = {
                     showInfo = false
-                    onOpenWeb("$baseUrl/m?sid=$sessionId")
+                    onOpenWeb("$baseUrl/m?sid=$currentSid")
                 },
             )
         }
+    }
     }
 }
 

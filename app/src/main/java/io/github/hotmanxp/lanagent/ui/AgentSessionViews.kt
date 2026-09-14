@@ -532,8 +532,19 @@ private fun MetaLine(text: String, align: Alignment.Horizontal) {
 
 // ===== V2 任务条 =====
 
+/**
+ * 任务清单卡。**0.10.5 起 header inline 渲染运行态**(Streaming / Retrying
+ * 三点动画 + Aborted / Error 文字),调用方不需要再在 strip 下方单起一行
+ * StatusBadge —— 否则 strip header 一行 + status 行 + 输入卡挤一起,视觉很噪。
+ *
+ * 调用方决定:没任务清单时仍按老路径单独渲染 StatusBadge 行(见
+ * `AgentSessionScreen.kt` 的运行态提示条)。
+ */
 @Composable
-internal fun V2TaskStrip(tasks: List<V2Task>) {
+internal fun V2TaskStrip(
+    tasks: List<V2Task>,
+    status: AgentRunStatus = AgentRunStatus.Idle,
+) {
     if (tasks.isEmpty()) return
     var expanded by remember { mutableStateOf(true) }
     val done = tasks.count { it.status == "completed" }
@@ -556,11 +567,18 @@ internal fun V2TaskStrip(tasks: List<V2Task>) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                // 0.10.5:运行态 inline 到 header 左侧 —— 三点动画贴左边
+                // (跟输入卡上 StatusBadge Row 一致,顶栏原本就是左对齐),
+                // 「任务清单 4/5 ▼」整体靠右。Idle 时整块不渲染,
+                // header 只有右半边「任务清单 | 4/5 | ▼」。
+                if (status != AgentRunStatus.Idle) {
+                    StatusBadge(status)
+                }
+                Spacer(Modifier.weight(1f))
                 Text(
                     text = "任务清单",
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium,
-                    modifier = Modifier.weight(1f),
                 )
                 Text(
                     text = "$done/${tasks.size}",

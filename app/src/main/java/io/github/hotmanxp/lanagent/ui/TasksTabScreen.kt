@@ -27,7 +27,9 @@ package io.github.hotmanxp.lanagent.ui
 import androidx.compose.runtime.Composable
 
 @Composable
-fun TasksTabScreen(onOpenWeb: (String) -> Unit) {
+fun TasksTabScreen(
+    onOpenWeb: (String) -> Unit,
+) {
     AgentSessionPane(
         // 三个 null = 「自己解析」:实例按「上次连接 → 第一个在线」,
         // 会话按「上次停的 → 最新一条」。

@@ -20,6 +20,24 @@ internal object WebViewFactory {
      * this; for the service path, WebViewKeepAliveService.onDestroy does.
      */
     fun create(context: Context, url: String): WebView = WebView(context).apply {
+        applyLanSettings(this)
+        loadUrl(if (url.isBlank()) "about:blank" else url)
+    }
+
+    /**
+     * 只建实例、不加载 —— 给「一段本地 HTML 字符串」这类预览用
+     * (`loadDataWithBaseURL` 表达不成一个 URL,所以没法走上面那个重载)。
+     * 调用方(ui/FileViewerOverlay.kt)自己负责 loadDataWithBaseURL / destroy。
+     *
+     * **textZoom 保持 100**:标准设置里那个 85% 是针对 opencc-web `/m`
+     * 没有响应式排版的补偿(见下),本地 HTML 文件不背这个锅。
+     */
+    fun createForContent(context: Context): WebView = WebView(context).apply {
+        applyLanSettings(this)
+        settings.textZoom = 100
+    }
+
+    private fun applyLanSettings(webView: WebView) = with(webView) {
         settings.javaScriptEnabled = true
         settings.domStorageEnabled = true
         // Honor <meta name="viewport" content="width=device-width"> so mobile
@@ -40,6 +58,5 @@ internal object WebViewFactory {
         // anyway, and if a future debug surface attaches it the same
         // invariant holds.
         setBackgroundColor(Color.TRANSPARENT)
-        loadUrl(if (url.isBlank()) "about:blank" else url)
     }
 }

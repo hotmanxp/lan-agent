@@ -11,6 +11,7 @@
 // 走 [LocalWbExtras] —— 所以这里不硬编码任何色值,深浅色自动适配。
 package io.github.hotmanxp.lanagent.ui
 
+import android.util.Base64
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
@@ -48,6 +49,8 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowRight
+import androidx.compose.material.icons.automirrored.rounded.InsertDriveFile
+import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AddPhotoAlternate
 import androidx.compose.material.icons.rounded.ArrowUpward
@@ -55,10 +58,14 @@ import androidx.compose.material.icons.rounded.Build
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentPaste
+import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material.icons.rounded.Html
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.Photo
 import androidx.compose.material.icons.rounded.Psychology
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.CircularProgressIndicator
@@ -100,8 +107,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.hotmanxp.lanagent.R
+import io.github.hotmanxp.lanagent.data.AgentApi
 import io.github.hotmanxp.lanagent.data.AskQuestion
 import io.github.hotmanxp.lanagent.data.AttachedImage
+import io.github.hotmanxp.lanagent.data.DisplayFile
+import io.github.hotmanxp.lanagent.data.FileKind
+import io.github.hotmanxp.lanagent.data.HttpException
 import io.github.hotmanxp.lanagent.data.ImageAttachments
 import io.github.hotmanxp.lanagent.data.ModelEntry
 import io.github.hotmanxp.lanagent.data.PendingInteraction
@@ -112,6 +123,8 @@ import io.github.hotmanxp.lanagent.data.tupleKey
 import io.github.hotmanxp.lanagent.voice.HoldPhase
 import io.github.hotmanxp.lanagent.voice.HoldToTalkCapsule
 import io.github.hotmanxp.lanagent.voice.HoldToTalkState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -388,8 +401,19 @@ internal fun ThinkingBubble(item: AgentItem.Thinking) {
 // ===== 工具调用卡 =====
 
 @Composable
-internal fun ToolCallCard(item: AgentItem.ToolCall) {
-    var expanded by remember(item.key) { mutableStateOf(false) }
+internal fun ToolCallCard(
+    item: AgentItem.ToolCall,
+    api: AgentApi?,
+    onOpenFile: (DisplayFile) -> Unit,
+) {
+    // `DisplayFiles` 有文件列表时走**文件卡片**形态(见 [DisplayFilesBody]):
+    // 它的 output 是一段给前端渲染用的元数据 JSON,照普通工具卡渲染只会让
+    // 用户看到一坨 JSON。
+    val files = item.files
+    val isFiles = files.isNotEmpty()
+    // 工具卡默认收起是为了压住入参/输出的噪声;文件卡本身没有噪声,
+    // 而且它出现就意味着「让你看东西」—— 默认展开,少一次点击。
+    var expanded by remember(item.key) { mutableStateOf(isFiles) }
     // 完成态用中性灰(对齐 onSurfaceVariant / InkMutedLight),不抢品牌色
     // —— 品牌平安橙留给发送按钮 / 主按钮这些真正需要点睛的位置。
     // running 用 tertiary 暖橙,error 用 error 红,差异由状态承担。
@@ -418,16 +442,16 @@ internal fun ToolCallCard(item: AgentItem.ToolCall) {
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Icon(
-                    imageVector = Icons.Rounded.Build,
+                    imageVector = if (isFiles) Icons.Rounded.FolderOpen else Icons.Rounded.Build,
                     contentDescription = null,
                     tint = accent,
                     modifier = Modifier.size(16.dp),
                 )
                 Text(
-                    text = item.name,
+                    text = if (isFiles) "文件 · ${files.size}" else item.name,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Medium,
-                    fontFamily = FontFamily.Monospace,
+                    fontFamily = if (isFiles) FontFamily.Default else FontFamily.Monospace,
                     modifier = Modifier.weight(1f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -453,26 +477,306 @@ internal fun ToolCallCard(item: AgentItem.ToolCall) {
             }
             if (expanded) {
                 Column(modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 12.dp)) {
-                    item.input?.takeIf { it.isNotBlank() }?.let {
-                        SectionLabel("入参")
-                        CodeBox(it)
-                    }
-                    item.output?.takeIf { it.isNotBlank() }?.let {
-                        Spacer(Modifier.height(8.dp))
-                        SectionLabel("输出")
-                        CodeBox(it)
-                    }
-                    if (item.input.isNullOrBlank() && item.output.isNullOrBlank()) {
-                        Text(
-                            text = "无入参/输出记录",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                    if (isFiles) {
+                        DisplayFilesBody(files = files, api = api, onOpenFile = onOpenFile)
+                    } else {
+                        item.input?.takeIf { it.isNotBlank() }?.let {
+                            SectionLabel("入参")
+                            CodeBox(it)
+                        }
+                        item.output?.takeIf { it.isNotBlank() }?.let {
+                            Spacer(Modifier.height(8.dp))
+                            SectionLabel("输出")
+                            CodeBox(it)
+                        }
+                        if (item.input.isNullOrBlank() && item.output.isNullOrBlank()) {
+                            Text(
+                                text = "无入参/输出记录",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
             }
         }
     }
+}
+
+// ===== DisplayFiles 文件卡片 =====
+
+/**
+ * `DisplayFiles` 工具的文件列表。每行:类型图标 + 文件名 + `大小 · 修改时间` +
+ * 路径;图片再多一张内联缩略图。整行可点 → 打开会话面板内从右侧滑入的预览层
+ * (见 `ui/FileViewerOverlay.kt`)。
+ *
+ * **为什么不做「元数据单独一段、点击才加载」**:Agent 调这个工具的意图就是
+ * 「给你看这东西」,再收一层等于让用户多点一次。图片缩略图由 LazyColumn 的
+ * 懒组合天然收敛 —— 卡片滚出屏幕就停止加载。
+ */
+@Composable
+private fun DisplayFilesBody(
+    files: List<DisplayFile>,
+    api: AgentApi?,
+    onOpenFile: (DisplayFile) -> Unit,
+) {
+    // 只有前 [MAX_INLINE_IMAGES] 张图片内联渲染缩略图。
+    //
+    // 为什么必须设上限:整张卡是 LazyColumn 的**一个** item,所以「可见」= 卡里
+    // 所有缩略图同时组合、同时发请求。服务端单张上限 1 MiB,20 张就是 20 个并发
+    // 请求 + 20 份解码后的 bitmap —— 采样到 1024px 也还有 4MB/张,足够把低端机
+    // 的堆推爆。超出的那些照常是**一行元数据**,点进去照样看得到大图。
+    val inlineable = remember(files) {
+        files.asSequence()
+            .filter { it.kind == FileKind.Image && it.previewable && !it.isVectorImage }
+            .take(MAX_INLINE_IMAGES)
+            .map { it.path }
+            .toSet()
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        files.forEach { file ->
+            DisplayFileRow(
+                file = file,
+                api = api,
+                onOpenFile = onOpenFile,
+                inlineThumb = file.path in inlineable,
+            )
+        }
+    }
+}
+
+@Composable
+private fun DisplayFileRow(
+    file: DisplayFile,
+    api: AgentApi?,
+    onOpenFile: (DisplayFile) -> Unit,
+    inlineThumb: Boolean,
+) {
+    // api == null = 实例还没解析出来;此时行仍渲染(元数据来自 transcript,
+    // 不依赖网络),只是点不开。
+    val canOpen = file.previewable && api != null
+    val tone = when {
+        file.failed -> MaterialTheme.colorScheme.error
+        canOpen -> MaterialTheme.colorScheme.onSurface
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        shape = RoundedCornerShape(10.dp),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant,
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = canOpen) { onOpenFile(file) },
+    ) {
+        Column(modifier = Modifier.padding(10.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(
+                    imageVector = fileKindIcon(file.kind),
+                    contentDescription = null,
+                    tint = if (file.failed) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    modifier = Modifier.size(18.dp),
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = file.name,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = tone,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    // 副标题可能整体为空:冷启动后 binary 文件既没有 size 也没有
+                    // 可说的类型(`过多大` 只在已知尺寸时才成立)。空串就别渲染 ——
+                    // 否则行里会多出一条空文本占位。
+                    fileSubtitle(file).takeIf { it.isNotBlank() }?.let { subtitle ->
+                        Text(
+                            text = subtitle,
+                            fontSize = 11.sp,
+                            color = if (file.failed) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+                if (canOpen) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Rounded.OpenInNew,
+                        contentDescription = "预览",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+            }
+
+            // 图片内联缩略图。SVG 排除在外 —— BitmapFactory 解不了矢量图,
+            // 交给全屏查看器的 WebView(点行即可)。
+            if (inlineThumb && api != null) {
+                Spacer(Modifier.height(8.dp))
+                RemoteImageThumb(api = api, file = file, onTap = { onOpenFile(file) })
+            }
+
+            // 路径单独一行、等宽小字 —— 排查「Agent 给我看的是哪个文件」时
+            // 这个名字往往不够(同名文件在多个 worktree 里很常见)。
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = file.path,
+                fontSize = 10.sp,
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+/** 一行的次要说明:`1.2 MB · 3 分钟前`;失败时直接给错误原因。 */
+private fun fileSubtitle(file: DisplayFile): String {
+    if (file.failed) return file.error.orEmpty()
+    val parts = ArrayList<String>(3)
+    file.size?.let { parts.add(formatBytes(it)) }
+    file.mtime?.takeIf { it > 0L }?.let { parts.add(formatRelativeAgoMs(it)) }
+    when (file.kind) {
+        FileKind.Image -> parts.add("图片")
+        FileKind.Html -> parts.add("网页")
+        FileKind.Text -> parts.add("文本")
+        FileKind.Binary -> if (file.tooLarge) parts.add("过大，暂不预览")
+    }
+    return parts.joinToString(" · ")
+}
+
+private fun fileKindIcon(kind: FileKind) = when (kind) {
+    FileKind.Image -> Icons.Rounded.Photo
+    FileKind.Html -> Icons.Rounded.Html
+    FileKind.Text -> Icons.Rounded.Description
+    FileKind.Binary -> Icons.AutoMirrored.Rounded.InsertDriveFile
+}
+
+/** 字节数。小数固定用 `.`(默认 Locale 会在部分地区给逗号)。 */
+internal fun formatBytes(bytes: Long): String = when {
+    bytes < 1024L -> "$bytes B"
+    bytes < 1024L * 1024L -> String.format(Locale.US, "%.1f KB", bytes / 1024.0)
+    else -> String.format(Locale.US, "%.1f MB", bytes / 1024.0 / 1024.0)
+}
+
+/**
+ * 预览失败 → 给人看的一句话。413 / 404 与「网络不通」对用户的含义完全不同,
+ * 不能都写成「加载失败」。
+ */
+internal fun previewErrorMessage(t: Throwable): String = when {
+    t is HttpException && t.code == 413 -> "文件过大，不支持内联预览"
+    t is HttpException && t.code == 400 -> "该路径不是文件（可能是目录）"
+    t is HttpException && t.code == 404 -> "文件不存在或已被移动"
+    t is HttpException -> "预览失败（HTTP ${t.code}）"
+    else -> t.message ?: "预览加载失败"
+}
+
+private sealed interface ThumbState {
+    data object Loading : ThumbState
+    data class Ok(val bitmap: android.graphics.Bitmap) : ThumbState
+    data class Failed(val message: String) : ThumbState
+}
+
+/**
+ * 内联图片缩略图 —— 字节走 `GET /api/fs/preview` 取回(base64),在 IO 线程
+ * 采样解码。
+ *
+ * **必须采样**:服务端上限 1 MiB(`FILE_PREVIEW_MAX_BYTES`),但一张 1 MiB 的
+ * PNG 解出来可能就是 4000×4000,`ARGB_8888` 下约 64MB —— 一次渲染几张就能
+ * 把低端机推爆。
+ * 采样算法与 `ImageAttachments` 的两遍解码同款(先只读 bounds,再按
+ * `inSampleSize` 解)。
+ */
+@Composable
+private fun RemoteImageThumb(api: AgentApi, file: DisplayFile, onTap: () -> Unit) {
+    val state by produceState<ThumbState>(ThumbState.Loading, api, file.path) {
+        value = withContext(Dispatchers.IO) {
+            runCatching {
+                val preview = api.previewFile(file.path)
+                val encoded = preview.content
+                if (preview.fileKind != FileKind.Image || encoded.isNullOrEmpty()) {
+                    throw IllegalStateException("服务端未返回图片内容")
+                }
+                decodeSampled(Base64.decode(encoded, Base64.DEFAULT))
+                    ?: throw IllegalStateException("图片解码失败")
+            }.fold(
+                onSuccess = { ThumbState.Ok(it) },
+                onFailure = { ThumbState.Failed(previewErrorMessage(it)) },
+            )
+        }
+    }
+
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+        shape = RoundedCornerShape(8.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 72.dp, max = 240.dp)
+            .clickable(onClick = onTap),
+    ) {
+        when (val s = state) {
+            is ThumbState.Loading -> Box(Modifier.fillMaxWidth().height(96.dp), Alignment.Center) {
+                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 1.5.dp)
+            }
+
+            is ThumbState.Ok -> Image(
+                bitmap = s.bitmap.asImageBitmap(),
+                contentDescription = file.name,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxWidth().heightIn(max = 240.dp),
+            )
+
+            is ThumbState.Failed -> Text(
+                text = s.message,
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            )
+        }
+    }
+}
+
+/**
+ * 内联缩略图的最长边。**比 `ImageAttachments.fullBitmap` 的 1600px 小一档** ——
+ * 缩略图最宽也就占满一张卡(手机上约 1080px),再大只是白占内存
+ * (1024px 的 `ARGB_8888` ≈ 4MB,1600px ≈ 10MB,几张就是几十 MB 的差距)。
+ * 想看细节点进全屏查看器,那边不采样。
+ */
+private const val THUMB_MAX_EDGE = 1024
+
+/** 一张文件卡片里最多内联几张图片缩略图(理由见 `DisplayFilesBody`)。 */
+private const val MAX_INLINE_IMAGES = 4
+
+private fun decodeSampled(bytes: ByteArray, maxEdge: Int = THUMB_MAX_EDGE): android.graphics.Bitmap? {
+    if (bytes.isEmpty()) return null
+    // 第一遍:只读尺寸(inJustDecodeBounds 时不分配像素)
+    val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+    var sample = 1
+    val longEdge = maxOf(bounds.outWidth, bounds.outHeight)
+    while (longEdge / (sample * 2) >= maxEdge) sample *= 2
+    // 第二遍:按采样率真正解码
+    val opts = android.graphics.BitmapFactory.Options().apply {
+        inSampleSize = sample
+        inPreferredConfig = android.graphics.Bitmap.Config.ARGB_8888
+    }
+    return android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
 }
 
 /**
@@ -494,7 +798,12 @@ internal fun ToolCallCard(item: AgentItem.ToolCall) {
  * 与 [ToolCallCard] 的既有行为一致(都是普通 `remember`,不做持久化)。
  */
 @Composable
-internal fun ToolGroupCard(members: List<AgentItem>, groupKey: String) {
+internal fun ToolGroupCard(
+    members: List<AgentItem>,
+    groupKey: String,
+    api: AgentApi?,
+    onOpenFile: (DisplayFile) -> Unit,
+) {
     var expanded by remember(groupKey) { mutableStateOf(false) }
     val tools = members.filterIsInstance<AgentItem.ToolCall>()
     val running = tools.any { it.running }
@@ -571,7 +880,7 @@ internal fun ToolGroupCard(members: List<AgentItem>, groupKey: String) {
         }
         if (expanded) {
             // 按 transcript 原顺序铺开 —— 工具卡与思考卡交错,跟不聚合时的顺序一致。
-            members.forEach { AgentItemView(it) }
+            members.forEach { AgentItemView(it, api, onOpenFile) }
         }
     }
 }
@@ -1295,10 +1604,14 @@ internal fun AgentInputBar(
                             )
                         }
 
+                        // chip 占中间剩余空间(fill = false:短模型名时不撑满,
+                        // 长名时靠 Row 内部的 weight 把右侧的 +/发送钮挡在外面,
+                        // 而不是反过来把发送钮挤扁)。
                         ModelChip(
                             model = currentModel,
                             enabled = availableModels.isNotEmpty(),
                             onClick = { showModelPicker = true },
+                            modifier = Modifier.weight(1f, fill = false),
                         )
 
                         // `+` 与发送钮**并存**(WorkBuddy 行为)。附件/粘贴收进
@@ -1309,8 +1622,6 @@ internal fun AgentInputBar(
                             tint = MaterialTheme.colorScheme.onSurface,
                             onClick = { showMoreMenu = true },
                         )
-
-                        Spacer(Modifier.weight(1f))
 
                         if (busy) {
                             InputBarCircle(
@@ -1388,11 +1699,19 @@ internal fun AgentInputBar(
 }
 
 /**
- * 卡内工具条上的模型 chip:`(圆点/图标) 别名 ⌄`。
+ * 卡内工具条上的模型 chip:`(圆点/图标) 模型名 ⌄`。
  *
  * 对齐 WorkBuddy:模型选择器是**输入卡的一部分**,而不是输入卡下方的独立入口。
- * 无底色、无描边(点中区靠 clip 后的 ripple 提示),窄屏上别名超长时省略号 ——
- * chip 最大 150dp,不跟发送钮抢宽度。
+ * 无底色、无描边(点中区靠 clip 后的 ripple 提示)。
+ *
+ * **显示的是 `model` 字段(纯模型 id),不是 `alias`** —— alias 可能带 provider
+ * 前缀(如 `builtin-openplatform/gpt-4-turbo`),chip 里那一长串 provider
+ * 是冗余的(provider 在 picker 分组时已经看过一次),纯 id 既短又能
+ * 跟服务端 / log 对得上号。
+ *
+ * 外部传 `modifier = Modifier.weight(1f, fill = false)`,chip 内部不再
+ * 限文本宽度 —— 由 Row 的 weight 自然提供 ellipsis 边界,避免把右侧
+ * 的 + / 发送钮挤扁。
  *
  * `enabled = false`(拿不到模型列表)时整块变淡且不可点,避免点开一个空 picker。
  */
@@ -1401,6 +1720,7 @@ private fun ModelChip(
     model: ModelEntry?,
     enabled: Boolean,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val tint = if (enabled) {
         MaterialTheme.colorScheme.onSurface
@@ -1408,7 +1728,7 @@ private fun ModelChip(
         MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
     }
     Row(
-        modifier = Modifier
+        modifier = modifier
             .clip(RoundedCornerShape(10.dp))
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 8.dp, vertical = 8.dp),
@@ -1422,12 +1742,12 @@ private fun ModelChip(
             modifier = Modifier.size(18.dp),
         )
         Text(
-            text = model?.alias ?: stringResource(R.string.agent_input_model_short),
+            text = model?.model ?: stringResource(R.string.agent_input_model_short),
             fontSize = 14.sp,
             color = tint,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.widthIn(max = 116.dp),
+            modifier = Modifier.weight(1f, fill = false),
         )
         Icon(
             imageVector = Icons.Rounded.KeyboardArrowDown,

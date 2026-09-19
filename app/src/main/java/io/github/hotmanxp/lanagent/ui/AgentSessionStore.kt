@@ -25,7 +25,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import io.github.hotmanxp.lanagent.data.AgentEvent
 import io.github.hotmanxp.lanagent.data.AskQuestion
+import io.github.hotmanxp.lanagent.data.DISPLAY_FILES_TOOL
+import io.github.hotmanxp.lanagent.data.DisplayFile
+import io.github.hotmanxp.lanagent.data.DisplayFilesCache
 import io.github.hotmanxp.lanagent.data.PendingInteraction
+import io.github.hotmanxp.lanagent.data.mergeDisplayFiles
+import io.github.hotmanxp.lanagent.data.parseDisplayFileMeta
+import io.github.hotmanxp.lanagent.data.parseDisplayFilePaths
 import io.github.hotmanxp.lanagent.data.QueuedPrompt
 import io.github.hotmanxp.lanagent.data.SessionStateResponse
 import io.github.hotmanxp.lanagent.data.Transcript
@@ -95,6 +101,15 @@ sealed interface AgentItem {
         val output: String?,
         val isError: Boolean,
         val timestamp: Long?,
+        /**
+         * `DisplayFiles` 工具展示的文件列表,见 `data/DisplayFiles.kt`。
+         * 非空时 [ToolCallCard] 渲染成文件卡片(而不是入参/输出两段 code)。
+         *
+         * 其余工具恒为空。两条来源合并而成:**tool_use 的 `input.paths`**
+         * (任何时态都有)+ **tool_result 的元数据**(仅直播态,重开会话时
+         * transcript 里是字面量 `'done'`)。
+         */
+        val files: List<DisplayFile> = emptyList(),
     ) : AgentItem {
         val running: Boolean get() = output == null && !isError
     }
@@ -323,6 +338,7 @@ class AgentSessionStore(val sessionId: String) {
                     output = null,
                     isError = false,
                     ts = ts,
+                    files = displayFilesFromInput(b.id, b.input),
                 )
 
                 else -> Unit
@@ -340,6 +356,7 @@ class AgentSessionStore(val sessionId: String) {
                 output = null,
                 isError = false,
                 ts = ts,
+                files = displayFilesFromInput(b.id, b.input),
             )
         }
     }
@@ -361,7 +378,24 @@ class AgentSessionStore(val sessionId: String) {
         if (idx < 0) return
         val cur = items[idx] as? AgentItem.ToolCall ?: return
         val text = content?.toolResultText().orEmpty().capForDisplay()
-        items[idx] = cur.copy(output = text, isError = isError)
+        // DisplayFiles 的结果是给前端渲染的文件元数据 JSON(不是给人读的
+        // 文本),抽成文件列表交给文件卡片渲染。**重开历史会话时这里解析出
+        // 空列表** —— transcript 里存的是字面量 'done'。三级来源,从严到宽:
+        //   1. 本次 result 的元数据(直播态,有真 size/kind)—— 顺手进缓存
+        //   2. 进程内缓存(进过一次查看器/切过 tab 后回来,wire 上已经没有了)
+        //   3. upsert 时从 input.paths 派生的那份(只有路径 —— 冷启动的兜底)
+        val files = if (cur.name == DISPLAY_FILES_TOOL) {
+            val meta = parseDisplayFileMeta(content)
+            val best = if (meta.isNotEmpty()) {
+                DisplayFilesCache.remember(cur.toolUseId, meta)
+            } else {
+                DisplayFilesCache.recall(cur.toolUseId)
+            }
+            mergeDisplayFiles(cur.files, best)
+        } else {
+            cur.files
+        }
+        items[idx] = cur.copy(output = text, isError = isError, files = files)
     }
 
     // ===== SSE reduce =====
@@ -406,6 +440,7 @@ class AgentSessionStore(val sessionId: String) {
                     output = null,
                     isError = false,
                     ts = ev.long("ts"),
+                    files = parseDisplayFilePaths(ev.payload["input"]),
                 )
             }
 
@@ -626,6 +661,8 @@ class AgentSessionStore(val sessionId: String) {
         output: String?,
         isError: Boolean,
         ts: Long?,
+        /** 仅 `DisplayFiles` 非空 —— 从 tool_use 的 `input.paths` 派生。 */
+        files: List<DisplayFile> = emptyList(),
     ) {
         // 工具卡之后的 text 必须落在**新**气泡里(否则会 append 到工具卡前面
         // 那个旧气泡,视觉顺序就错了)。
@@ -642,6 +679,10 @@ class AgentSessionStore(val sessionId: String) {
                 // 已终态不被后续 start 覆盖
                 output = cur.output ?: output,
                 isError = cur.isError || isError,
+                // 上一次已有的元数据(带 size/error 的那份)不能被这次的
+                // 纯路径版本覆盖 —— transcript 里 tool_use 会先于 tool_result
+                // 被读到,但同一会话重放时两个来源都可能再来一遍。
+                files = if (files.isNotEmpty()) files else cur.files,
             )
             return
         }
@@ -654,6 +695,7 @@ class AgentSessionStore(val sessionId: String) {
                 output = output,
                 isError = isError,
                 timestamp = ts,
+                files = files,
             )
         )
     }
@@ -668,6 +710,19 @@ class AgentSessionStore(val sessionId: String) {
 
     private fun toolKey(toolUseId: String): String? =
         toolUseId.takeIf { it.isNotEmpty() }?.let { "tool-$it" }
+
+    /**
+     * tool_use 侧的 DisplayFiles 文件列表 —— 路径来自 input,元数据优先取
+     * 进程内缓存(见 [DisplayFilesCache]:重新 hydrate 时 wire 上那份已经没了,
+     * 不补的话卡片上的 size / 时间会凭空消失)。
+     */
+    private fun displayFilesFromInput(
+        toolUseId: String?,
+        input: JsonElement?,
+    ): List<DisplayFile> = mergeDisplayFiles(
+        fromInput = parseDisplayFilePaths(input),
+        fromResult = DisplayFilesCache.recall(toolUseId),
+    )
 }
 
 /**

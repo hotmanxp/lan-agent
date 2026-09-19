@@ -16,6 +16,9 @@
 //     agent-session/{baseUrl}/{instanceName}/{sid} → 会话详情
 //     ssh-terminal/{hostId}                   → SSH 终端
 //
+// 注意:**DisplayFiles 文件预览不在这里** —— 它是会话面板内从右侧滑入的 overlay
+// (`ui/FileViewerOverlay.kt`),由 AgentSessionPane 自己持有状态,不占路由。
+//
 // 参数里带 `://`、`:`、中文、空格的必须在 navigate 前 Uri.encode —— route 匹配
 // 是按 `/` 切的,不编码会碎在路径段里。
 package io.github.hotmanxp.lanagent.ui

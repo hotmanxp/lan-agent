@@ -37,6 +37,7 @@ package io.github.hotmanxp.lanagent.ui
 
 import android.content.ClipboardManager
 import android.content.Context
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -113,6 +114,7 @@ import io.github.hotmanxp.lanagent.data.AgentApi
 import io.github.hotmanxp.lanagent.data.AgentInstance
 import io.github.hotmanxp.lanagent.data.AgentSessionMeta
 import io.github.hotmanxp.lanagent.data.AttachedImage
+import io.github.hotmanxp.lanagent.data.DisplayFile
 import io.github.hotmanxp.lanagent.data.compactToolsFlow
 import io.github.hotmanxp.lanagent.data.ImageAttachments
 import io.github.hotmanxp.lanagent.data.ModelEntry
@@ -154,6 +156,11 @@ fun AgentSessionScreen(
  *   占位,目录回来后被真名覆盖)。
  * @param initialSessionId 初始会话 id。**null** = 自动挑该实例最近更新的一条会话。
  * @param onBack null = 作为 tab 根展示,不渲染返回箭头。
+ *
+ * 点 `DisplayFiles` 卡片里的某个文件时,**不分发给调用方** —— 预览层由面板自己
+ * 持有([previewTarget] + [previewOpen]),叠在会话之上从右侧滑入。所以预览不占
+ * 路由、不进返回栈,系统返回键由下面的 `BackHandler` 优先吃掉。
+ * 预览目标是**当前活跃实例**的 baseUrl:面板能在原地切实例,路由参数会过期。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -223,6 +230,12 @@ fun AgentSessionPane(
     var approveFileLoading by remember { mutableStateOf(false) }
     var showInfo by remember { mutableStateOf(false) }
     val infoSheetState = rememberModalBottomSheetState()
+
+    // DisplayFiles 预览层(从右侧滑入的全屏 overlay,见 ui/FileViewerOverlay.kt)。
+    // **关闭时只把 previewOpen 置 false,previewTarget 保留** —— 滑出动画期间内容
+    // 还得在场,清空的话抽屉会在滑走的过程中变成一片空白。
+    var previewTarget by remember { mutableStateOf<FilePreviewTarget?>(null) }
+    var previewOpen by remember { mutableStateOf(false) }
 
     // 模型选择 —— 状态独立于 store,因为 model 是「用户偏好」级别的字段,
     // 不需要随 transcript 一起 hydrate。`availableModels` 失败时降级
@@ -544,364 +557,391 @@ fun AgentSessionPane(
     // **抽屉打开时主屏不卸载**:ModalNavigationDrawer 是 window-level 的 overlay,
     // 主屏 Composable 不重建,SSE / 输入框状态全保留。切会话 / 切实例都是改 state,
     // LaunchedEffect 按 key 重启,Scaffold 内容自动刷成新会话。
-    ModalNavigationDrawer(
-        drawerState = drawerState,
-        drawerContent = {
-            ModalDrawerSheet {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    InstanceSwitcherRow(
-                        instance = active,
-                        loading = directoryLoading,
-                        onClick = { showInstancePicker = true },
-                    )
-                    NewSessionPill(
-                        busy = creating,
-                        // 实例离线时压暗 —— 点下去必然失败,不如别让它看着能点。
-                        enabled = active?.online != false,
-                        onClick = { startNewSession() },
-                    )
-                    if (drawerSessions.isNotEmpty()) {
-                        Text(
-                            text = stringResource(R.string.agent_switch_sessions_section),
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(start = 4.dp, top = 6.dp),
+    //
+    // 外面这层 Box 是**预览层的叠放宿主**:DisplayFiles 预览要盖住整个会话区
+    // (含顶栏),所以跟 ModalNavigationDrawer 平级叠放,而不是塞进 Scaffold 内容里。
+    Box(modifier = Modifier.fillMaxSize()) {
+        ModalNavigationDrawer(
+            drawerState = drawerState,
+            drawerContent = {
+                ModalDrawerSheet {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        InstanceSwitcherRow(
+                            instance = active,
+                            loading = directoryLoading,
+                            onClick = { showInstancePicker = true },
                         )
-                    }
-                    if (drawerSessions.isEmpty() && !drawerLoading) {
-                        Box(
-                            modifier = Modifier.fillMaxWidth().padding(top = 24.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
+                        NewSessionPill(
+                            busy = creating,
+                            // 实例离线时压暗 —— 点下去必然失败,不如别让它看着能点。
+                            enabled = active?.online != false,
+                            onClick = { startNewSession() },
+                        )
+                        if (drawerSessions.isNotEmpty()) {
                             Text(
-                                text = stringResource(R.string.agent_sessions_empty),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                text = stringResource(R.string.agent_switch_sessions_section),
                                 fontSize = 13.sp,
-                                textAlign = TextAlign.Center,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(start = 4.dp, top = 6.dp),
                             )
                         }
-                    }
-                    drawerSessions.forEach { meta ->
-                        SessionRow(
-                            meta = meta,
-                            now = drawerNow,
-                            onClick = { switchToSession(meta.sessionId) },
-                        )
+                        if (drawerSessions.isEmpty() && !drawerLoading) {
+                            Box(
+                                modifier = Modifier.fillMaxWidth().padding(top = 24.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.agent_sessions_empty),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontSize = 13.sp,
+                                    textAlign = TextAlign.Center,
+                                )
+                            }
+                        }
+                        drawerSessions.forEach { meta ->
+                            SessionRow(
+                                meta = meta,
+                                now = drawerNow,
+                                onClick = { switchToSession(meta.sessionId) },
+                            )
+                        }
                     }
                 }
-            }
-        },
-    ) {
-        Scaffold(
-            topBar = {
-                TopAppBar(
-                    navigationIcon = {
-                        // 抽屉在最左,back 在其次 —— 对齐 WorkBuddy 的顶栏顺序。
-                        // tab 根用法(onBack == null)只有抽屉按钮。
-                        Row {
-                            IconButton(onClick = { scope.launch { drawerState.open() } }) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Menu,
-                                    contentDescription = stringResource(
-                                        R.string.agent_session_open_sessions_cd
-                                    ),
-                                )
-                            }
-                            if (onBack != null) {
-                                IconButton(onClick = onBack) {
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-                                        contentDescription = stringResource(R.string.webview_back_cd),
-                                    )
-                                }
-                            }
-                        }
-                    },
-                    title = {
-                        Column {
-                            Text(
-                                text = if (currentSid == null) {
-                                    active?.name
-                                        ?: stringResource(R.string.agent_session_untitled)
-                                } else {
-                                    store.title?.takeIf { it.isNotBlank() }
-                                        ?: stringResource(R.string.agent_session_untitled)
-                                },
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            // 可点的副标题：刷新 / 在浏览器打开 / 全部会话元信息都
-                            // 收进这个面板，顶栏才干净得下来。形态对齐 WorkBuddy 的
-                            // 「小图标 + 一行灰字」面包屑。
-                            Row(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .clickable { showInfo = true }
-                                    .padding(vertical = 2.dp, horizontal = 2.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(3.dp),
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Folder,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(13.dp),
-                                )
-                                Text(
-                                    text = subtitle,
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f, fill = false),
-                                )
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
-                                    contentDescription = stringResource(R.string.agent_session_info_title),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(14.dp),
-                                )
-                            }
-                        }
-                    },
-                    actions = {
-                        IconButton(
-                            onClick = { startNewSession() },
-                            enabled = api != null,
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Add,
-                                contentDescription = stringResource(R.string.agent_session_new_cd),
-                            )
-                        }
-                    },
-                )
             },
-            snackbarHost = { SnackbarHost(snackbarHostState) },
-        ) { padding ->
-            // 录音动效层（HoldToTalkOverlay）盖在整个内容区上：无 pointerInput，
-            // 不吃触摸，按住手势仍在胶囊上。
-            Box(modifier = Modifier.fillMaxSize()) {
-                Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-
-                    Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                        when {
-                            !bootstrapDone || sessionResolving -> CenterSpinner()
-
-                            active == null -> NoInstanceState(
-                                onRetry = { bootstrapTick++ },
-                                onPick = { showInstancePicker = true },
-                            )
-
-                            currentSid == null -> NoSessionState(
-                                instance = active!!,
-                                creating = creating,
-                                onCreate = { startNewSession() },
-                                onSwitch = { showInstancePicker = true },
-                            )
-
-                            store.items.isEmpty() && !store.hydrated -> CenterSpinner()
-
-                            store.items.isEmpty() -> AgentSessionEmptyState()
-
-                            else -> LazyColumn(
-                                state = listState,
-                                // 倒序布局:index 0 贴底,流式追加时视口自动跟住新内容,
-                                // 不需要每帧手动算滚动偏移。
-                                reverseLayout = true,
-                                modifier = Modifier.fillMaxSize(),
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
-                                verticalArrangement = Arrangement.spacedBy(10.dp),
-                            ) {
-                                items(
-                                    count = blocks.size,
-                                    key = { i -> blocks[blocks.size - 1 - i].key },
-                                ) { i ->
-                                    AgentBlockView(blocks[blocks.size - 1 - i], store.items)
-                                }
-                            }
-                        }
-                    }
-
-                    // 底部固定区:任务清单 / 队列 / 待处理交互。整体限高 + 可滚,
-                    // 避免 ask 卡片选项多时把输入条挤出屏幕。
-                    val pending = store.pending
-                    if (store.v2Tasks.isNotEmpty() || store.queue.isNotEmpty() || pending != null) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(max = 300.dp)
-                                .verticalScroll(rememberScrollState())
-                                .padding(horizontal = 12.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            V2TaskStrip(store.v2Tasks, store.status)
-                            QueueStrip(
-                                queue = store.queue,
-                                onCancel = { q ->
-                                    queueAction("取消失败") { api?.cancelQueued(currentSid.orEmpty(), q.id) }
-                                },
-                                onSteer = { q ->
-                                    queueAction("插入失败") { api?.steerQueued(currentSid.orEmpty(), q.id) }
-                                },
-                            )
-                            if (pending != null) {
-                                val sid = currentSid.orEmpty()
-                                PendingCard(
-                                    pending = pending,
-                                    busy = actionBusy,
-                                    fileContent = approveFile,
-                                    fileLoading = approveFileLoading,
-                                    onLoadFile = {
-                                        if (!approveFileLoading) {
-                                            approveFileLoading = true
-                                            scope.launch {
-                                                runCatching { api?.readApproveFile(sid, pending.toolUseId) }
-                                                    .onSuccess { approveFile = it?.content }
-                                                    .onFailure { toast("读取文件失败:${it.message ?: it}") }
-                                                approveFileLoading = false
-                                            }
-                                        }
-                                    },
-                                    onSubmitAsk = { answers ->
-                                        respondPending {
-                                            api?.submitAnswer(sid, pending.toolUseId, answers)
-                                        }
-                                    },
-                                    onReject = {
-                                        respondPending {
-                                            if (pending.kind == "ask") {
-                                                api?.rejectAsk(sid, pending.toolUseId)
-                                            } else {
-                                                // 服务端 schema 要求 rejected 必须带非空 comment
-                                                api?.respondApprove(sid, pending.toolUseId, false, "手机端驳回")
-                                            }
-                                        }
-                                    },
-                                    onPermission = { allow ->
-                                        respondPending {
-                                            api?.respondPermission(sid, pending.toolUseId, allow)
-                                        }
-                                    },
-                                    onApprove = { ok ->
-                                        respondPending {
-                                            api?.respondApprove(
-                                                sessionId = sid,
-                                                toolUseId = pending.toolUseId,
-                                                approved = ok,
-                                                comment = if (ok) null else "手机端驳回",
-                                            )
-                                        }
-                                    },
-                                )
-                            }
-                        }
-                    }
-
-                    // 运行态提示条 —— 顶栏不放状态(对齐 WorkBuddy),改成在输入框
-                    // 上面单起一行,空闲时整行不渲染,不占视觉位置。
-                    //
-                    // 有任务清单时 status 已经 inline 到 V2TaskStrip 的 header,
-                    // 否则 strip header 一行 + status 行 + 输入卡挤在屏幕底端很噪。
-                    //
-                    // start = 12.dp:对齐消息气泡左边距,让 StatusBadge 的三个 dot
-                    // 起点跟消息文本对齐,而不是贴屏幕左边。
-                    if (store.status != AgentRunStatus.Idle && store.v2Tasks.isEmpty()) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(start = 12.dp, top = 2.dp, bottom = 4.dp),
-                        ) {
-                            StatusBadge(store.status)
-                        }
-                    }
-
-                    // 没有会话时整条输入区都没意义(发给谁?),直接不渲染 ——
-                    // 空态里那颗「新建会话」才是此时该点的东西。
-                    if (currentSid != null) {
-                        AgentInputBar(
-                            value = input,
-                            onValueChange = { input = it },
-                            busy = busy,
-                            attachments = attachments,
-                            onRemoveAttachment = { img -> attachments = attachments - img },
-                            voice = voice,
-                            holdToTalk = holdToTalk,
-                            canSend = input.isNotBlank() || attachments.isNotEmpty(),
-                            onSend = {
-                                // 录音中的话直接丢弃（discard 而不是 stop）—— stop 之后识别
-                                // 服务仍会异步回调结果，会把刚发出去的话重新填回已清空的
-                                // 输入框，看着像「发出去的话又回来了」。
-                                voice.discard()
-                                holdToTalk?.cancel()
-                                send()
-                            },
-                            onStop = { stop() },
-                            onPickImage = {
-                                if (attachments.size >= ImageAttachments.MAX_COUNT) {
-                                    toast("最多只能带 ${ImageAttachments.MAX_COUNT} 张图片")
-                                } else {
-                                    pickImageLauncher.launch(
-                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+        ) {
+            Scaffold(
+                topBar = {
+                    TopAppBar(
+                        navigationIcon = {
+                            // 抽屉在最左,back 在其次 —— 对齐 WorkBuddy 的顶栏顺序。
+                            // tab 根用法(onBack == null)只有抽屉按钮。
+                            Row {
+                                IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Menu,
+                                        contentDescription = stringResource(
+                                            R.string.agent_session_open_sessions_cd
+                                        ),
                                     )
                                 }
-                            },
-                            onPaste = { pasteFromClipboard() },
-                            currentModel = currentModel,
-                            availableModels = availableModels,
-                            onModelChange = { picked ->
-                                // 乐观切换:UI 立刻跟手,服务端失败再 toast + 回滚。
-                                // store.model 是 private set,不在这里写回 ——
-                                // 成功后下次 refreshTick++ 重新 hydrate,transcript
-                                // meta 会带回服务端的权威 model;失败则保持原状。
-                                val previous = currentModel
-                                currentModel = picked
-                                scope.launch {
-                                    runCatching {
-                                        api?.patchSession(
-                                            sessionId = currentSid.orEmpty(),
-                                            body = PatchSessionRequest(
-                                                model = picked.model,
-                                                providerId = picked.providerId,
-                                            ),
+                                if (onBack != null) {
+                                    IconButton(onClick = onBack) {
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                                            contentDescription = stringResource(R.string.webview_back_cd),
                                         )
                                     }
-                                        .onSuccess {
-                                            toast(
-                                                context.getString(
-                                                    R.string.agent_input_model_switched,
-                                                    picked.alias,
-                                                )
-                                            )
-                                        }
-                                        .onFailure { err ->
-                                            currentModel = previous
-                                            toast(
-                                                context.getString(
-                                                    R.string.agent_input_model_switch_failed,
-                                                    err.message ?: err.toString(),
-                                                )
-                                            )
-                                        }
                                 }
-                            },
-                        )
-                    }
-                }
+                            }
+                        },
+                        title = {
+                            Column {
+                                Text(
+                                    text = if (currentSid == null) {
+                                        active?.name
+                                            ?: stringResource(R.string.agent_session_untitled)
+                                    } else {
+                                        store.title?.takeIf { it.isNotBlank() }
+                                            ?: stringResource(R.string.agent_session_untitled)
+                                    },
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                // 可点的副标题：刷新 / 在浏览器打开 / 全部会话元信息都
+                                // 收进这个面板，顶栏才干净得下来。形态对齐 WorkBuddy 的
+                                // 「小图标 + 一行灰字」面包屑。
+                                Row(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .clickable { showInfo = true }
+                                        .padding(vertical = 2.dp, horizontal = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(3.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Folder,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(13.dp),
+                                    )
+                                    Text(
+                                        text = subtitle,
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f, fill = false),
+                                    )
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                                        contentDescription = stringResource(R.string.agent_session_info_title),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(14.dp),
+                                    )
+                                }
+                            }
+                        },
+                        actions = {
+                            IconButton(
+                                onClick = { startNewSession() },
+                                enabled = api != null,
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Add,
+                                    contentDescription = stringResource(R.string.agent_session_new_cd),
+                                )
+                            }
+                        },
+                    )
+                },
+                snackbarHost = { SnackbarHost(snackbarHostState) },
+            ) { padding ->
+                // 录音动效层（HoldToTalkOverlay）盖在整个内容区上：无 pointerInput，
+                // 不吃触摸，按住手势仍在胶囊上。
+                Box(modifier = Modifier.fillMaxSize()) {
+                    Column(modifier = Modifier.fillMaxSize().padding(padding)) {
 
-                // 录音中的全屏动效：绿浪涌起 + 波形（见 voice/HoldToTalkOverlay.kt）。
-                holdToTalk?.let { HoldToTalkOverlay(it) }
+                        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                            when {
+                                !bootstrapDone || sessionResolving -> CenterSpinner()
+
+                                active == null -> NoInstanceState(
+                                    onRetry = { bootstrapTick++ },
+                                    onPick = { showInstancePicker = true },
+                                )
+
+                                currentSid == null -> NoSessionState(
+                                    instance = active!!,
+                                    creating = creating,
+                                    onCreate = { startNewSession() },
+                                    onSwitch = { showInstancePicker = true },
+                                )
+
+                                store.items.isEmpty() && !store.hydrated -> CenterSpinner()
+
+                                store.items.isEmpty() -> AgentSessionEmptyState()
+
+                                else -> LazyColumn(
+                                    state = listState,
+                                    // 倒序布局:index 0 贴底,流式追加时视口自动跟住新内容,
+                                    // 不需要每帧手动算滚动偏移。
+                                    reverseLayout = true,
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                                ) {
+                                    items(
+                                        count = blocks.size,
+                                        key = { i -> blocks[blocks.size - 1 - i].key },
+                                    ) { i ->
+                                        AgentBlockView(
+                                            block = blocks[blocks.size - 1 - i],
+                                            items = store.items,
+                                            api = api,
+                                            // 用**活跃实例**的 baseUrl(面板能原地切实例,
+                                            // 路由参数/首帧实例都会过期)。
+                                            onOpenFile = { file ->
+                                                instanceBaseUrl?.let { url ->
+                                                    previewTarget = FilePreviewTarget(url, file.path)
+                                                    previewOpen = true
+                                                }
+                                            },
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        // 底部固定区:任务清单 / 队列 / 待处理交互。整体限高 + 可滚,
+                        // 避免 ask 卡片选项多时把输入条挤出屏幕。
+                        val pending = store.pending
+                        if (store.v2Tasks.isNotEmpty() || store.queue.isNotEmpty() || pending != null) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 300.dp)
+                                    .verticalScroll(rememberScrollState())
+                                    .padding(horizontal = 12.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                V2TaskStrip(store.v2Tasks, store.status)
+                                QueueStrip(
+                                    queue = store.queue,
+                                    onCancel = { q ->
+                                        queueAction("取消失败") { api?.cancelQueued(currentSid.orEmpty(), q.id) }
+                                    },
+                                    onSteer = { q ->
+                                        queueAction("插入失败") { api?.steerQueued(currentSid.orEmpty(), q.id) }
+                                    },
+                                )
+                                if (pending != null) {
+                                    val sid = currentSid.orEmpty()
+                                    PendingCard(
+                                        pending = pending,
+                                        busy = actionBusy,
+                                        fileContent = approveFile,
+                                        fileLoading = approveFileLoading,
+                                        onLoadFile = {
+                                            if (!approveFileLoading) {
+                                                approveFileLoading = true
+                                                scope.launch {
+                                                    runCatching { api?.readApproveFile(sid, pending.toolUseId) }
+                                                        .onSuccess { approveFile = it?.content }
+                                                        .onFailure { toast("读取文件失败:${it.message ?: it}") }
+                                                    approveFileLoading = false
+                                                }
+                                            }
+                                        },
+                                        onSubmitAsk = { answers ->
+                                            respondPending {
+                                                api?.submitAnswer(sid, pending.toolUseId, answers)
+                                            }
+                                        },
+                                        onReject = {
+                                            respondPending {
+                                                if (pending.kind == "ask") {
+                                                    api?.rejectAsk(sid, pending.toolUseId)
+                                                } else {
+                                                    // 服务端 schema 要求 rejected 必须带非空 comment
+                                                    api?.respondApprove(sid, pending.toolUseId, false, "手机端驳回")
+                                                }
+                                            }
+                                        },
+                                        onPermission = { allow ->
+                                            respondPending {
+                                                api?.respondPermission(sid, pending.toolUseId, allow)
+                                            }
+                                        },
+                                        onApprove = { ok ->
+                                            respondPending {
+                                                api?.respondApprove(
+                                                    sessionId = sid,
+                                                    toolUseId = pending.toolUseId,
+                                                    approved = ok,
+                                                    comment = if (ok) null else "手机端驳回",
+                                                )
+                                            }
+                                        },
+                                    )
+                                }
+                            }
+                        }
+
+                        // 运行态提示条 —— 顶栏不放状态(对齐 WorkBuddy),改成在输入框
+                        // 上面单起一行,空闲时整行不渲染,不占视觉位置。
+                        //
+                        // 有任务清单时 status 已经 inline 到 V2TaskStrip 的 header,
+                        // 否则 strip header 一行 + status 行 + 输入卡挤在屏幕底端很噪。
+                        //
+                        // start = 12.dp:对齐消息气泡左边距,让 StatusBadge 的三个 dot
+                        // 起点跟消息文本对齐,而不是贴屏幕左边。
+                        if (store.status != AgentRunStatus.Idle && store.v2Tasks.isEmpty()) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = 12.dp, top = 2.dp, bottom = 4.dp),
+                            ) {
+                                StatusBadge(store.status)
+                            }
+                        }
+
+                        // 没有会话时整条输入区都没意义(发给谁?),直接不渲染 ——
+                        // 空态里那颗「新建会话」才是此时该点的东西。
+                        if (currentSid != null) {
+                            AgentInputBar(
+                                value = input,
+                                onValueChange = { input = it },
+                                busy = busy,
+                                attachments = attachments,
+                                onRemoveAttachment = { img -> attachments = attachments - img },
+                                voice = voice,
+                                holdToTalk = holdToTalk,
+                                canSend = input.isNotBlank() || attachments.isNotEmpty(),
+                                onSend = {
+                                    // 录音中的话直接丢弃（discard 而不是 stop）—— stop 之后识别
+                                    // 服务仍会异步回调结果，会把刚发出去的话重新填回已清空的
+                                    // 输入框，看着像「发出去的话又回来了」。
+                                    voice.discard()
+                                    holdToTalk?.cancel()
+                                    send()
+                                },
+                                onStop = { stop() },
+                                onPickImage = {
+                                    if (attachments.size >= ImageAttachments.MAX_COUNT) {
+                                        toast("最多只能带 ${ImageAttachments.MAX_COUNT} 张图片")
+                                    } else {
+                                        pickImageLauncher.launch(
+                                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                        )
+                                    }
+                                },
+                                onPaste = { pasteFromClipboard() },
+                                currentModel = currentModel,
+                                availableModels = availableModels,
+                                onModelChange = { picked ->
+                                    // 乐观切换:UI 立刻跟手,服务端失败再 toast + 回滚。
+                                    // store.model 是 private set,不在这里写回 ——
+                                    // 成功后下次 refreshTick++ 重新 hydrate,transcript
+                                    // meta 会带回服务端的权威 model;失败则保持原状。
+                                    val previous = currentModel
+                                    currentModel = picked
+                                    scope.launch {
+                                        runCatching {
+                                            api?.patchSession(
+                                                sessionId = currentSid.orEmpty(),
+                                                body = PatchSessionRequest(
+                                                    model = picked.model,
+                                                    providerId = picked.providerId,
+                                                ),
+                                            )
+                                        }
+                                            .onSuccess {
+                                                toast(
+                                                    context.getString(
+                                                        R.string.agent_input_model_switched,
+                                                        picked.alias,
+                                                    )
+                                                )
+                                            }
+                                            .onFailure { err ->
+                                                currentModel = previous
+                                                toast(
+                                                    context.getString(
+                                                        R.string.agent_input_model_switch_failed,
+                                                        err.message ?: err.toString(),
+                                                    )
+                                                )
+                                            }
+                                    }
+                                },
+                            )
+                        }
+                    }
+
+                    // 录音中的全屏动效：绿浪涌起 + 波形（见 voice/HoldToTalkOverlay.kt）。
+                    holdToTalk?.let { HoldToTalkOverlay(it) }
+                }
             }
         }
+
+        FileViewerOverlay(
+            visible = previewOpen,
+            target = previewTarget,
+            onClose = { previewOpen = false },
+            modifier = Modifier.fillMaxSize(),
+        )
     }
+
+    // 系统返回键优先关预览层,而不是退出会话页 / 切回上一个 tab。
+    BackHandler(enabled = previewOpen) { previewOpen = false }
 
     // 「选择实例」底部弹层 —— 挂在抽屉**外面**(ModalBottomSheet 是独立窗口),
     // 这样从抽屉里点开它也盖在抽屉之上。
@@ -1259,13 +1299,23 @@ private fun statusLabel(status: AgentRunStatus): String = when (status) {
     AgentRunStatus.Error -> "出错了"
 }
 
+/**
+ * @param api 当前实例的客户端 —— `DisplayFiles` 的文件卡片要用它拉预览。
+ *   null = 实例还没解析出来(元数据照常渲染,只是点不开)。
+ * @param onOpenFile 点某一行文件 → 打开会话面板内的预览层
+ *   (见 ui/FileViewerOverlay.kt)。
+ */
 @Composable
-internal fun AgentItemView(item: AgentItem) {
+internal fun AgentItemView(
+    item: AgentItem,
+    api: AgentApi?,
+    onOpenFile: (DisplayFile) -> Unit,
+) {
     when (item) {
         is AgentItem.UserText -> UserBubble(item)
         is AgentItem.AssistantText -> AssistantBubble(item)
         is AgentItem.Thinking -> ThinkingBubble(item)
-        is AgentItem.ToolCall -> ToolCallCard(item)
+        is AgentItem.ToolCall -> ToolCallCard(item, api, onOpenFile)
         is AgentItem.Note -> NoteRow(item)
     }
 }
@@ -1279,14 +1329,21 @@ internal fun AgentItemView(item: AgentItem) {
  * 不出意外(真缺一条也只是少渲染一张卡,不会崩)。
  */
 @Composable
-private fun AgentBlockView(block: AgentBlock, items: List<AgentItem>) {
+private fun AgentBlockView(
+    block: AgentBlock,
+    items: List<AgentItem>,
+    api: AgentApi?,
+    onOpenFile: (DisplayFile) -> Unit,
+) {
     when (block) {
         is AgentBlock.Single ->
-            items.getOrNull(block.index)?.let { AgentItemView(it) }
+            items.getOrNull(block.index)?.let { AgentItemView(it, api, onOpenFile) }
 
         is AgentBlock.ToolGroup -> ToolGroupCard(
             members = block.indices.mapNotNull { items.getOrNull(it) },
             groupKey = block.key,
+            api = api,
+            onOpenFile = onOpenFile,
         )
     }
 }

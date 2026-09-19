@@ -20,7 +20,11 @@
 >
 > **0.15.2** 会话加**精简模式**(设置栏开关,**默认开**):一段连续的工作(工具调用 + 夹在中间的思考过程)默认压成**一条**「工具调用 · N 次」,点整行才铺开成工具卡 / 思考卡(见 §19)。关掉即退回逐条工具卡。
 >
-> **当前 HEAD**: HEAD on `main` · **versionCode 54** · **versionName 0.15.2**
+> **0.16.0** 接上 **`DisplayFiles` 工具的文件卡片**:Agent 把一组本地文件展示给用户,Android 端原生渲染 —— 每行「类型图标 + 名字 + `大小 · 相对时间 · 类型` + 等宽路径」,图片带**内联缩略图**,点一行看文件内容(图片 Fit / HTML 走 WebView / `.md` 走自研 Markdown / binary 给「在 Mac 上打开所在目录」)。见 §20。
+>
+> **0.16.1** 文件预览从**独立路由的整屏页**改成**会话面板内从右侧滑入的全屏 overlay**(`ui/FileViewerOverlay.kt`):不再占返回栈,系统返回键优先关预览;`file-viewer/{baseUrl}/{path}` 路由与 `onOpenFile` 参数链一并删除。
+>
+> **当前 HEAD**: HEAD on `main` · **versionCode 56** · **versionName 0.16.1**
 
 ## 仓库用途
 
@@ -129,7 +133,8 @@ lan-agent/
             │   ├── AgentSessionsScreen.kt  # 原生会话列表(5s 轮询 + 新建会话)
             │   ├── AgentSessionScreen.kt   # Agent 工作区(`AgentSessionPane`):实例解析/切换 + 会话切换面板 + transcript/SSE;(`AgentSessionScreen`)详情路由薄包装
             │   ├── AgentSessionStore.kt    # 会话状态机:transcript 归一化 + SSE 事件 reduce → AgentItem 列表
-            │   ├── AgentSessionViews.kt    # 消息渲染组件(用户气泡/助手正文/思考折叠/工具卡/**聚合工具卡 ToolGroupCard**/ask·permission·approve 卡/双行白卡输入条)
+            │   ├── AgentSessionViews.kt    # 消息渲染组件(用户气泡/助手正文/思考折叠/工具卡/**聚合工具卡 ToolGroupCard**/**DisplayFiles 文件卡 + 内联图片缩略图**/ask·permission·approve 卡/双行白卡输入条)
+            │   ├── FileViewerOverlay.kt     # 文件预览层(DisplayFiles 点进来):会话面板内从右侧滑入的全屏 overlay,图片 Fit / HTML·SVG 走 WebView / 文本走 Markdown / binary 给「打开目录」
             │   └── VoiceInput.kt           # 语音转文字(平台 SpeechRecognizer + 权限申请 + 部分结果回填)
             ├── data/
             │   ├── Cards.kt           # 5 张 hardcode 默认卡片 + findManagerBaseUrl
@@ -144,6 +149,7 @@ lan-agent/
             │   ├── InstanceModels.kt  # InstanceSnapshot/State/AppProfile + FsPickerEntry
             │   ├── InstancesApi.kt    # OkHttp 客户端 + PatchValue 三态
             │   ├── AgentModels.kt     # 会话/transcript/SSE 事件 wire 模型 + JsonElement 取值 helper + 容错时间戳序列化器
+            │   ├── DisplayFiles.kt    # DisplayFiles 工具:wire 解析(两条路径)+ 扩展名分类 + 进程内元数据缓存 + FilePreview
             │   ├── AgentApi.kt        # 会话 HTTP 客户端(可选 callTimeoutMs)+ callbackFlow 版 SSE(重连/退避/seq 去重)
             │   └── ImageAttachment.kt # 图片附件:选图 → 采样解码 → 白底铺平 → JPEG 重编码 → base64
             ├── model/
@@ -666,6 +672,90 @@ WorkBuddy 手机端采样结果：气泡底 **`#E2E4E3`**（中性灰）、正�
 2. **`remember(items.size, compact)` 缓存是有意的**。items 只会 append,原地更新全是**同类替换**(见 `appendText` / `applyToolResult` / `upsertToolCall`),所以「下标 → 类型」的映射只在条数变化时才变。渲染侧再兜一层 `getOrNull` + `filterIsInstance`,任何情况下都不会把正文画进工具段。
 3. **自动滚动的 key 也从「条数」换成「块数」**:段落继续吞新工具时块数不变(视口不用动),新开一段才把视口拉回底部。
 
+### 20. DisplayFiles 文件卡片(0.16.0)
+
+**是什么**:opencc 内置工具 `DisplayFiles`(服务端实现见 opencc-web
+`packages/zn-agent-core/src/opencc-src/server/displayFilesOpencc.ts`)让 Agent 把
+一组本地文件「展示给用户」——「完成文件编辑 / 生成 / 汇报任务后,把产物路径列给用户」。
+zai 前端有专门的渲染器(`toolRenderers/fileDisplay.tsx`),Android 这版对齐它:会话里的
+工具卡变成**文件卡片** —— 每行一个文件(类型图标 + 名字 + `大小 · 相对时间 · 类型` +
+等宽路径),图片多一张**内联缩略图**,点一行打开**会话面板内从右侧滑入的预览层**
+(`ui/FileViewerOverlay.kt`,不占路由)。
+
+**wire 形状**(实测):
+
+```
+runtime.tool_call    { toolName:"DisplayFiles", input:{ paths:[绝对路径…] } }   # 1..20 个
+runtime.tool_result  { output: "<JSON 字符串>" }
+   → JSON.parse(output).content[0].json.files = FileMeta[]
+   FileMeta = { path, name, size, mtime, kind, error?:{code,message} }
+   kind ∈ text | image | html | binary     # 服务端按扩展名分类
+```
+
+**三个必须记住的坑**:
+
+1. **transcript 里 tool_result 是字面量 `'done'`,不是这段 JSON。** 服务端
+   `mapToolResultToToolResultBlockParam` 回灌给 LLM 的 content 恒为 `'done'`(省上下文),
+   真正的 wrapper 只从 SSE 走**一次**,而且 `takeDisplayFilesOutput` 是**取出即删**。
+   所以重新 hydrate 一条历史会话时**拿不到 size / kind / error** —— 只有 tool_use 的
+   `input.paths` 还在。解析因此拆成两条路径:
+   - `parseDisplayFilePaths(input)` — 路径(**任何时态都有**),`kind` 按扩展名在**客户端**猜
+     (规则与服务端 `displayFilesOpencc.ts:38-70` 同步);
+   - `parseDisplayFileMeta(output)` — 完整元数据(**仅直播态**);
+   - `mergeDisplayFiles(...)` 合并(元数据优先,元数据没有的路径靠 input 补)。
+2. **`mtime` 是浮点**(Node `fs.Stats.mtimeMs`,与 `EpochMsSerializer` 注释里那条同源),
+   `size` 也别赌是整数 —— 一律走容错解码。
+3. **那份元数据离开页面就没了。** 切底栏 tab 会销毁会话页 composition(`saveState` 保得住
+   返回栈与 `rememberSaveable`,保不住 `remember`),回来重新 hydrate → 卡片上的
+   `293.6 KB · 5 天前` 凭空消失(真机实测:副标题从 `293.6 KB · 5 天前 · 图片` 退化成
+   `图片`,且同一会话内再也不会恢复)。所以有 `DisplayFilesCache`(进程内、不落盘,与
+   `ActiveTasksCache` 同款取舍:只为「离开再回来」兜底)。
+   **0.16.1 起点文件不再触发这一条** —— 预览是面板内 overlay,不跳路由、不销毁
+   composition;但切 tab / 重开会话仍然会命中。**冷启动后只剩路径**,这是服务端形状
+   决定的既定限制,不是 bug。
+
+**文件字节从哪来**:`GET {instanceBaseUrl}/api/fs/preview?path=<绝对路径>`
+(opencc-web `routes/fs.ts:1020`,**无鉴权**,与 `/api/agent/*` 是同一个实例进程 ——
+文件系统在 Mac 上,由实例去读盘)。响应按 `kind` 分岔:
+
+| kind | `content` | Android 侧怎么用 |
+|------|-----------|-----------------|
+| `image` | **base64** | 内联缩略图 + 全屏 `ContentScale.Fit` |
+| `html` | 原文 UTF-8 | WebView `loadDataWithBaseURL` |
+| `text` | 原文 UTF-8 | `.md`/`.markdown` → `MarkdownText`,其余 `CodeBox` |
+| `binary` | **没有**(只有 `ext`) | 不内联,给「在 Mac 上打开所在目录」 |
+
+`maxBytes` 被 clamp 在 `[1024, 1 MiB]`(`PREVIEW_DEFAULT_MAX`,**不是 512KB**),超了回
+**413 ETOOBIG**;目录回 400 EISDIR;不存在回 404。**这三个必须翻译成人话**
+(`previewErrorMessage`)—— 413 的含义是「这文件太大,去 Mac 上看」,不是「坏了」。
+
+**四个渲染分支**:
+
+- **图片** → 内联缩略图(`RemoteImageThumb`)。**必须采样**(先 `inJustDecodeBounds` 读尺寸,
+  再按 `inSampleSize` 解):1 MiB 的 PNG 解出来可能是 4000×4000,`ARGB_8888` 下约 64MB,
+  一次渲染几张就能把低端机推爆。**SVG 例外** —— `BitmapFactory` 解不了矢量图(XML),
+  只走查看器的 WebView。
+- **HTML / SVG** → `FileViewerOverlay` 里的 WebView。用
+  `WebViewFactory.createForContent`(**textZoom 100**,不是那个给 opencc-web `/m` 的 85);
+  `shouldOverrideUrlLoading` 一律返回 true —— 只读预览,点链接跳走会让用户莫名离开文件
+  且没有地址栏可以回来(子资源不受影响,那本来就不是主框架导航)。
+- **文本** → `.md` 走自研 Markdown,其余 `CodeBox`。
+- **binary / 超过 1 MiB** → 元数据 + 「在 Mac 上打开所在目录」
+  (`POST /api/fs/reveal`,macOS 走 `open -R`)。
+
+**已知限制**:① 超过 1 MiB 的文件不能内联预览(服务端上限,不是客户端懒);② 冷启动后
+文件卡没有 size / 时间(见坑 1);③ 单次最多 20 个文件(服务端 schema)。
+
+**改哪里**:wire 解析 / 扩展名分类 / 缓存 → `data/DisplayFiles.kt`;HTTP →
+`data/AgentApi.kt` 的 `previewFile` / `revealFile`;卡片与缩略图 →
+`ui/AgentSessionViews.kt` 的 `DisplayFilesBody` / `DisplayFileRow` / `RemoteImageThumb`;
+预览层 → `ui/FileViewerOverlay.kt`;宿主(持有开合状态 + `BackHandler`)→
+`ui/AgentSessionScreen.kt` 的 `AgentSessionPane`。**预览不占路由** —— 早期版本曾走
+`ui/AppNavHost.kt` 的 `file-viewer/{baseUrl}/{path}`,0.16.1 改成面板内 overlay。
+**改这条链路前先看
+`data/DisplayFilesTest` + `ui/AgentSessionStoreDisplayFilesTest`** —— 后者里那条
+「重开会话」用例守的正是最容易静默坏掉的那段(直播正常、只有离开再回来才坏)。
+
 ## 强制开发规则
 
 
@@ -763,6 +853,9 @@ adb shell pm clear io.github.hotmanxp.lanagent
 | 底栏图标选中时"跳"一下 | 每栏配了"实心 / 描边"两套 ImageVector,选中时形状在变 | 形状切换是可感知但廉价的动效。改成两态**同一个图标**,只换 tint / 字重 / 不透明度 |
 | 图标整体观感"硬"、不像 WorkBuddy | 全 App 混用 `Icons.Filled` / `Default` / `Outlined`,23dp 下描边版直角很扎眼 | 统一换 `Icons.Rounded`(Material Symbols Rounded)。**批量替换后记得查重复 import** —— `filled.Chat` + `outlined.Chat` 会变成两行一样的 `rounded.Chat` |
 | 选择实例弹层的后几个实例点不到 | 被屏幕底边切掉,而且滚不动 | ModalBottomSheet 的**内容默认不滚动**。列表要 `Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())`,并 `rememberModalBottomSheetState(skipPartiallyExpanded = true)`(选择弹层直接展开,不要半屏态) |
+| **DisplayFiles 卡片离开页面后丢了 size 与时间** | 副标题从 `293.6 KB · 5 天前 · 图片` 退化成 `图片`,同一会话内再也不恢复 | 服务端把 transcript 里的 tool_result 存成**字面量 `'done'`**,元数据只走一次 SSE 且 take-and-delete。`DisplayFilesCache`(进程内,`data/DisplayFiles.kt`)兜「离开再回来」;**冷启动后只剩路径,无解**(见 §20 坑 1) |
+| 预览图片被判成「过大」 | 明明才 800 KB 却说文件过大 | 服务端上限是 **1 MiB**(`routes/fs.ts` 的 `PREVIEW_DEFAULT_MAX`),不是 512KB。`FILE_PREVIEW_MAX_BYTES` 必须与它一致,否则会误拦一半可用文件 |
+| **Kotlin 文件里写 `/api/*` 导致整文件编译失败** | 报 `Syntax error: Unclosed comment` + `Missing '}'`,但报错行在几百行之外,看不出跟那句注释有关系 | Kotlin **块注释可嵌套**:KDoc 里的 `/*`(比如 `` `/api/*` ``)会开一个嵌套注释,把本该闭合的 `*/` 吃掉,后面整块代码被吞。路径通配写成 `` `/api/…` ``,或放进 `//` 行注释(`//` 不嵌套,安全) |
 | 任务栏打开落到了错的实例 / 会话 | 以为「记住上次」没生效 | 记住的实例**下线时本来就会回落**到第一个在线的子实例(`AgentInstances.pickDefault`);先确认 `/api/instances` 里它的 `state` 是不是 `running`。另外匹配键是 baseUrl,IP 变了就等于换了个实例 |
 | 选择实例弹层里出现「Instances 实例管理」这种卡片标题、且状态全是离线 | 管理器 `/api/instances` 不可达,走了卡片兜底目录(名字取卡片标题、在线靠逐个探活) | 先确认管理器可达。兜底目录是**故意**的设计(管理器死了也不能把活着的子实例一起判死),代价是名字与在线判据都粗一档 |
 
@@ -783,7 +876,9 @@ opencc-web 仓库在 `/Users/ethan/code/opencc-web/`,详见 `opencc-web/AGENTS.m
 
 ## 版本 / 发布
 
-- 当前: **0.15.2** (versionCode 54) — `feat(agent): 会话精简模式 —— 工具调用 + 思考聚合为一条,点开看全部`
+- 当前: **0.16.1** (versionCode 56) — `refactor(agent): 文件预览改成会话面板内右侧滑入的全屏 overlay(不再占路由),删 file-viewer 路由与 onOpenFile 参数链`
+- 上一版: **0.16.0** (versionCode 55) — `feat(agent): DisplayFiles 文件卡片 —— 图片内联缩略图 + 文件查看器(图片/HTML/文本/binary),见 §20`
+- 上一版: **0.15.2** (versionCode 54) — `feat(agent): 会话精简模式 —— 工具调用 + 思考聚合为一条,点开看全部`
 - 上一版: **0.15.1** (versionCode 53) — 会话信息面板「上下文 current / max」三路 SSE 取值(`runtime.started` / `runtime.done` / `session/projection`)
 - 上一版: **0.15.0** (versionCode 52) — `feat(tasks): 任务栏默认落点为原生 Agent 工作区 + 会话切换面板支持实例切换`
 - 上一版: **0.14.2** (versionCode 51) — `feat(nav): 底栏常驻(详情页也显示)+ 切栏恢复原状态`

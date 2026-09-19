@@ -15,6 +15,8 @@
 //   POST /api/agent/permission-response          permission.ts:42
 //   POST /api/agent/approve           + /reject  approve.ts:73/102
 //   GET  /api/agent/approve/file?toolUseId=      approve.ts:147
+//   GET  /api/fs/preview?path=                   fs.ts:1020  文件预览(DisplayFiles)
+//   POST /api/fs/reveal                          fs.ts:1125  在 Mac 上打开所在目录
 //   GET  /api/event?sid=<sid>                    routes/event.ts:44  SSE
 //
 // **不需要 token**:服务端 /api/* 没有鉴权中间件(web 端带的 X-Zai-Token
@@ -301,6 +303,27 @@ class AgentApi(
         val encoded = URLEncoder.encode(toolUseId, "UTF-8")
         return execute(request("/api/agent/approve/file?toolUseId=$encoded", sessionId).getJson())
     }
+
+    // ===== 文件预览(DisplayFiles 工具,见 data/DisplayFiles.kt) =====
+
+    /**
+     * `GET /api/fs/preview?path=` —— 读一个本地文件的预览内容(`routes/fs.ts:1020`)。
+     *
+     * 响应按 kind 分岔:image → base64,text/html → 原文,binary → 只有元数据
+     * (见 [FilePreview])。服务端把 `maxBytes` clamp 在 `[1024, 1 MiB]`,超出直接回
+     * **413 ETOOBIG** —— 调用方要把 413 翻译成「文件过大」而不是「加载失败」,
+     * 两者对用户的含义完全不同。
+     *
+     * 无鉴权(zai 只监听局域网 + `/api/` 下没有鉴权中间件,与其余端点一致)。
+     */
+    suspend fun previewFile(path: String): FilePreview =
+        execute(request("/api/fs/preview?path=${URLEncoder.encode(path, "UTF-8")}").getJson())
+
+    /** `POST /api/fs/reveal` —— 在 Mac 上打开该文件所在目录(macOS 走 `open -R`)。 */
+    suspend fun revealFile(path: String): Boolean =
+        execute<RevealResponse>(
+            request("/api/fs/reveal").postJson(buildJsonObject { put("path", path) })
+        ).ok
 
     // ===== SSE =====
 

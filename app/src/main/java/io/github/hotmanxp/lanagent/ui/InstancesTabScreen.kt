@@ -4,6 +4,8 @@
 // 入口卡片里认出来的(URL 以 `/instances` 结尾的那张,见 data/Cards.kt)。
 // 以前是首页顶栏的 Storage 按钮 + 找不到就弹对话框;现在它升级成一级栏目,
 // 那套「没有管理器怎么办」的引导必须常驻在栏目里,否则用户只会看到一片空白。
+//
+// 0.15.0:入口卡片本体搬到了设置栏 —— 所以引导按钮也指向设置,不是任务栏。
 package io.github.hotmanxp.lanagent.ui
 
 import androidx.compose.foundation.layout.Box
@@ -38,7 +40,7 @@ import io.github.hotmanxp.lanagent.data.findManagerBaseUrl
 fun InstancesTabScreen(
     onOpenUrl: (String) -> Unit,
     onOpenSessions: (instanceBaseUrl: String, instanceName: String) -> Unit,
-    onGoTasks: () -> Unit,
+    onGoSettings: () -> Unit,
 ) {
     val context = LocalContext.current
     val cards by context.cardsFlow().collectAsState(initial = null)
@@ -73,7 +75,7 @@ fun InstancesTabScreen(
                         textAlign = TextAlign.Center,
                     )
                     Spacer(Modifier.height(20.dp))
-                    OutlinedButton(onClick = onGoTasks) {
+                    OutlinedButton(onClick = onGoSettings) {
                         Text(stringResource(R.string.instances_no_manager_action))
                     }
                 }

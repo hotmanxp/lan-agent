@@ -16,7 +16,9 @@
 >
 > **0.14.2** 底栏改成**常驻**:详情页(会话 / 终端 / WebView / 扫码)也显示,且高亮所属栏。当前 tab 从「路由推导」改成显式状态 `currentTab`,切栏继续走 `saveState / restoreState` —— 切走存整条栏的返回栈 + 可保存状态,切回原样恢复(包括停在某个会话详情页)。
 >
-> **当前 HEAD**: HEAD on `main` · **versionCode 51** · **versionName 0.14.2**
+> **0.15.0** 任务栏改成**直接就是原生 Agent 工作区**:打开 App 落在「最近连接的 opencc 实例 + 它最近一条会话」,那个实例下线了就落到第一个在线的实例。会话切换面板(左侧抽屉)顶部加「实例行」→ 点开「选择实例」底部弹层(形态照 WorkBuddy 手机端的「选择设备」,语义换成实例,见 §18)。原任务栏的入口卡片列表 + 扫码搬到**设置栏**,「进行中」跨实例聚合不再有 UI 入口(数据层 `data/ActiveTasks.kt` 保留)。
+>
+> **当前 HEAD**: HEAD on `main` · **versionCode 52** · **versionName 0.15.0**
 
 ## 仓库用途
 
@@ -107,12 +109,14 @@ lan-agent/
             │   ├── MainScaffold.kt    # App 根容器:外 Scaffold 承载底栏 + 内 NavHost(`tab/` 前缀路由决定底栏显隐)
             │   ├── BottomTabs.kt     # 底栏 5 栏定义(`TabDestination`:路由/名称/图标)+ WorkBuddy 式 56dp 紧凑底栏
             │   ├── AppNavHost.kt      # NavHost: tab/{tasks,instances,ssh,services,settings} + scan / webview/{url} / agent-sessions/{baseUrl}/{instanceName} / agent-session/{baseUrl}/{instanceName}/{sid} / ssh-terminal/{hostId}
-            │   ├── TasksTabScreen.kt  # 任务栏:「进行中」(跨实例活跃会话)+「入口」卡片列表(增删改拖拽 + 启动原生/打开网页双按钮)
+            │   ├── TasksTabScreen.kt  # 任务栏(0.15.0)= 原生 Agent 工作区本身,薄包装 AgentSessionPane
             │   ├── InstancesTabScreen.kt  # 实例栏包装:从卡片解析 manager baseUrl,认不出时给引导空态
             │   ├── RemoteServicesScreen.kt # 远程服务栏:探活状态点 + 打开 + 增删改
             │   ├── EditRemoteServiceDialog.kt  # 远程服务增改对话框(名称/URL/副标题/探活路径/色条)
             │   ├── SettingsScreen.kt  # 设置栏:主题模式 / 数据概览 / 恢复默认入口卡片 / 关于
-            │   ├── EditCardDialog.kt  # 卡片增改对话框(TasksTabScreen 用)
+            │   ├── CardListSection.kt  # 入口卡片列表(0.15.0 从任务栏搬到设置栏;仍供 findManagerBaseUrl / 兜底实例目录)
+            │   ├── InstancePickerSheet.kt  # 「选择实例」底部弹层 + 抽屉顶部实例行(形态照 WorkBuddy「选择设备」)
+            │   ├── EditCardDialog.kt  # 卡片增改对话框(CardListSection 用)
             │   ├── WebViewScreen.kt   # 全屏 WebView + 文件上传 + Service 启停 + 已刷新 snackbar
             │   ├── InstancesScreen.kt # 原生实例管理(2.5s 轮询 + 6 动作 + 3 弹窗)
             │   ├── InstanceCard.kt    # 单张实例卡(状态 Tag + LAN Switch + 描述列表 + 动作行,动作行可横滚)
@@ -121,14 +125,16 @@ lan-agent/
             │   ├── EditPortDialog.kt  # 编辑启动端口
             │   ├── DirectoryPickerDialog.kt  # 文件系统目录选择器(拉 /api/fs/picker)
             │   ├── AgentSessionsScreen.kt  # 原生会话列表(5s 轮询 + 新建会话)
-            │   ├── AgentSessionScreen.kt   # 原生会话详情(hydrate transcript + SSE reduce + 发消息/中断/队列/权限/审核)
+            │   ├── AgentSessionScreen.kt   # Agent 工作区(`AgentSessionPane`):实例解析/切换 + 会话切换面板 + transcript/SSE;(`AgentSessionScreen`)详情路由薄包装
             │   ├── AgentSessionStore.kt    # 会话状态机:transcript 归一化 + SSE 事件 reduce → AgentItem 列表
             │   ├── AgentSessionViews.kt    # 消息渲染组件(用户气泡/助手正文/思考折叠/工具卡/ask·permission·approve 卡/双行白卡输入条)
             │   └── VoiceInput.kt           # 语音转文字(平台 SpeechRecognizer + 权限申请 + 部分结果回填)
             ├── data/
             │   ├── Cards.kt           # 5 张 hardcode 默认卡片 + findManagerBaseUrl
             │   ├── CardRepository.kt  # DataStore 持久化(`lan_agent_cards`)+ resetCards()
-            │   ├── ActiveTasks.kt     # 跨实例聚合「进行中」会话(扇出 listSessions + 探 state)+ 进程内缓存 ActiveTasksCache
+            │   ├── ActiveTasks.kt     # 跨实例聚合「进行中」会话(扇出 listSessions + 探 state)+ 进程内缓存 ActiveTasksCache。**0.15.0 起无 UI 入口**,文件保留
+            │   ├── AgentInstances.kt   # 「可切换的 Agent 实例」目录:/api/instances 快照优先,管理器不可达时回落卡片探活;含 pickDefault 降级链
+            │   ├── AgentWorkspacePrefs.kt  # Agent 工作区状态 DataStore(`lan_agent_agent_workspace`):最近连接的实例 + 会话(匹配键 = baseUrl)
             │   ├── RemoteServicesRepository.kt  # 远程服务 DataStore(`lan_agent_remote_services`,含种子)
             │   ├── RemoteServiceProbe.kt  # 服务探活(OkHttp 2s connect/read + 3s callTimeout;拿到任何 HTTP 响应即算在线)
             │   ├── UiPrefsRepository.kt  # UI 偏好:浮按钮拖拽位置 + 主题模式(`lan_agent_ui_prefs`)
@@ -167,13 +173,13 @@ lan-agent/
 
 | # | 栏 | 路由 | 内容 |
 |---|----|------|------|
-| 1 | **任务** | `tab/tasks` | 上半「进行中」(跨实例聚合的活跃 Agent 会话)+ 下半「入口」卡片列表(扫码 / 增删改 / 拖拽 / 双按钮) |
+| 1 | **任务** | `tab/tasks` | **原生 Agent 工作区**(0.15.0):当前实例 + 当前会话 + 会话切换面板(左侧抽屉:实例行 → 「选择实例」弹层 + 该实例的会话列表)。不再有卡片列表 / 进行中区,见 §18 |
 | 2 | **实例** | `tab/instances` | `InstancesScreen`;baseUrl 仍由 `findManagerBaseUrl(cards)` 从卡片里认 |
 | 3 | **SSH** | `tab/ssh` | `SshHostListScreen`(主机列表 + 终端 + 快捷命令) |
 | 4 | **服务** | `tab/services` | `RemoteServicesScreen`:非 zai 的局域网服务(视频插帧控制台等),探活 + 打开 |
-| 5 | **设置** | `tab/settings` | `SettingsScreen`:主题模式 / 数据概览 / 关于 |
+| 5 | **设置** | `tab/settings` | `SettingsScreen`:主题模式 / **入口卡片**(0.15.0 从任务栏搬来)/ 数据概览 / 关于 |
 
-- 任务栏顶栏只剩 **扫码 / 编辑模式 / 添加卡片** 三个按钮 —— 实例管理与 SSH 已是独立栏,不再留影子入口。
+- 任务栏顶栏只剩 Agent 自己的「抽屉 / 标题 / +」—— 实例管理与 SSH 是独立栏,入口卡片在设置栏。
 - `findManagerBaseUrl(cards)`(`data/Cards.kt`)仍是**唯一**识别"实例管理入口"的方法:URL 路径以 `/instances` 结尾,提取 `http://host:port`;认不出来时**实例栏**给引导空态(不是弹窗),因为那是常驻栏目。
 
 ### 3. 原生实例管理屏(InstancesScreen)
@@ -592,6 +598,46 @@ WorkBuddy 手机端采样结果：气泡底 **`#E2E4E3`**（中性灰）、正�
 
 **远程服务栏**(`RemoteServicesScreen`):和入口卡片的语义分工是「**卡片**可能有原生 Agent(右下角启动原生按钮);**服务**只看不聊,点开就是 WebView」。探活判据很松 —— **拿到任何 HTTP 响应就算在线**(含 401/404/500):这一栏回答的是「那个进程还在跑吗」,不是「这个 URL 好不好用」。离线用灰色不用红色(局域网服务没起来是常态,不是错误)。
 
+### 18. 任务栏 = 原生 Agent 工作区(0.15.0)
+
+**为什么改**:0.14.x 的任务栏是「进行中 + 入口卡片列表」两段式,点一个实例还要再选一次会话才能说话,中间两层全是导航噪声;而实例管理早就是底栏第 2 栏了。用户要求「默认直接进入原生 Agent 页面」,于是这一栏直接变成 Agent 本身。
+
+**一个屏两个入口**(`ui/AgentSessionScreen.kt`):
+
+| 入口 | `initialBaseUrl` / `initialSessionId` | 行为 |
+|------|----------------------------------------|------|
+| **任务栏 tab 根**(`tab/tasks`) | 都传 `null` | 屏自己解析:实例 = 上次连接的 → 第一个在线的;会话 = 上次停的 → 最新一条 |
+| 会话详情路由(`agent-session/{baseUrl}/{instanceName}/{sid}`) | 由路由给出 | 只补全实例元信息(名字 / 在线态),实例与会话都听路由的 |
+
+两者共用 `AgentSessionPane`,`AgentSessionScreen(...)` 退化成一个薄包装。
+
+**实例目录**(`data/AgentInstances.kt`):
+
+1. **首选 `/api/instances`**(supervisor 快照,一次请求拿到全部子实例的 name / state / port / startPort / isCurrent)。在线判据 = `state == running && port != null`。**离线实例没有 port,退到 `startPort` 拼 baseUrl** —— 这样「离线」也能进选择面板(参考图里离线设备是照常列出来的),否则只能显示在线的那几个。
+2. **回落卡片列表**:管理器不可达时,用卡片 URL 抽 baseUrl 并发探 `/api/agent/sessions`(1.5s callTimeout)。比第 1 档贵(扇出 N 个请求),但能保证「管理器死了,活着的子实例照样能聊」。
+3. **不排序**:顺序沿用服务端 / 卡片的自然顺序。在线优先看着更聪明,但会让行位置随实例起落跳动,而且选择面板与实例栏顺序会不一致。
+
+`pickDefault(preferred)` 的降级链:**记住的且在线 → 第一个在线的子实例(跳过 `__current__`,它的 cwd 是家目录)→ 第一个在线的 → 目录第一条(全离线时也得有东西可选)**。
+
+**记住最近连接的实例 + 会话**(`data/AgentWorkspacePrefs.kt`,独立 DataStore `lan_agent_agent_workspace`):四个字段在同一个 `edit` 事务里落盘 —— 分开写会出现「实例已换、会话还是旧的」这种半截状态。匹配键是 **baseUrl**(实例 id 会随定义重建而变)。
+
+**切换实例是 in-place 的**:`active` 是 state,`api = remember(active?.baseUrl)`、`store = remember(currentSid)`,所以换实例 = 换 key → hydrate / SSE / 会话列表轮询全部自动重建,不 push 路由(否则返回栈里会堆一串「实例快照」,返回语义就乱了)。
+
+**「选择实例」底部弹层**(`ui/InstancePickerSheet.kt`,形态照 WorkBuddy 的「选择设备」):标题「选择实例」+ ✕ / 白底圆角容器 / 每行「图标 + 名称 + 在线·离线 tag + 当前项绿色对勾」/ 行间 hairline 从 52dp 起画。三个细节:
+- **列表必须 `heightIn(max = 360.dp) + verticalScroll`** —— ModalBottomSheet 的内容**默认不滚动**,不限高就是「8 个实例里下面 3 个被屏幕切掉、点不到」。
+- 在线/离线是**文案不是颜色块**(在线用实例栏那套 running 绿 `#52C41A` + 浅底 `#F6FFED`),离线不给红、不禁用 —— 用户可能就是想点进去看看它为什么挂。
+- 抽屉顶部的「实例行」(`InstanceSwitcherRow`)显示当前实例名 + 在线态 + `⌄`,点开弹层;弹层挂在**抽屉外面**,ModalBottomSheet 是独立窗口所以能盖在抽屉之上。
+
+**空态三分支**(都在会话区里):
+- 目录为空 → `NoInstanceState`:机器人 + 「还没有可用的 opencc 实例」+ 「重新检测 / 切换实例」两个按钮。
+- 实例在但一条会话都没有 → `NoSessionState`:机器人 + 实例名 + 「新建会话」pill。**不自动建会话** —— 每次打开 App 多攒一条空会话很脏。实例离线时换成提示文案,并且**不给**新建按钮(点了必然失败);抽屉里的「新建会话」pill 也同步压暗(`NewSessionPill(enabled = false)`)。
+- 有会话但没消息 → 原来的 `AgentSessionEmptyState`。没有会话时**整条输入区不渲染**(发给谁?)。
+
+**原任务栏两段东西的去向**:
+
+- **入口卡片列表 + 扫码** → `ui/CardListSection.kt`,挂在设置栏。它仍是 `findManagerBaseUrl` 与「兜底实例目录」的数据源,不能删;降级成低频管理面(增删改 / 拖拽 / 双按钮 / 扫码一个没少)。自包含:自己读 DataStore、自己管编辑态、自己弹对话框,外层只需给三个导航动作 + 一个 `SnackbarHostState`。**不用 LazyColumn**(它已经在设置栏的 LazyColumn 里,嵌套同向滚动会打架),卡片是个位数直接 `forEachIndexed` 铺开。
+- **「进行中」跨实例聚合**(`data/ActiveTasks.kt` + `ActiveTasksCache`)→ **不再有 UI 入口**。任务栏现在按实例分家,抽屉里的会话列表自带相对时间与模型标签,跨实例那层聚合失去了位置。文件保留(扇出 + 超时 + 进程内缓存那套逻辑经过验证,删了可惜),但没有任何屏引用它 —— 需要的话可以直接接回某个 tab。
+
 ## 强制开发规则
 
 
@@ -688,6 +734,9 @@ adb shell pm clear io.github.hotmanxp.lanagent
 | 状态栏被扣两次 | 根 Scaffold 的 `contentWindowInsets` 没关 | 外层 `Scaffold(contentWindowInsets = WindowInsets(0,0,0,0))`,inset 全交给内层屏幕的 Scaffold |
 | 底栏图标选中时"跳"一下 | 每栏配了"实心 / 描边"两套 ImageVector,选中时形状在变 | 形状切换是可感知但廉价的动效。改成两态**同一个图标**,只换 tint / 字重 / 不透明度 |
 | 图标整体观感"硬"、不像 WorkBuddy | 全 App 混用 `Icons.Filled` / `Default` / `Outlined`,23dp 下描边版直角很扎眼 | 统一换 `Icons.Rounded`(Material Symbols Rounded)。**批量替换后记得查重复 import** —— `filled.Chat` + `outlined.Chat` 会变成两行一样的 `rounded.Chat` |
+| 选择实例弹层的后几个实例点不到 | 被屏幕底边切掉,而且滚不动 | ModalBottomSheet 的**内容默认不滚动**。列表要 `Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())`,并 `rememberModalBottomSheetState(skipPartiallyExpanded = true)`(选择弹层直接展开,不要半屏态) |
+| 任务栏打开落到了错的实例 / 会话 | 以为「记住上次」没生效 | 记住的实例**下线时本来就会回落**到第一个在线的子实例(`AgentInstances.pickDefault`);先确认 `/api/instances` 里它的 `state` 是不是 `running`。另外匹配键是 baseUrl,IP 变了就等于换了个实例 |
+| 选择实例弹层里出现「Instances 实例管理」这种卡片标题、且状态全是离线 | 管理器 `/api/instances` 不可达,走了卡片兜底目录(名字取卡片标题、在线靠逐个探活) | 先确认管理器可达。兜底目录是**故意**的设计(管理器死了也不能把活着的子实例一起判死),代价是名字与在线判据都粗一档 |
 
 ## 配套:opencc-web 端
 

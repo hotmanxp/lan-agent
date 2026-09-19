@@ -55,14 +55,19 @@ internal fun CenterBox(content: @Composable () -> Unit) {
  * 顶部「新建会话」大按钮 — 对齐 WorkBuddy 抽屉里那颗最醒目的 pill 按钮。
  * 语义是服务端 `POST /api/agent/sessions`:立刻落一条空 transcript 并返回
  * sessionId,用户进详情页就能看到「新会话」而非等第一条消息才出现。
+ *
+ * [enabled] = false 用于「当前实例不在线」—— 点下去必然网络失败,不如直接压暗,
+ * 免得用户以为是 App 卡了。
  */
 @Composable
-internal fun NewSessionPill(busy: Boolean, onClick: () -> Unit) {
+internal fun NewSessionPill(busy: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
     Surface(
-        color = MaterialTheme.colorScheme.primary,
+        color = MaterialTheme.colorScheme.primary.copy(alpha = if (enabled) 1f else 0.4f),
         contentColor = MaterialTheme.colorScheme.onPrimary,
         shape = RoundedCornerShape(24.dp),
-        modifier = Modifier.fillMaxWidth().clickable(enabled = !busy, onClick = onClick),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = enabled && !busy, onClick = onClick),
     ) {
         Row(
             modifier = Modifier.padding(vertical = 12.dp),

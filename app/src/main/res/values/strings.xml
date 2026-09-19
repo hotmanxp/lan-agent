@@ -125,9 +125,9 @@
     <string name="instances_error_load">加载失败:%1$s</string>
     <string name="instances_action_failed">操作失败:%1$s</string>
     <string name="instances_manage_cd">原生实例管理</string>
-    <string name="instances_no_manager_hint">未配置「实例管理」入口卡片,请先在首页 + 添加 URL 指向 /instances 的卡片</string>
+    <string name="instances_no_manager_hint">未配置「实例管理」入口卡片,请先在「设置 → 入口卡片」里加一张 URL 指向 /instances 的卡片</string>
     <string name="instances_no_manager_title">还没有可用的实例管理器</string>
-    <string name="instances_no_manager_action">去任务栏添加入口卡片</string>
+    <string name="instances_no_manager_action">去设置添加入口卡片</string>
     <string name="instances_field_auto">auto</string>
     <string name="instances_dialog_error_name_required">请输入名称</string>
     <string name="instances_dialog_error_cwd_required">请输入工作目录</string>
@@ -298,4 +298,28 @@
     <string name="settings_about_version">版本</string>
     <string name="settings_about_package">包名</string>
     <string name="settings_about_hint">局域网自用工具,debug 侧载包,不含账号体系。</string>
+
+    <!-- 任务栏 = 原生 Agent 工作区(0.15.0)
+         默认落到「最近连接的 opencc 实例 + 它最近一条会话」;那个实例下线时
+         回落到第一个在线的实例。会话切换面板(左侧抽屉)顶部是实例行,点开
+         「选择实例」底部弹层 —— 形态对齐 WorkBuddy 的「选择设备」,语义换成实例。 -->
+    <string name="agent_pick_instance_title">选择实例</string>
+    <string name="agent_pick_instance_loading">正在检测实例…</string>
+    <string name="agent_pick_instance_empty">没有发现可用的 opencc 实例</string>
+    <string name="agent_pick_instance_empty_hint">先在「实例」栏创建并启动一个实例</string>
+    <string name="agent_pick_instance_current">当前实例</string>
+    <string name="agent_instance_online">在线</string>
+    <string name="agent_instance_offline">离线</string>
+    <string name="agent_instance_none">还没有可用实例</string>
+    <string name="agent_instance_none_hint">检查「设置 → 入口卡片」里的管理器地址</string>
+    <string name="agent_instance_offline_hint">该实例当前不在线,先在「实例」栏把它启动</string>
+    <string name="agent_no_instance_title">还没有可用的 opencc 实例</string>
+    <string name="agent_no_instance_hint">Agent 会话挂在实例上。先在「实例」栏创建或启动一个,或检查「设置 → 入口卡片」里的管理器地址。</string>
+    <string name="agent_no_instance_retry">重新检测</string>
+    <string name="agent_switch_instance">切换实例</string>
+    <string name="agent_no_session_hint">该实例还没有会话,新建一个开始对话</string>
+    <string name="agent_switch_sessions_section">会话</string>
+    <!-- 设置栏的「入口卡片」区块(0.15.0 从任务栏搬来) -->
+    <string name="settings_card_section">入口卡片</string>
+    <string name="settings_card_edit_hint">长按拖动排序,点垃圾桶删除</string>
 </resources>

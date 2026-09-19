@@ -3,11 +3,11 @@
 // 路由分两类(底栏永远渲染,高亮 tab 由 MainScaffold 的显式 currentTab 状态决定):
 //
 //   **tab 根**(`tab/` 前缀,顺序 = 底栏从左到右):
-//     tab/tasks     → 任务(卡片入口 + 跨实例进行中任务)
+//     tab/tasks     → 任务(原生 Agent 工作区:实例 + 会话 + 会话切换面板)
 //     tab/instances → 实例管理(暂存超时/停止/删除,baseUrl 从卡片里认)
 //     tab/ssh       → SSH 主机列表
 //     tab/services  → 远程服务(视频插帧控制台等)
-//     tab/settings  → 设置(主题 / 概览 / 关于)
+//     tab/settings  → 设置(主题 / 入口卡片 / 概览 / 关于)
 //
 //   **详情页**(底栏隐藏):
 //     scan                                   → 扫码添加
@@ -45,18 +45,13 @@ fun AppNavHost(
         modifier = Modifier.padding(contentPadding),
     ) {
         // ===== tab 根 =====
+        // 任务栏 = 原生 Agent 工作区本身(0.15.0)。实例由
+        // data/AgentInstances.kt + data/AgentWorkspacePrefs.kt 解析(上次连接的
+        // → 第一个在线的),会话在屏内切换,不占路由。
         composable(TabDestination.Tasks.route) {
             TasksTabScreen(
-                onCardClick = { card ->
-                    navController.navigate("webview/${Uri.encode(card.url)}")
-                },
-                onScanClick = {
-                    navController.navigate("scan")
-                },
-                onOpenSession = { baseUrl, instanceName, sid ->
-                    navController.navigate(
-                        "agent-session/${Uri.encode(baseUrl)}/${Uri.encode(instanceName)}/${Uri.encode(sid)}"
-                    )
+                onOpenWeb = { url ->
+                    navController.navigate("webview/${Uri.encode(url)}")
                 },
             )
         }
@@ -70,7 +65,8 @@ fun AppNavHost(
                         "agent-sessions/${Uri.encode(instanceBaseUrl)}/${Uri.encode(instanceName)}"
                     )
                 },
-                onGoTasks = { onSelectTab(TabDestination.Tasks) },
+                // 入口卡片搬到设置栏后,「还没有实例管理器」时的引导指向设置。
+                onGoSettings = { onSelectTab(TabDestination.Settings) },
             )
         }
         composable(TabDestination.Ssh.route) {
@@ -94,7 +90,19 @@ fun AppNavHost(
             )
         }
         composable(TabDestination.Settings.route) {
-            SettingsScreen()
+            // 设置栏现在带「入口卡片」区块(0.15.0 从任务栏搬来),所以它也需要
+            // 扫码 / 打开网页 / 启动原生 Agent 三个导航动作。
+            SettingsScreen(
+                onScan = { navController.navigate("scan") },
+                onOpenUrl = { url ->
+                    navController.navigate("webview/${Uri.encode(url)}")
+                },
+                onOpenSession = { baseUrl, instanceName, sid ->
+                    navController.navigate(
+                        "agent-session/${Uri.encode(baseUrl)}/${Uri.encode(instanceName)}/${Uri.encode(sid)}"
+                    )
+                },
+            )
         }
 
         // ===== 详情页(底栏自动隐藏) =====

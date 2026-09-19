@@ -1,10 +1,14 @@
 // ui/SettingsScreen.kt — 底栏第 5 栏「设置」
 //
-// 目前只有三块,刻意保持薄:
+// 四块,刻意保持薄:
 //   1. 外观 —— 主题模式(跟随系统 / 浅色 / 深色)。写 DataStore,MainActivity
 //      读出来喂给 LanAgentTheme,所以是**全局即时生效**,不需要重启。
-//   2. 数据 —— 各类配置的条数概览 + 「恢复默认入口卡片」这一个破坏性动作。
-//   3. 关于 —— 版本号 / 包名,排障时截图能直接看出装的是哪一版。
+//   2. 入口卡片(0.15.0 从任务栏搬过来)—— 增删改 / 拖拽排序 / 扫码 / 双按钮。
+//      它仍是 `findManagerBaseUrl` 与「管理器不可达时的兜底实例目录」的数据源
+//      (见 data/AgentInstances.kt),同时也是任意 URL 的快捷入口;任务栏不再
+//      承载它,但能力一个没少。任务栏现在默认就是原生 Agent 页。
+//   3. 数据 —— 各类配置的条数概览 + 「恢复默认入口卡片」这一个破坏性动作。
+//   4. 关于 —— 版本号 / 包名,排障时截图能直接看出装的是哪一版。
 //
 // 不做的事:账号、同步、通知开关。lan-agent 是局域网工具,这些都没有。
 package io.github.hotmanxp.lanagent.ui
@@ -27,6 +31,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -60,7 +66,11 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen() {
+fun SettingsScreen(
+    onScan: () -> Unit = {},
+    onOpenUrl: (String) -> Unit = {},
+    onOpenSession: (baseUrl: String, instanceName: String, sid: String) -> Unit = { _, _, _ -> },
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -70,9 +80,11 @@ fun SettingsScreen() {
     val services by context.remoteServicesFlow().collectAsState(initial = null)
 
     var confirmReset by remember { mutableStateOf(false) }
+    val snackbarHostState = remember { SnackbarHostState() }
 
     Scaffold(
         topBar = { TopAppBar(title = { Text(stringResource(R.string.tab_settings)) }) },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
@@ -92,6 +104,17 @@ fun SettingsScreen() {
                         )
                     }
                 }
+            }
+
+            // 入口卡片(0.15.0 从任务栏搬来)。放在外观后面、数据前面 ——
+            // 它是这一屏里唯一需要动手的东西,不该埋在最底下。
+            item("cards") {
+                CardListSection(
+                    onScan = onScan,
+                    onOpenUrl = onOpenUrl,
+                    onOpenSession = onOpenSession,
+                    snackbarHostState = snackbarHostState,
+                )
             }
 
             item("data") {

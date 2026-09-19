@@ -1,67 +1,64 @@
-// ui/MainScaffold.kt — App 根容器:底栏 + 内层 NavHost
+// ui/MainScaffold.kt — App 根容器:常驻底栏 + 内层 NavHost
 //
-// 结构选择说明(为什么不是「每个 tab 一个 NavHost」):
-// 单 NavHost + `tab/` 前缀路由,底栏显隐就是一句
-// `TabDestination.fromRoute(当前路由)` —— 详情页(会话 / 终端 / WebView)天然
-// 匹配不到 tab 路由,底栏自动消失,不用在十来个屏幕里各写一遍「隐藏底栏」。
-// 代价是 tab 切换要自己带 saveState/restoreState,见 [switchTab]。
+// 结构选择说明(为什么仍是单 NavHost):
+// 底栏**永远渲染**(详情页也有)。「当前高亮哪个 tab」不再从路由推导 ——
+// 详情页的路由(webview / 会话 / 终端)匹配不到任何 tab,而是维护一份显式
+// UI 状态 [currentTab]:
+//   - 点底栏 → currentTab 更新 + navigate(popUpTo 起始 tab + saveState/restoreState)
+//   - 在 tab 内进详情页 → 路由变了但 currentTab 不动 → 底栏照常显示并高亮所属 tab
+//   - 从详情页返回 → 回到 tab 根,currentTab 从未变过,高亮天然正确
+//
+// tab 状态不销毁靠 navigate 的 saveState/restoreState:切走时把该 tab 的返回栈
+// (含详情页)和 Compose 可保存状态(列表滚动位置、输入框内容)整体存档,
+// 切回时原样恢复;tab 根目的地的 ViewModel 也不销毁,回来数据直接就是旧的。
 //
 // 窗口 inset 全交给内层屏幕的 Scaffold 处理(`contentWindowInsets = 0`),
 // 否则会出现「外层扣一次状态栏、内层 TopAppBar 再扣一次」的双重留白。
+// 注意:底栏常驻后,详情页里自己再加 navigationBarsPadding 的地方都会双重
+// padding(会话输入条已随本次改动去掉,见 AgentSessionViews)。
 package io.github.hotmanxp.lanagent.ui
 
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
-import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 
 @Composable
 fun MainScaffold(navController: NavHostController = rememberNavController()) {
-    val backStackEntry by navController.currentBackStackEntryAsState()
-    val currentTab = TabDestination.fromRoute(backStackEntry?.destination?.route)
+    // 显式 tab 状态(不推导自路由,理由见文件头)。rememberSaveable 覆盖进程重建。
+    var currentTab by rememberSaveable { mutableStateOf(TabDestination.Tasks) }
+
+    // 点底栏和 App 内跨 tab 跳转(实例栏引导页「去添加」)走同一条路:
+    // 语义等同,都不叠新层。
+    val selectTab: (TabDestination) -> Unit = selectTab@{ target ->
+        if (target == currentTab) return@selectTab
+        currentTab = target
+        navController.navigate(target.route) {
+            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+            launchSingleTop = true
+            restoreState = true
+        }
+    }
 
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
-            // currentTab == null(详情页)→ 整个底栏不渲染。这里不做动画:
-            // 进会话详情时底栏瞬间让位,比「先播一段收起动画再切屏」更跟手。
-            if (currentTab != null) {
-                WbBottomBar(
-                    current = currentTab,
-                    onSelect = { tab -> switchTab(navController, currentTab, tab) },
-                )
-            }
+            WbBottomBar(
+                current = currentTab,
+                onSelect = selectTab,
+            )
         },
     ) { padding ->
         AppNavHost(
             navController = navController,
             contentPadding = padding,
+            onSelectTab = selectTab,
         )
-    }
-}
-
-/**
- * 切 tab。
- *
- * - `popUpTo(起始 tab) + saveState` —— 保证返回栈里永远只有「起始 tab + 当前
- *   tab」两层,不会因为来回点攒出十个实例。
- * - `restoreState = true` —— 会话列表的滚动位置、任务栏的展开态在切走再切回
- *   时保留(用户视角:切 tab 不该把列表弹回顶部)。
- * - 重复点当前 tab 直接吞掉:重放一次 navigate 会白跑一轮 restore。
- */
-private fun switchTab(
-    navController: NavHostController,
-    current: TabDestination?,
-    target: TabDestination,
-) {
-    if (target == current) return
-    navController.navigate(target.route) {
-        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-        launchSingleTop = true
-        restoreState = true
     }
 }

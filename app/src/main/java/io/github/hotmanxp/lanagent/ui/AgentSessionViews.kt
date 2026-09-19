@@ -1074,7 +1074,8 @@ internal fun AgentInputBar(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .navigationBarsPadding()
+                // 底部导航栏已常驻(见 MainScaffold),inset 由它扣过一次;
+                // 这里再 padding 就双重了。键盘 inset(imePadding)仍归这里管。
                 .imePadding()
                 .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 10.dp),
         ) {

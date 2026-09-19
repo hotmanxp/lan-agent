@@ -60,8 +60,8 @@ import io.github.hotmanxp.lanagent.R
 /**
  * 五个 tab 的单一事实来源:路由、显示名、图标都在这。
  *
- * 路由统一 `tab/` 前缀 —— 底栏是否显示就是「当前路由能否 [fromRoute] 出来」,
- * 不需要在每个详情页里手写「我要隐藏底栏」的标记。
+ * 路由统一 `tab/` 前缀,只作命名空间 —— 底栏现在永远渲染,高亮哪个 tab 由
+ * MainScaffold 的显式 currentTab 状态决定,不再从路由推导。
  */
 enum class TabDestination(
     val route: String,
@@ -108,10 +108,10 @@ enum class TabDestination(
  */
 private const val INACTIVE_ICON_ALPHA = 0.78f
 
-/** 底栏本体。`current` 为 null 时不渲染(详情页直接不显示)。 */
+/** 底栏本体。永远渲染(详情页也有),`current` 是当前高亮的 tab。 */
 @Composable
 fun WbBottomBar(
-    current: TabDestination?,
+    current: TabDestination,
     onSelect: (TabDestination) -> Unit,
 ) {
     val bg = MaterialTheme.colorScheme.surfaceContainerHigh

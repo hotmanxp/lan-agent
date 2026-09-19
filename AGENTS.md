@@ -14,7 +14,9 @@
 >
 > **0.14.1** 图标整体换 **`Icons.Rounded`**(Material Symbols Rounded):全 App 的 `Filled` / `Default` / `Outlined` 混用统一成一套圆角风格 —— 23dp 下描边版的直角太重,底栏最明显。底栏因此不再需要"实心 / 描边"两套 ImageVector,选中态只靠颜色 + 字重表达(换形状会让选中瞬间"跳"一下)。
 >
-> **当前 HEAD**: HEAD on `main` · **versionCode 50** · **versionName 0.14.1**
+> **0.14.2** 底栏改成**常驻**:详情页(会话 / 终端 / WebView / 扫码)也显示,且高亮所属栏。当前 tab 从「路由推导」改成显式状态 `currentTab`,切栏继续走 `saveState / restoreState` —— 切走存整条栏的返回栈 + 可保存状态,切回原样恢复(包括停在某个会话详情页)。
+>
+> **当前 HEAD**: HEAD on `main` · **versionCode 51** · **versionName 0.14.2**
 
 ## 仓库用途
 
@@ -576,9 +578,9 @@ WorkBuddy 手机端采样结果：气泡底 **`#E2E4E3`**（中性灰）、正�
 - 图标**一律 `Icons.Rounded`**(Material Symbols Rounded 那一套,转角和笔画端点全圆),0.14.1 起全 App 统一,新增图标也照此。图标全在 `material-icons-extended`(已在依赖里),`Settings` 在 core。**换图标前先核 classes.jar,而且核的是 `rounded/` 而不是 `filled/`**:`unzip -l classes.jar | grep rounded/<Name>Kt`
 - **material3 的 `Icon(imageVector, …)` 没有 `alpha` 参数**(只有 `bitmap` / `painter` 重载带),要压不透明度得走 `Modifier.alpha(...)`
 
-**路由 / 显隐**:单 NavHost,tab 根路由统一 `tab/` 前缀。底栏显隐就是 `TabDestination.fromRoute(当前路由) == null` —— 详情页(webview / agent-session / ssh-terminal / scan)天然匹配不到,自动隐藏,不用在每个屏里写标记。外层 Scaffold `contentWindowInsets = 0`,窗口 inset 全交给内层屏幕的 Scaffold(否则状态栏被扣两次)。
+**路由 / 显隐**:单 NavHost,tab 根路由统一 `tab/` 前缀 —— 这个前缀现在只是**命名空间**,不再决定底栏显隐(0.14.2 起底栏常驻,详情页也有)。「当前高亮哪一栏」是一份**显式 UI 状态** `currentTab`(`MainScaffold.kt`,`rememberSaveable`):点底栏更新它;tab 内进详情页时路由变了但 `currentTab` 不动 → 底栏照常显示并高亮所属栏;从详情页返回时 `currentTab` 从未变过,高亮天然正确。**不要改回「从当前路由推导 tab」** —— 详情页路由(webview / agent-session / ssh-terminal / scan)匹配不到任何 tab,一推导底栏就没得高亮了。外层 Scaffold `contentWindowInsets = 0`,窗口 inset 全交给内层屏幕的 Scaffold(否则状态栏被扣两次)。
 
-**tab 切换**:`popUpTo(起始 tab) + saveState` 保证返回栈里只有「起始 tab + 当前 tab」两层;`restoreState = true` 保留滚动位置。重复点当前栏直接吞掉。SSH 栏的 `onOpenWebview` **不能** `popBackStack()`(旧版是从首页 push 进去的,pop 掉它等于删掉这一栏)—— 详情页直接 `navigate`,返回自然落回 SSH 栏。
+**tab 切换 / 状态保持**:`popUpTo(起始 tab) { saveState = true }` + `restoreState = true`。切走时该栏的整条返回栈(含详情页)+ Compose 可保存状态(滚动位置、输入内容)整体存档,切回**原样恢复**——包括「刚才停在某个会话详情页」这种状态;tab 根目的地的 ViewModel 也不销毁。重复点当前栏直接吞掉。App 内跨栏跳转(实例栏引导页「去添加」)必须走**同一条** `selectTab`(`AppNavHost(onSelectTab = …)`),自己 `navigate` 会漏掉 `currentTab` 更新,底栏高亮就错位。SSH 栏的 `onOpenWebview` **不能** `popBackStack()`(旧版是从首页 push 进去的,pop 掉它等于删掉这一栏)—— 详情页直接 `navigate`,返回自然落回 SSH 栏。
 
 **「进行中」聚合**(`data/ActiveTasks.kt`):卡片 baseUrl 去重 → 每实例 `listSessions()` → 留 30 分钟内更新的前 3 条 → 对最活跃的 2 条再拉 `/state` 数未完成任务 → 合并排序(在跑的在前)。三个刻意的取舍:
 
@@ -681,7 +683,9 @@ adb shell pm clear io.github.hotmanxp.lanagent
 | 「进行中」区十几秒才出现 / 一直空 | 一张写错 IP 的卡片把整轮聚合拖到该 host 的 readTimeout 之后 | 光加 `withTimeout` 没用 —— 协程取消不了阻塞在 socket 上的 OkHttp `execute()`。必须给 `AgentApi` 传 `callTimeoutMs`(0.14.0 加的参数),靠 OkHttp 看门狗强制 cancel |
 | 从会话详情返回后「进行中」区空白 | NavHost 已销毁任务栏 composition,`remember` 状态清零 | 进程内缓存 `ActiveTasksCache`;**并且** `LaunchedEffect` 的 key 要能区分「DataStore 还没读到(null)」和「真的没有卡片(emptyList)」—— 用 `currentCards`(null→emptyList)当 key 会在首帧把缓存清掉,缓存等于白做 |
 | 编辑态拖拽排序动的是别的条目 | 任务栏上方多了「进行中」区,卡片在 LazyColumn 里的绝对下标 ≠ 卡片下标 | `DraggableCardItem` 要同时收 `index`(卡片下标,回调用)和 `listIndex`(绝对下标,`layoutInfo` 命中用),`onMove` 里把命中的绝对下标减回卡片下标 |
-| 底栏在详情页没消失(或状态栏被扣两次) | 根 Scaffold 的 `contentWindowInsets` 没关 | 外层 `Scaffold(contentWindowInsets = WindowInsets(0,0,0,0))`,inset 全交给内层屏幕的 Scaffold |
+| 底栏在详情页里消失 / 高亮错位 | 拿「当前路由」去推导 tab | 详情页路由匹配不到任何 tab,一推导就没得高亮。改成显式 `currentTab` 状态(见 §17「路由 / 显隐」) |
+| 详情页内容被底栏顶掉一截,或反过来贴太近 | 内层屏幕自己又加了一次 `navigationBarsPadding` | 底栏常驻后 inset 已被底栏扣过一次。会话输入条那处 `navigationBarsPadding` 已在 0.14.2 去掉;**ModalBottomSheet 里的要留着**(弹层不受外层 NavHost padding 约束) |
+| 状态栏被扣两次 | 根 Scaffold 的 `contentWindowInsets` 没关 | 外层 `Scaffold(contentWindowInsets = WindowInsets(0,0,0,0))`,inset 全交给内层屏幕的 Scaffold |
 | 底栏图标选中时"跳"一下 | 每栏配了"实心 / 描边"两套 ImageVector,选中时形状在变 | 形状切换是可感知但廉价的动效。改成两态**同一个图标**,只换 tint / 字重 / 不透明度 |
 | 图标整体观感"硬"、不像 WorkBuddy | 全 App 混用 `Icons.Filled` / `Default` / `Outlined`,23dp 下描边版直角很扎眼 | 统一换 `Icons.Rounded`(Material Symbols Rounded)。**批量替换后记得查重复 import** —— `filled.Chat` + `outlined.Chat` 会变成两行一样的 `rounded.Chat` |
 
@@ -702,11 +706,12 @@ opencc-web 仓库在 `/Users/ethan/code/opencc-web/`,详见 `opencc-web/AGENTS.m
 
 ## 版本 / 发布
 
-- 当前: **0.14.1** (versionCode 50) — `style(icons): 全 App 图标统一 Icons.Rounded,底栏选中态改同形配色`
-- 上一版: **0.14.0** (versionCode 49) — `feat(nav): WorkBuddy 式底部五栏(任务/实例/SSH/服务/设置)+ 远程服务栏 + 主题切换`
+- 当前: **0.14.2** (versionCode 51) — `feat(nav): 底栏常驻(详情页也显示)+ 切栏恢复原状态`
+- 上一版: **0.14.1** (versionCode 50) — `style(icons): 全 App 图标统一 Icons.Rounded,底栏选中态改同形配色`
+- 上上版: **0.14.0** (versionCode 49) — `feat(nav): WorkBuddy 式底部五栏(任务/实例/SSH/服务/设置)+ 远程服务栏 + 主题切换`
 - 上一版: **0.13.0** (versionCode 48) — `feat(ssh): 交互式 PTY 终端(xterm.js)+ 快捷命令全局列表`
 - 再上一版: **0.12.1** (versionCode 47) — `feat(voice): 录音全屏动效 —— 绿浪涌起 + 实时音量波形`
 - 不发 release,只本地 debug APK
 - 每次改完手动 bump `versionCode` + `versionName`(`app/build.gradle.kts`),否则手机装上后版本号不变看不出是新版
-- 历史里程碑:`0.1.1` (WebView 基础) → `0.1.2/0.1.3/0.1.4` (WebView 边距/icon) → `0.6.0` (多实例管理 + 后台保活 + 文件上传) → `0.6.2` (portrait 锁定) → `0.7.0` (SSH 启动 zai) → `0.7.1` (`--runtime` 选项) → `0.7.2`(`kernel` → `runtimeCore` 重命名) → `0.7.3`(`runtimeCore` 加 `repl` 枚举值) → `0.8.0`(实例类型 `app` profile:标准 / 任务工厂 `task-factory`,对齐 opencc-web `InstanceDefinition.app`) → `0.8.1`(`InstanceAppProfile` 加 `Weixin` 防止反序列化崩溃 + 卡片 `WeixinTag`) → `0.9.0`(**原生 Agent 会话**:会话列表 + 会话详情,直连 `/api/agent/sessions` + `/api/event` SSE,支持发消息/中断/队列 steer/权限确认/问询/文档审核;实例卡加「会话」动作,动作行改可横滚) → `0.9.1`(修 `updatedAt` 浮点导致会话列表整页报错打不开;建 JVM 单测基建 `app/src/test/`) → `0.9.2`(**输入条对齐 WorkBuddy**:单胶囊三态(语音/文本/发送·停止·`+`)、系统 `SpeechRecognizer` 语音转文字、图片附件(Photo Picker → 重编码 JPEG → `contentBlocks`)、顶栏瘦身(刷新/分享收进副标题面板)、空态改大图标+文案) → `0.10.0`–`0.12.1`(WorkBuddy 视觉体系 / Markdown 渲染 / 原生 Agent 会话打磨 / ASR 语音输入两段式 + 录音动效) → `0.13.0`(**SSH 交互式终端**:xterm.js PTY 终端 + 命令/交互双模式 + 全局快捷命令列表) → `0.14.0`(**底部五栏导航**:任务(卡片入口 + 跨实例「进行中」聚合)/ 实例 / SSH / 服务(远程服务清单 + 探活)/ 设置(主题切换),`AppNavHost` 改 `tab/` 前缀路由) → `0.14.1`(全 App 图标统一 `Icons.Rounded`;底栏弃用"实心/描边"双图标,选中态改同形配色)
+- 历史里程碑:`0.1.1` (WebView 基础) → `0.1.2/0.1.3/0.1.4` (WebView 边距/icon) → `0.6.0` (多实例管理 + 后台保活 + 文件上传) → `0.6.2` (portrait 锁定) → `0.7.0` (SSH 启动 zai) → `0.7.1` (`--runtime` 选项) → `0.7.2`(`kernel` → `runtimeCore` 重命名) → `0.7.3`(`runtimeCore` 加 `repl` 枚举值) → `0.8.0`(实例类型 `app` profile:标准 / 任务工厂 `task-factory`,对齐 opencc-web `InstanceDefinition.app`) → `0.8.1`(`InstanceAppProfile` 加 `Weixin` 防止反序列化崩溃 + 卡片 `WeixinTag`) → `0.9.0`(**原生 Agent 会话**:会话列表 + 会话详情,直连 `/api/agent/sessions` + `/api/event` SSE,支持发消息/中断/队列 steer/权限确认/问询/文档审核;实例卡加「会话」动作,动作行改可横滚) → `0.9.1`(修 `updatedAt` 浮点导致会话列表整页报错打不开;建 JVM 单测基建 `app/src/test/`) → `0.9.2`(**输入条对齐 WorkBuddy**:单胶囊三态(语音/文本/发送·停止·`+`)、系统 `SpeechRecognizer` 语音转文字、图片附件(Photo Picker → 重编码 JPEG → `contentBlocks`)、顶栏瘦身(刷新/分享收进副标题面板)、空态改大图标+文案) → `0.10.0`–`0.12.1`(WorkBuddy 视觉体系 / Markdown 渲染 / 原生 Agent 会话打磨 / ASR 语音输入两段式 + 录音动效) → `0.13.0`(**SSH 交互式终端**:xterm.js PTY 终端 + 命令/交互双模式 + 全局快捷命令列表) → `0.14.0`(**底部五栏导航**:任务(卡片入口 + 跨实例「进行中」聚合)/ 实例 / SSH / 服务(远程服务清单 + 探活)/ 设置(主题切换),`AppNavHost` 改 `tab/` 前缀路由) → `0.14.1`(全 App 图标统一 `Icons.Rounded`;底栏弃用"实心/描边"双图标,选中态改同形配色) → `0.14.2`(底栏常驻,详情页也显示并高亮所属栏;当前 tab 改显式状态,切栏靠 saveState/restoreState 原样恢复)
 - 详细开发产物见 `docs/superpowers/specs/2026-08-24-lan-agent-android-app-design.md`(原 v0.1 spec)+ `docs/superpowers/plans/2026-08-24-lan-agent-android-app.md`(10-task 实现 plan)+ `docs/superpowers/specs/2026-09-14-workbuddy-api-token-applicability.md`(WorkBuddy accessToken 适用面调研,含真机探测矩阵)。**注意**:spec/plan 在 0.6.0 / 0.7.x 大幅扩展后已过期,但作为初始设计参考仍可读;后续新增功能没再写独立 spec/plan,只有 0.10.x 的 ASR 路线在 2026-09-14 这份调研里留下了 WorkBuddy 鉴权与端点适用面的最新事实底座。

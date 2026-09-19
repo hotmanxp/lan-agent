@@ -1,8 +1,8 @@
 // ui/AppNavHost.kt — 内层导航图
 //
-// 路由分两类(底栏显隐完全由这个前缀决定,见 MainScaffold):
+// 路由分两类(底栏永远渲染,高亮 tab 由 MainScaffold 的显式 currentTab 状态决定):
 //
-//   **tab 根**(底栏可见,`tab/` 前缀,顺序 = 底栏从左到右):
+//   **tab 根**(`tab/` 前缀,顺序 = 底栏从左到右):
 //     tab/tasks     → 任务(卡片入口 + 跨实例进行中任务)
 //     tab/instances → 实例管理(暂存超时/停止/删除,baseUrl 从卡片里认)
 //     tab/ssh       → SSH 主机列表
@@ -35,6 +35,9 @@ import androidx.navigation.navArgument
 fun AppNavHost(
     navController: NavHostController,
     contentPadding: PaddingValues,
+    // 跨 tab 跳转(实例栏引导页「去添加」)复用底栏同一条切换逻辑,
+    // 否则 navigate 了但 currentTab 不动,底栏高亮就错位。
+    onSelectTab: (TabDestination) -> Unit = {},
 ) {
     NavHost(
         navController = navController,
@@ -67,7 +70,7 @@ fun AppNavHost(
                         "agent-sessions/${Uri.encode(instanceBaseUrl)}/${Uri.encode(instanceName)}"
                     )
                 },
-                onGoTasks = { navController.goToTab(TabDestination.Tasks) },
+                onGoTasks = { onSelectTab(TabDestination.Tasks) },
             )
         }
         composable(TabDestination.Ssh.route) {

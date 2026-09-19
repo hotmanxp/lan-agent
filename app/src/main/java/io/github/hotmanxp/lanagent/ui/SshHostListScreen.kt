@@ -85,7 +85,8 @@ private sealed class SshSheet {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SshHostListScreen(
-    onBack: () -> Unit,
+    /** null = 作为 tab 根屏展示,不渲染返回箭头(底栏 3「SSH」)。 */
+    onBack: (() -> Unit)? = null,
     onOpenWebview: (String) -> Unit,
     onOpenTerminal: (SshHost) -> Unit,
 ) {
@@ -107,11 +108,13 @@ fun SshHostListScreen(
             TopAppBar(
                 title = { Text(stringResource(R.string.ssh_title)) },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.webview_back_cd),
-                        )
+                    if (onBack != null) {
+                        IconButton(onClick = onBack) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = stringResource(R.string.webview_back_cd),
+                            )
+                        }
                     }
                 },
                 actions = {

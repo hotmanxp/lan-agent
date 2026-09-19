@@ -15,6 +15,24 @@ WorkBuddy 的双行白卡(上排文本域 / 下排语音·模型·`+`·发送钮
 **0.10.1** 再修两处「还是不像」的地方:**用户气泡改中性浅灰**(不是品牌绿)、
 **输入条改双行白卡**(上排文本域 / 下排工具条,发送钮常驻)。
 
+## 0.14.0 新增功能 — WorkBuddy 式底部五栏
+
+界面从「一个卡片列表页 + 顶栏一排图标」改成 **底部 5 栏导航**(照 WorkBuddy 手机端):
+
+| 栏 | 内容 |
+|----|------|
+| **任务** | 上半「进行中」——**跨实例**聚合的活跃 Agent 会话(点进直接看会话);下半「入口」卡片列表(扫码 / 增删改 / 拖拽排序 / 启动原生 Agent / 打开网页) |
+| **实例** | 原生实例管理(启动 / 停止 / 重启 / 删除 / 打开 / 会话)。baseUrl 仍从「指向 `/instances` 的卡片」里认;没这张卡时给引导空态 |
+| **SSH** | SSH 主机列表 + 交互式终端(xterm.js)+ 快捷命令 |
+| **服务** | **新增**:非 zai 的局域网服务(预置**视频插帧控制台** `:8780`),带**在线/离线**探活(10 秒一轮)、点开即 WebView、可增删改 |
+| **设置** | **新增**:主题(跟随系统 / 浅色 / 深色,即时生效)、数据概览、恢复默认入口卡片、版本信息 |
+
+其它:
+
+- **底栏只在 5 个栏目页出现**;进会话详情 / 终端 / WebView 自动隐藏(路由前缀 `tab/` 判断)
+- 「进行中」每 10 秒聚合一轮,单实例 2.5 秒超时;一个不可达的实例不会拖住整段列表
+- 主题选择持久化在 DataStore,改完立刻全局生效,不用重启
+
 ## 0.10.0 / 0.10.1 新增功能 — WorkBuddy 视觉体系 + Markdown 渲染
 
 ### 1. 配色:关掉 Material You,固定 WorkBuddy 色板
@@ -79,11 +97,11 @@ WorkBuddy 的双行白卡(上排文本域 / 下排语音·模型·`+`·发送钮
 
 ## 改入口
 
-**首页 Card 列表**(DataStore 持久化)有 3 种改法:
+**入口 Card 列表**(任务栏下半段,DataStore 持久化)有 3 种改法:
 
-1. **APP 内编辑模式** — 首屏右上 `✎` 进编辑模式,长按拖拽换位,点 `🗑` 删除,
+1. **APP 内编辑模式** — 任务栏右上 `✎` 进编辑模式,长按拖拽换位,点 `🗑` 删除,
    点 `+` 加新卡。改完即时写 DataStore,下次启动还是这些。
-2. **QR 扫码进入** — 首屏右上 QR 图标(CameraX + ML Kit Barcode),扫 zai 分享的 URL
+2. **QR 扫码进入** — 任务栏右上 QR 图标(CameraX + ML Kit Barcode),扫 zai 分享的 URL
    二维码直接跳 WebView,**不写** DataStore。
 3. **改 seed 卡片** — 编辑 [`app/src/main/java/io/github/hotmanxp/lanagent/data/Cards.kt`](app/src/main/java/io/github/hotmanxp/lanagent/data/Cards.kt)
    里的 `defaultCards` 列表,改完 `./gradlew :app:installDebug` 重装即可。
@@ -91,10 +109,10 @@ WorkBuddy 的双行白卡(上排文本域 / 下排语音·模型·`+`·发送钮
 
 **原生实例管理屏**(服务端实例定义,通过 `/api/instances` 同步)有 1 个入口:
 
-- 首屏右上 `Storage` 图标 → 弹出 InstancesScreen → 右下 `+` 浮动按钮 →
+- 底栏「实例」→ InstancesScreen → 右下 `+` 浮动按钮 →
   选手动表单 / 目录选择器(拉 `/api/fs/picker`)/ QR 扫码;**0.8.0** 起
   顶栏多一个 `RocketLaunch` 图标,快捷创建「任务工厂实例」(`app='task-factory'`)。
-  **新加的是服务端实例定义,跟首页 Card 列表是两套数据**。
+  **新加的是服务端实例定义,跟任务栏的 Card 列表是两套数据**。
 
 如目标 IP 不在白名单,还要编辑
 [`app/src/main/res/xml/network_security_config.xml`](app/src/main/res/xml/network_security_config.xml)
@@ -177,9 +195,9 @@ WorkBuddy 的双行白卡(上排文本域 / 下排语音·模型·`+`·发送钮
 
 ## 0.6.0 新增功能
 
-相比 0.1.x 单卡片模式,0.6.0 在保留 HomeScreen 卡片列表的同时新增**原生实例管理屏**:
+相比 0.1.x 单卡片模式,0.6.0 在保留卡片列表(现为任务栏)的同时新增**原生实例管理屏**(现为实例栏):
 
-- **原生实例管理** — 首屏 Storage 按钮 → InstancesScreen 拉 `/api/instances`,
+- **原生实例管理** — 底栏「实例」→ InstancesScreen 拉 `/api/instances`,
   2.5s 轮询;InstanceCard 对标 web Instances.tsx(状态 Tag / LAN Switch / 启动端口
   / 运行端口 / cwd / PID / 启动时间 / 运行时长 / 最后心跳 / 错误)
 - **五种动作** — 启动 / 停止 / 重启 / 删除(带二次确认)/ 打开(直接跳 WebView)
@@ -245,9 +263,9 @@ WorkBuddy 的双行白卡(上排文本域 / 下排语音·模型·`+`·发送钮
 
 ## SSH 启动 zai (0.7.x)
 
-当电脑关机或 zai 没跑起来时,首屏右上 `>_` (Terminal) 图标进 SSH 主机列表,
-点「启动 zai」按钮即可通过 SSH 远程执行 `nohup pnpm --filter @zn-ai/zai dev -- --lan`,
-启动成功后自动跳到 Instances 实例管理页。
+当电脑关机或 zai 没跑起来时,**底栏「SSH」栏**进 SSH 主机列表
+(点主机卡片进终端,或直接点「启动 zai」)即可通过 SSH 远程执行
+`nohup pnpm --filter @zn-ai/zai dev -- --lan`,启动成功后自动跳到实例管理页。
 
 **前置条件(Mac 端)**:
 
@@ -262,7 +280,7 @@ WorkBuddy 的双行白卡(上排文本域 / 下排语音·模型·`+`·发送钮
 
 **APP 内配置步骤**:
 
-1. 首屏右上 `>_` 图标 → SSH 主机列表页
+1. 底栏「SSH」栏 → SSH 主机列表页
 2. 点 `+` 加一条:name(随便起)/ host(电脑 LAN IP)/ port(`22`)/ user(Mac 用户名)/ password
 3. 保存后列表多一条,点该条「启动 zai」按钮 → 弹半屏 sheet 显示:
    - 执行中 → exit code + 耗时
@@ -310,10 +328,10 @@ pnpm --filter @zn-ai/zai dev -- --lan
 1. **服务端就绪**:`/m` 和 `/instances` 在桌面浏览器都可访问
 2. **编译**: `./gradlew :app:assembleDebug` 出 APK 无报错
 3. **安装**: `./gradlew :app:installDebug` 装到 Android 真机(API 26+)
-4. **冷启动**: App 启动看到 TopAppBar "LAN Agent" + **5 张 seed 卡片**
+4. **冷启动**: App 启动看到顶栏标题「任务」+ **5 张 seed 卡片**,底部是**任务 / 实例 / SSH / 服务 / 设置** 五栏
    (Instances 实例管理 / opencc-web / opencc-web-dsh / code-opencc / code-dash)
    + 顶栏右侧 **4 个 IconButton**(QR 扫码 / Storage 实例管理 / ✎ 编辑模式 / + 添加)
-5. **实例管理**: 点 Storage → InstancesScreen 拉 `/api/instances` →
+5. **实例管理**: 底栏「实例」→ InstancesScreen 拉 `/api/instances` →
    看到轮询卡片列表(状态 Tag、LAN Switch、启动端口、运行端口、
    cwd、PID、启动时间、运行时长每 30s 刷新、最后心跳相对时间)
 6. **实例操作**: 点任一非当前实例的「启动/停止/重启/删除」 → 看到 loading +
@@ -322,15 +340,15 @@ pnpm --filter @zn-ai/zai dev -- --lan
    端口模式 → 创建,列表多一张卡
 8. **创建实例(目录选择)**: cwd 输入框点「浏览」 → DirectoryPickerDialog
    拉 `/api/fs/picker` → 进子目录 / 上一级 / 主页 → 点「选择当前目录」回填 cwd
-9. **创建实例(QR 扫码添加)**: 首屏 QR 图标 → 相机权限弹窗 → ScanQrScreen →
+9. **创建实例(QR 扫码添加)**: 任务栏顶栏 QR 图标 → 相机权限弹窗 → ScanQrScreen →
    扫 zai 实例管理页导出的 URL 二维码 → 直接跳 WebView 加载 URL
    (注意:此路径只进入,不创建服务端实例)
-10. **WebView 渲染**: 点首页任一非实例管理卡片 → 进 WebView(无 App 顶栏,
+10. **WebView 渲染**: 任务栏点任一非实例管理卡片 → 进 WebView(无 App 顶栏、**无底栏**,
     只有右中浮 28dp 圆形刷新按钮),加载 opencc-web MobileAgent 页面
     (列表、输入框、抽屉);首次会弹媒体权限(READ_MEDIA_IMAGES)选允许
 11. **WebView 刷新**: 点浮动刷新按钮 → 弹出「已刷新」 Snackbar 确认
 12. **WebView 返回栈**: 系统返回手势 / 返回键 — WebView 内点几次链接后,
-    先 `goBack()`(BackHandler 接管 `webView.canGoBack()`),栈底回 HomeScreen
+    先 `goBack()`(BackHandler 接管 `webView.canGoBack()`),栈底回任务栏
 13. **后台保活**: WebView 打开一个 SSE 长连接页面(zai MobileAgent 聊天)→
     Home 键切走 App → 等 30 秒以上 → 切回 App → **聊天 session 未断**
     (无重连提示 / 历史消息完整;通知栏有「LAN Agent 后台运行中」 ongoing 通知)
@@ -342,7 +360,7 @@ pnpm --filter @zn-ai/zai dev -- --lan
     `onReceivedError` 静音,LAN 工具太频繁),InstancesScreen 拉取报错时弹 Snackbar
 17. **重置 DataStore**: `adb shell pm clear io.github.hotmanxp.lanagent` →
     启动 App → 回到 5 张 seed 默认卡片(确认改 `Cards.kt` 后这条路径有效)
-18. **SSH 启动 zai**: 首屏右上 `>_` 图标 → 加一条 SSH host(name / IP / port / user / password)
+18. **SSH 启动 zai**: 底栏「SSH」→ 加一条 SSH host(name / IP / port / user / password)
     → 保存 → 点「启动 zai」 → 半屏 sheet 显示执行中 → exit code = 0 + 端口可达 →
     自动跳到 Instances 实例管理 WebView;手动关 zai 后再点「启动 zai」也能拉起
 19. **SSH 启动失败兜底**: 在 SSH host 配置里把 host 改错 → 「启动 zai」 →
@@ -420,6 +438,34 @@ pnpm --filter @zn-ai/zai dev -- --lan
     「输入消息…」,下排依次是语音图标 / 模型 chip(点开能切模型)/ `+` / 最右的
     灰色**禁用态发送钮**;打一个字 → 发送钮变**青绿**;再清空 → 变回灰色但**按钮不消失**;
     卡下方**没有**「图片 / 粘贴 / 模型 / 更多」那排图标(图片和粘贴在 `+` 面板里)
+
+### 0.14.0 验收
+
+44. **底部五栏**: 打开 App → 底部有 **任务 / 实例 / SSH / 服务 / 设置** 五栏;
+    当前栏图标是**实心**且文字加粗,其余是**描边灰**;顶部有一条细分隔线;整条栏高约 56dp
+    (不是 M3 默认那种 80dp 的肥条)
+45. **底栏显隐**: 从「任务」栏点卡片进 WebView / 点「进行中」行进会话详情 / 点 SSH 主机
+    进终端 → 底栏**消失**;返回后底栏回来且仍停在原来的栏
+46. **切栏保状态**: 在「任务」栏往下滚 → 切到「设置」再切回来 → 列表滚动位置还在
+47. **进行中聚合**: 让某个实例上有一条 30 分钟内动过的会话 → 任务栏顶部出现
+    「进行中」区,行上显示 标题 / 实例名 · 模型 · 相对时间;正在输出的那条在最上面,
+    右侧带「回复中」或「N 项待办」徽标;点该行**直接进会话详情**(不用先选实例再选会话)
+48. **单实例不可达不拖慢**: 故意加一张 IP 写错的卡片 → 「进行中」区仍在 ~3 秒内出现
+    (那条不可达的实例被静默跳过,不会拖到十几秒)
+49. **实例栏**: 底栏「实例」→ 直接是实例管理页(**左上角没有返回箭头**);
+    把指向 `/instances` 的那张卡片删掉 → 该栏显示「还没有可用的实例管理器」+ 一个
+    跳去任务栏的按钮(而不是空白或弹窗)
+50. **SSH 栏**: 底栏「SSH」→ 主机列表(**无返回箭头**),加/编/删、进终端都正常
+51. **服务栏**: 底栏「服务」→ 看到预置的「视频插帧控制台」(Mac 上 `~/soft/vt-ui`
+    在跑时右侧是绿点**在线**,停掉服务约 10 秒后转灰**离线**);点「打开」进 WebView;
+    右上 `+` 能加一条自己的服务;铅笔改、垃圾桶删
+52. **服务 URL 简写**: 新增服务时 URL 只填 `192.168.x.x:8780`(不带 `http://`)→
+    保存后自动补成 `http://192.168.x.x:8780/`
+53. **主题切换**: 设置 → 外观 → 点「深色」→ **整屏立即变深色**(底栏、卡片、对话框一起变),
+    不用重启;点「跟随系统」→ 跟着系统深浅走;杀进程重开 → 选择还在
+54. **恢复默认入口卡片**: 设置 → 数据 → 「恢复默认入口卡片」→ 确认 → 任务栏卡片回到
+    内置的 5 张(**SSH 主机与远程服务不受影响**)
+55. **版本信息**: 设置 → 关于 → 版本显示 `0.14.0 (49)`
 
 ## 工程位置
 

@@ -9,12 +9,18 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import io.github.hotmanxp.lanagent.ui.AppNavHost
+import io.github.hotmanxp.lanagent.data.ThemeMode
+import io.github.hotmanxp.lanagent.data.themeModeFlow
 import io.github.hotmanxp.lanagent.ui.LanAgentTheme
+import io.github.hotmanxp.lanagent.ui.MainScaffold
 
 class MainActivity : ComponentActivity() {
 
@@ -45,8 +51,19 @@ class MainActivity : ComponentActivity() {
         window.statusBarColor = AndroidColor.TRANSPARENT
         requestMediaPermissionsIfNeeded()
         setContent {
-            LanAgentTheme {
-                AppNavHost()
+            // 主题模式从 DataStore 读,所以「设置 → 深色」是即时全局生效的,
+            // 不需要 recreate()。首帧会用系统默认值,深色用户最多闪一下。
+            val context = LocalContext.current
+            val mode by context.themeModeFlow().collectAsState(initial = ThemeMode.System)
+            val systemDark = isSystemInDarkTheme()
+            LanAgentTheme(
+                darkTheme = when (mode) {
+                    ThemeMode.System -> systemDark
+                    ThemeMode.Light -> false
+                    ThemeMode.Dark -> true
+                },
+            ) {
+                MainScaffold()
             }
         }
     }

@@ -2,6 +2,20 @@
 <resources>
     <string name="app_name">LAN Agent</string>
     <string name="home_title">LAN Agent</string>
+    <!-- 底部 5 栏(0.14.0)。名称刻意压到 2 字以内:底栏每格约 72dp,
+         「实例管理」四个字在 10sp 下会顶到相邻格子。 -->
+    <string name="tab_tasks">任务</string>
+    <string name="tab_instances">实例</string>
+    <string name="tab_ssh">SSH</string>
+    <string name="tab_services">服务</string>
+    <string name="tab_settings">设置</string>
+    <!-- 任务栏的「进行中」区 -->
+    <string name="tasks_active_section">进行中</string>
+    <string name="tasks_active_count">%1$d 个在跑</string>
+    <string name="tasks_active_badge">%1$d 项待办</string>
+    <string name="tasks_running_badge">回复中</string>
+    <string name="tasks_entry_section">入口</string>
+    <string name="tasks_entry_count">共 %1$d 个</string>
     <string name="card_open_cd">打开</string>
     <string name="webview_back_cd">返回</string>
     <string name="webview_refresh_cd">刷新</string>
@@ -112,6 +126,8 @@
     <string name="instances_action_failed">操作失败:%1$s</string>
     <string name="instances_manage_cd">原生实例管理</string>
     <string name="instances_no_manager_hint">未配置「实例管理」入口卡片,请先在首页 + 添加 URL 指向 /instances 的卡片</string>
+    <string name="instances_no_manager_title">还没有可用的实例管理器</string>
+    <string name="instances_no_manager_action">去任务栏添加入口卡片</string>
     <string name="instances_field_auto">auto</string>
     <string name="instances_dialog_error_name_required">请输入名称</string>
     <string name="instances_dialog_error_cwd_required">请输入工作目录</string>
@@ -243,4 +259,43 @@
     <string name="agent_input_model_current">当前</string>
     <string name="agent_input_model_switched">已切换为 %1$s</string>
     <string name="agent_input_model_switch_failed">切换失败:%1$s</string>
+    <!-- 远程服务栏(0.14.0 新增)
+         放「非 zai 实例」的局域网服务:视频插帧控制台这类。只有探活 + 打开,
+         没有原生 Agent 能力。 -->
+    <string name="svc_title">远程服务</string>
+    <string name="svc_add_cd">添加服务</string>
+    <string name="svc_empty_hint">暂无远程服务,点右上角 + 添加</string>
+    <string name="svc_state_online">在线</string>
+    <string name="svc_state_offline">离线</string>
+    <string name="svc_state_unknown">检测中</string>
+    <string name="svc_action_open">打开</string>
+    <string name="svc_action_edit">编辑服务</string>
+    <string name="svc_action_delete">删除服务</string>
+    <string name="svc_delete_title">删除该服务?</string>
+    <string name="svc_dialog_add_title">添加远程服务</string>
+    <string name="svc_dialog_edit_title">编辑远程服务</string>
+    <string name="svc_dialog_field_name">名称</string>
+    <string name="svc_dialog_field_url">URL</string>
+    <string name="svc_dialog_field_url_hint">192.168.1.10:8780</string>
+    <string name="svc_dialog_field_subtitle">副标题(选填)</string>
+    <string name="svc_dialog_field_probe">探活路径(选填)</string>
+    <string name="svc_dialog_field_probe_hint">默认探根路径 /</string>
+    <string name="svc_dialog_field_accent">色条</string>
+    <!-- 设置栏(0.14.0 新增) -->
+    <string name="settings_section_appearance">外观</string>
+    <string name="settings_theme_subtitle">主题立即生效,不需要重启 App</string>
+    <string name="settings_theme_system">跟随系统</string>
+    <string name="settings_theme_light">浅色</string>
+    <string name="settings_theme_dark">深色</string>
+    <string name="settings_section_data">数据</string>
+    <string name="settings_count_cards">入口卡片</string>
+    <string name="settings_count_hosts">SSH 主机</string>
+    <string name="settings_count_services">远程服务</string>
+    <string name="settings_reset_cards">恢复默认入口卡片</string>
+    <string name="settings_reset_cards_desc">会丢掉所有手动增删改与排序,回到内置的 5 张默认卡片。SSH 主机与远程服务不受影响。</string>
+    <string name="settings_reset_confirm">恢复默认</string>
+    <string name="settings_section_about">关于</string>
+    <string name="settings_about_version">版本</string>
+    <string name="settings_about_package">包名</string>
+    <string name="settings_about_hint">局域网自用工具,debug 侧载包,不含账号体系。</string>
 </resources>

@@ -1,18 +1,24 @@
-// ui/HomeScreen.kt — 卡片列表(支持运行时增删改+拖拽排序)
+// ui/TasksTabScreen.kt — 任务栏(底栏第 1 栏)
 //
-// 0.10.5 起每张卡片右下挂「启动原生 Agent」+「打开网页」双按钮:
-//   - 原生按钮:从卡片 url 抽 baseUrl,调 `${baseUrl}/api/instances` 找到当前
-//     实例,跳 `agent-sessions/{baseUrl}/{name}`。URL 不合法/接口不可达时
-//     两按钮都不显示,避免点了再弹 snackbar 噪声。
-//   - Web 按钮:同卡片整体点击行为,直接 `webview/{url}`(保留原行为)。
+// 两段式布局:
+//   1. **进行中** —— 跨实例聚合的活跃 Agent 会话(数据源 `data/ActiveTasks.kt`),
+//      10 秒一轮。点条目直接进会话详情,不用先选实例再选会话。
+//   2. **入口** —— 原有的入口卡片列表(扫码 / 增删改 / 拖拽排序 / 双按钮)。
 //
-// 编辑模式(editMode=true)下仍只显示删除 + 拖拽手柄,这两颗按钮不该出现 —
-// 否则会把「编辑」和「打开」混淆。
+// 为什么「进行中」不放首位之外的地方:这一栏叫「任务」,用户打开 App 的第一
+// 疑问是「我那几个活儿跑完了吗」。所以状态在前、入口在后;卡片列表的编辑态
+// (editMode)下反而**隐藏**进行中区 —— 编辑是「管理入口」的上下文,掺进任务
+// 状态只会让人分不清哪块能拖。
+//
+// 原 HomeScreen 的顶栏四按钮(scan/instances/edit/add + ssh)在这里收敛成三个:
+// 实例管理与 SSH 已升级为独立 tab,顶栏不该再有它们的影子入口。
 package io.github.hotmanxp.lanagent.ui
 
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,6 +34,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -36,12 +43,10 @@ import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.QrCodeScanner
-import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -50,9 +55,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -65,31 +72,44 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import io.github.hotmanxp.lanagent.R
+import io.github.hotmanxp.lanagent.data.ActiveTask
+import io.github.hotmanxp.lanagent.data.ActiveTasksCache
 import io.github.hotmanxp.lanagent.data.AgentApi
 import io.github.hotmanxp.lanagent.data.cardsFlow
+import io.github.hotmanxp.lanagent.data.collectActiveTasks
 import io.github.hotmanxp.lanagent.data.extractBaseUrl
-import io.github.hotmanxp.lanagent.data.findManagerBaseUrl
 import io.github.hotmanxp.lanagent.data.saveCards
 import io.github.hotmanxp.lanagent.model.Card
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+/** 进行中区最多露出的条目数 —— 再多就把「入口」挤到屏幕外了。 */
+private const val MAX_ACTIVE_ROWS = 4
+
+/** 聚合轮询间隔。比实例屏的 2.5s 慢:这里要扇出打 N 个实例,不能太狠。 */
+private const val ACTIVE_POLL_MS = 10_000L
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen(
+fun TasksTabScreen(
     onCardClick: (Card) -> Unit,
     onScanClick: () -> Unit,
-    onInstancesClick: (String) -> Unit,
-    onSshHostsClick: () -> Unit,
-    onOpenNative: (baseUrl: String, instanceName: String, sid: String) -> Unit,
+    onOpenSession: (baseUrl: String, instanceName: String, sid: String) -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val lifecycleOwner = LocalLifecycleOwner.current
     val cards by context.cardsFlow().collectAsState(initial = null)
     val listState = rememberLazyListState()
     // Surface the persisted list — `null` until DataStore first emission.
@@ -98,39 +118,56 @@ fun HomeScreen(
     var editMode by remember { mutableStateOf(false) }
     var editingCard by remember { mutableStateOf<Card?>(null) }
     var showAddDialog by remember { mutableStateOf(false) }
-    var showNoManagerHint by remember { mutableStateOf(false) }
-    val managerBaseUrl = remember(currentCards) { findManagerBaseUrl(currentCards) }
     val snackbarHostState = remember { SnackbarHostState() }
-    // 防止同 baseUrl 的请求并发打两次(用户连点 / 同一端口多张卡)。
-    // 0.10.6 起去掉了 nativeKnown 缓存 —— 旧路径要拉 /api/instances 拿实例名,
-    // child 实例 404 才会失败;新路径直接 createSession,每次都拿全新 sid,
-    // 缓存没意义。
     var agentBusy by remember { mutableStateOf<Set<String>>(emptySet()) }
 
+    // 初值取进程内缓存 —— 从会话详情返回时 NavHost 已销毁本屏,没有缓存的话
+    // 「进行中」区会空白到下一轮聚合回来(一个不可达实例就是 2.5 秒)。
+    var activeTasks by remember { mutableStateOf(ActiveTasksCache.tasks) }
+    var now by remember { mutableStateOf(System.currentTimeMillis()) }
+
+    // 跨实例聚合:卡片列表变了(增删改)才重启轮询。key 直接给 DataStore 的
+    // List(结构相等),所以重新挂载时重复发射同一份数据不会白跑一轮。
+    //
+    // ⚠️ 必须区分「还没读到」(null)和「真的没有卡片」(emptyList):用
+    // `currentCards` 当 key 的话,返回本屏的首帧总是 null→emptyList,会把
+    // ActiveTasksCache 清掉 —— 缓存等于白做。这就是上一版返回后「进行中」
+    // 区依然空白的原因。
+    LaunchedEffect(cards) {
+        val list = cards ?: return@LaunchedEffect
+        if (list.isEmpty()) {
+            activeTasks = emptyList()
+            ActiveTasksCache.tasks = emptyList()
+            return@LaunchedEffect
+        }
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                activeTasks = collectActiveTasks(list)
+                delay(ACTIVE_POLL_MS)
+            }
+        }
+    }
+    // 相对时间定时器 —— 让「N 分钟前」自己走。
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(30_000)
+            now = System.currentTimeMillis()
+        }
+    }
+
     /**
-     * 「启动原生 Agent」统一入口(0.10.6 重写)—— 直接调
-     * `AgentApi.createSession()` 拿新 sid 进详情页,绕开 supervisor
-     * 专属的 `/api/instances` 端点(child 实例没有,会 404
-     * "instance management not available on child")。
-     *
-     * 用 lambda + `remember` 持有是因为 Compose 要求函数在调用前声明,local
-     * function 在源码顺序上也得在 itemsIndexed 之前;提到 Scaffold 之前
-     * 是为了避免和 itemsIndexed 抢 scope 闭包时的可读性。
+     * 「启动原生 Agent」统一入口 —— 直接调 `AgentApi.createSession()` 拿新 sid
+     * 进详情页,绕开 supervisor 专属的 `/api/instances`(child 实例没有该端点,
+     * 会 404 "instance management not available on child")。
      */
     val launchAgent: (String) -> Unit = launchAgent@{ baseUrl ->
         if (baseUrl in agentBusy) return@launchAgent
         agentBusy = agentBusy + baseUrl
         scope.launch {
             try {
-                // /api/agent/sessions 在所有 zai 实例(supervisor + child)都开放,
-                // 不依赖 supervisor-only 的 /api/instances。
                 val sid = AgentApi(baseUrl).createSession()
-                // instanceName 用 baseUrl 的 host:port 部分作显示 —— 不打 API
-                // 就拿不到 supervisor 视角的实例名,而 child 实例上 supervisor
-                // API 又不可用,直接拿 host:port 既稳又能辨识(多张卡指向同一
-                // 实例时副标题一致)。
                 val instanceName = baseUrl.substringAfter("://").substringBefore('/')
-                onOpenNative(baseUrl, instanceName, sid)
+                onOpenSession(baseUrl, instanceName, sid)
             } catch (t: Throwable) {
                 snackbarHostState.showSnackbar(
                     context.getString(
@@ -144,10 +181,22 @@ fun HomeScreen(
         }
     }
 
+    val visibleTasks = activeTasks.take(MAX_ACTIVE_ROWS)
+    // 进行中区占掉的 LazyColumn 条目数(分区头 1 + 任务行 N + 入口分区头 1)。
+    // 拖拽排序靠 layoutInfo 的绝对 index 命中,所以卡片必须换算成列表下标 ——
+    // 忘了这一步的典型症状:编辑态一拖,动的却是上面第 N 个任务行。
+    val sectionOffset = if (!editMode && visibleTasks.isNotEmpty()) 1 + visibleTasks.size + 1 else 0
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.home_title)) },
+                title = {
+                    Text(
+                        stringResource(
+                            if (editMode) R.string.home_edit_mode_cd else R.string.tab_tasks
+                        )
+                    )
+                },
                 actions = {
                     if (editMode) {
                         IconButton(onClick = { editMode = false }) {
@@ -157,25 +206,10 @@ fun HomeScreen(
                             )
                         }
                     } else {
-                        // Scan button comes first (left of edit/add) since
-                        // it's the primary one-tap action; edit/add are
-                        // card-management ops and live next to each other.
                         IconButton(onClick = onScanClick) {
                             Icon(
                                 imageVector = Icons.Default.QrCodeScanner,
                                 contentDescription = stringResource(R.string.home_scan_cd)
-                            )
-                        }
-                        IconButton(
-                            onClick = {
-                                val url = managerBaseUrl
-                                if (url != null) onInstancesClick(url)
-                                else showNoManagerHint = true
-                            },
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Storage,
-                                contentDescription = stringResource(R.string.instances_manage_cd),
                             )
                         }
                         IconButton(onClick = { editMode = true }) {
@@ -190,32 +224,22 @@ fun HomeScreen(
                                 contentDescription = stringResource(R.string.home_add_cd)
                             )
                         }
-                        // SSH hosts list — placed last (rightmost) so the
-                        // primary card-management actions stay grouped
-                        // together. The icon is Terminal (CLI / SSH
-                        // keyboard metaphor); the SshHostListScreen has
-                        // its own empty-state hint so no Snackbar here.
-                        IconButton(onClick = onSshHostsClick) {
-                            Icon(
-                                imageVector = Icons.Filled.Memory,
-                                contentDescription = stringResource(R.string.ssh_title),
-                            )
-                        }
                     }
                 }
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
-        if (currentCards.isEmpty()) {
-            // 空态放机器人 + 一行提示 —— 跟会话页的空态同一套观感(WorkBuddy 风格)。
-            Box(
+        when {
+            currentCards.isEmpty() && cards == null -> Unit  // 首帧等 DataStore,不闪空态
+
+            currentCards.isEmpty() -> Box(
                 modifier = Modifier.fillMaxSize().padding(padding),
                 contentAlignment = Alignment.Center
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Image(
-                        painter = androidx.compose.ui.res.painterResource(R.drawable.wb_mascot),
+                        painter = painterResource(R.drawable.wb_mascot),
                         contentDescription = null,
                         modifier = Modifier.width(132.dp),
                     )
@@ -227,13 +251,50 @@ fun HomeScreen(
                     )
                 }
             }
-        } else {
-            LazyColumn(
+
+            else -> LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize().padding(padding),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 contentPadding = PaddingValues(vertical = 8.dp)
             ) {
+                if (!editMode && visibleTasks.isNotEmpty()) {
+                    val runningCount = visibleTasks.count { it.running }
+                    item("active-header") {
+                        SectionHeader(
+                            title = stringResource(R.string.tasks_active_section),
+                            // 一个都没在跑时不写「0 个在跑」—— 那是噪声,不是信息。
+                            trailing = if (runningCount > 0) {
+                                stringResource(R.string.tasks_active_count, runningCount)
+                            } else {
+                                ""
+                            },
+                        )
+                    }
+                    items(items = visibleTasks, key = { it.baseUrl + it.meta.sessionId }) { task ->
+                        ActiveTaskRow(
+                            task = task,
+                            now = now,
+                            onClick = {
+                                onOpenSession(
+                                    task.baseUrl,
+                                    task.instanceName,
+                                    task.meta.sessionId,
+                                )
+                            },
+                        )
+                    }
+                    item("entry-header") {
+                        SectionHeader(
+                            title = stringResource(R.string.tasks_entry_section),
+                            trailing = stringResource(
+                                R.string.tasks_entry_count,
+                                currentCards.size,
+                            ),
+                        )
+                    }
+                }
+
                 itemsIndexed(items = currentCards, key = { _, it -> it.id }) { index, card ->
                     val baseUrl = remember(card.url) { extractBaseUrl(card.url) }
                     DraggableCardItem(
@@ -241,12 +302,10 @@ fun HomeScreen(
                         editMode = editMode,
                         listState = listState,
                         index = index,
+                        listIndex = index + sectionOffset,
                         totalCount = currentCards.size,
                         hasNative = baseUrl != null,
                         onClick = {
-                            // 编辑模式点卡 = 弹编辑对话框;非编辑模式 = 走 Web(原行为)。
-                            // URL 不合法的卡片在非编辑模式下整张卡不可点(改 onClick
-                            // 逻辑被 hasNative 短路,见 DraggableCardItem 的 Card.onClick)。
                             if (editMode) editingCard = card else onCardClick(card)
                         },
                         onDelete = {
@@ -294,18 +353,99 @@ fun HomeScreen(
             }
         )
     }
+}
 
-    if (showNoManagerHint) {
-        androidx.compose.material3.AlertDialog(
-            onDismissRequest = { showNoManagerHint = false },
-            title = { Text(stringResource(R.string.instances_manage_cd)) },
-            text = { Text(stringResource(R.string.instances_no_manager_hint)) },
-            confirmButton = {
-                androidx.compose.material3.TextButton(onClick = { showNoManagerHint = false }) {
-                    Text(stringResource(R.string.dialog_ok))
-                }
-            },
+/** 分区标题 —— 左侧小字分组名,右侧计数。WorkBuddy 列表里的「分组行」观感。 */
+@Composable
+private fun SectionHeader(title: String, trailing: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 20.dp, end = 20.dp, top = 10.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = title,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        Spacer(Modifier.weight(1f))
+        if (trailing.isNotBlank()) {
+            Text(
+                text = trailing,
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+            )
+        }
+    }
+}
+
+/**
+ * 一条「进行中任务」。左侧状态点(运行中=品牌色实心,刚跑完=浅灰空心),
+ * 中间标题 + 「实例 · 模型 · 时间」,右侧未完成任务数徽标。
+ */
+@Composable
+private fun ActiveTaskRow(task: ActiveTask, now: Long, onClick: () -> Unit) {
+    val dotColor = if (task.running) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+    }
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .clickable(onClick = onClick),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(7.dp)
+                    .background(color = dotColor, shape = RoundedCornerShape(4.dp))
+            )
+            Column(modifier = Modifier.weight(1f).padding(start = 12.dp)) {
+                Text(
+                    text = task.meta.title?.takeIf { it.isNotBlank() }
+                        ?: stringResource(R.string.agent_session_untitled),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = listOfNotNull(
+                        task.instanceName.takeIf { it.isNotBlank() },
+                        task.meta.model.takeIf { it.isNotBlank() && it != "unknown" },
+                        formatRelativeAgoMs(task.meta.updatedAt, now),
+                    ).joinToString(" · "),
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (task.activeTaskCount > 0) {
+                Spacer(Modifier.width(8.dp))
+                StatusChip(
+                    text = stringResource(R.string.tasks_active_badge, task.activeTaskCount),
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            } else if (task.running) {
+                Spacer(Modifier.width(8.dp))
+                StatusChip(
+                    text = stringResource(R.string.tasks_running_badge),
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
     }
 }
 
@@ -314,7 +454,10 @@ private fun DraggableCardItem(
     card: Card,
     editMode: Boolean,
     listState: LazyListState,
+    /** 卡片在 `currentCards` 里的下标 —— 拖拽回调用它。 */
     index: Int,
+    /** 同一张卡在 LazyColumn 里的绝对下标(= 卡片下标 + 进行中区占位)。 */
+    listIndex: Int,
     totalCount: Int,
     hasNative: Boolean,
     onClick: () -> Unit,
@@ -325,12 +468,10 @@ private fun DraggableCardItem(
 ) {
     var dragged by remember { mutableStateOf(false) }
     val elevation by animateDpAsState(if (dragged) 8.dp else 0.dp, label = "elevation")
+    val offset = listIndex - index
 
     Card(
         // 非编辑模式 + URL 不合法 → 卡片整体不响应点击(改走 Web 等于「点了没反应」)。
-        // 否则维持原有 onClick(card 整体 = 编辑模式弹对话框;否则原 onCardClick)。
-        // 用 `enabled = false` 比传空 lambda 干净 —— Compose Card.onClick 是必填参数,
-        // 空 lambda 编译时会报 "Lambda type was inferred as Any" 的类型推断错。
         enabled = editMode || hasNative,
         onClick = onClick,
         modifier = Modifier
@@ -340,7 +481,7 @@ private fun DraggableCardItem(
             .graphicsLayer {
                 if (dragged) shadowElevation = elevation.toPx()
             }
-            .pointerInput(editMode, totalCount) {
+            .pointerInput(editMode, totalCount, listIndex) {
                 if (!editMode) return@pointerInput
                 detectDragGesturesAfterLongPress(
                     onDragStart = { dragged = true },
@@ -349,14 +490,18 @@ private fun DraggableCardItem(
                     onDrag = { change, _ ->
                         change.consume()
                         val current = listState.layoutInfo.visibleItemsInfo
-                            .firstOrNull { it.index == index }
+                            .firstOrNull { it.index == listIndex }
                             ?: return@detectDragGesturesAfterLongPress
                         val center = current.offset + current.size / 2
                         val target = listState.layoutInfo.visibleItemsInfo
                             .minByOrNull { kotlin.math.abs((it.offset + it.size / 2) - center) }
                             ?.index
-                            ?: index
-                        if (target != index) onMove(index, target)
+                            ?: listIndex
+                        // 换算回卡片下标再回调 —— 上层只认卡片坐标。
+                        val targetCard = target - offset
+                        if (targetCard != index && targetCard in 0 until totalCount) {
+                            onMove(index, targetCard)
+                        }
                     }
                 )
             }
@@ -401,9 +546,6 @@ private fun DraggableCardItem(
                     modifier = Modifier.padding(start = 4.dp)
                 )
             } else {
-                // 右下「启动原生 / 打开网页」双按钮(0.10.5)。两按钮都靠
-                // `extractBaseUrl` 抽出的 baseUrl 决定是否显示 —— URL 不合法时整
-                // 张卡片只有色条 + 标题副标题,不能点(避免点了再 snackbar 噪声)。
                 if (hasNative) {
                     IconButton(onClick = onNativeClick) {
                         Icon(
@@ -419,9 +561,6 @@ private fun DraggableCardItem(
                         )
                     }
                 } else {
-                    // 没合法 URL 时的占位 —— 让卡片仍然有「右端留白」避免标题
-                    // 莫名贴右边。比原来直接挂一个箭头图标(误导用户以为可点)
-                    // 更诚实。
                     Spacer(Modifier.width(8.dp))
                 }
             }

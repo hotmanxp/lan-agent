@@ -1,74 +1,64 @@
-// ui/AppNavHost.kt — NavHost("home" → HomeScreen, "webview/{url}" → WebViewScreen,
-// "instances/{baseUrl}" → 原生 InstancesScreen,
-// "agent-sessions/{baseUrl}/{instanceName}" → 原生会话列表,
-// "agent-session/{baseUrl}/{instanceName}/{sid}" → 原生会话详情,
-// "ssh-hosts" → SSH 主机列表, "ssh-terminal/{hostId}" → SSH 终端 + 快捷命令)
+// ui/AppNavHost.kt — 内层导航图
+//
+// 路由分两类(底栏显隐完全由这个前缀决定,见 MainScaffold):
+//
+//   **tab 根**(底栏可见,`tab/` 前缀,顺序 = 底栏从左到右):
+//     tab/tasks     → 任务(卡片入口 + 跨实例进行中任务)
+//     tab/instances → 实例管理(暂存超时/停止/删除,baseUrl 从卡片里认)
+//     tab/ssh       → SSH 主机列表
+//     tab/services  → 远程服务(视频插帧控制台等)
+//     tab/settings  → 设置(主题 / 概览 / 关于)
+//
+//   **详情页**(底栏隐藏):
+//     scan                                   → 扫码添加
+//     webview/{url}                          → 全屏 WebView
+//     agent-sessions/{baseUrl}/{instanceName} → 会话列表
+//     agent-session/{baseUrl}/{instanceName}/{sid} → 会话详情
+//     ssh-terminal/{hostId}                   → SSH 终端
+//
+// 参数里带 `://`、`:`、中文、空格的必须在 navigate 前 Uri.encode —— route 匹配
+// 是按 `/` 切的,不编码会碎在路径段里。
 package io.github.hotmanxp.lanagent.ui
 
 import android.net.Uri
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
-import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 
 @Composable
-fun AppNavHost(navController: NavHostController = rememberNavController()) {
-    NavHost(navController = navController, startDestination = "home") {
-        composable("home") {
-            HomeScreen(
+fun AppNavHost(
+    navController: NavHostController,
+    contentPadding: PaddingValues,
+) {
+    NavHost(
+        navController = navController,
+        startDestination = TabDestination.Tasks.route,
+        modifier = Modifier.padding(contentPadding),
+    ) {
+        // ===== tab 根 =====
+        composable(TabDestination.Tasks.route) {
+            TasksTabScreen(
                 onCardClick = { card ->
                     navController.navigate("webview/${Uri.encode(card.url)}")
                 },
                 onScanClick = {
                     navController.navigate("scan")
                 },
-                onInstancesClick = { baseUrl ->
-                    navController.navigate("instances/${Uri.encode(baseUrl)}")
-                },
-                onSshHostsClick = {
-                    navController.navigate("ssh-hosts")
-                },
-                // 0.10.6:HomeScreen 卡片右下「启动原生」按钮直接调
-                // `AgentApi.createSession()` 拿到新 sid,跳
-                // `agent-session/{baseUrl}/{name}/{sid}` —— 不再经
-                // `agent-sessions` 中转。原中转是因为 launchNative 要先调
-                // `/api/instances` 拿当前实例名,但 child 实例没这个端点
-                // 会 404("instance management not available on child")。
-                // 现在直接 createSession 拿 sid 进详情,绕开 supervisor
-                // 依赖。name 由 HomeScreen 从 baseUrl 抽 host:port。
-                onOpenNative = { baseUrl, instanceName, sid ->
+                onOpenSession = { baseUrl, instanceName, sid ->
                     navController.navigate(
                         "agent-session/${Uri.encode(baseUrl)}/${Uri.encode(instanceName)}/${Uri.encode(sid)}"
                     )
                 },
             )
         }
-        composable("scan") {
-            ScanQrScreen(
-                onScanned = { url ->
-                    // Pop the scan screen first so a back press from the
-                    // WebView lands on Home, not on the (now-finished)
-                    // scanner. navigate(...) here would push scan onto the
-                    // back stack again and the user would have to back out
-                    // twice to reach Home.
-                    navController.popBackStack()
-                    navController.navigate("webview/${Uri.encode(url)}")
-                },
-                onBack = { navController.popBackStack() },
-            )
-        }
-        composable(
-            route = "instances/{baseUrl}",
-            arguments = listOf(navArgument("baseUrl") { type = NavType.StringType })
-        ) { entry ->
-            val baseUrl = Uri.decode(entry.arguments?.getString("baseUrl").orEmpty())
-            InstancesScreen(
-                baseUrl = baseUrl.ifBlank { "http://127.0.0.1:9201" },
-                onBack = { navController.popBackStack() },
+        composable(TabDestination.Instances.route) {
+            InstancesTabScreen(
                 onOpenUrl = { url ->
                     navController.navigate("webview/${Uri.encode(url)}")
                 },
@@ -77,10 +67,48 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
                         "agent-sessions/${Uri.encode(instanceBaseUrl)}/${Uri.encode(instanceName)}"
                     )
                 },
+                onGoTasks = { navController.goToTab(TabDestination.Tasks) },
             )
         }
-        // 原生 Agent 会话列表(0.9.0)。baseUrl 里带 "://" 和 ":",instanceName 可能
-        // 含空格/中文 —— 两者都必须 Uri.encode,否则 route 匹配会碎在 "/" 上。
+        composable(TabDestination.Ssh.route) {
+            SshHostListScreen(
+                onBack = null,
+                // 不再 popBackStack:这一屏已经是 tab 根,pop 掉它等于把
+                // SSH 栏从返回栈里删了 —— 从 WebView 返回会落到「任务」栏。
+                onOpenWebview = { url ->
+                    navController.navigate("webview/${Uri.encode(url)}")
+                },
+                onOpenTerminal = { host ->
+                    navController.navigate("ssh-terminal/${Uri.encode(host.id)}")
+                },
+            )
+        }
+        composable(TabDestination.Services.route) {
+            RemoteServicesScreen(
+                onOpenUrl = { url ->
+                    navController.navigate("webview/${Uri.encode(url)}")
+                },
+            )
+        }
+        composable(TabDestination.Settings.route) {
+            SettingsScreen()
+        }
+
+        // ===== 详情页(底栏自动隐藏) =====
+        composable("scan") {
+            ScanQrScreen(
+                onScanned = { url ->
+                    // Pop the scan screen first so a back press from the
+                    // WebView lands on the tab that opened it, not on the
+                    // (now-finished) scanner.
+                    navController.popBackStack()
+                    navController.navigate("webview/${Uri.encode(url)}")
+                },
+                onBack = { navController.popBackStack() },
+            )
+        }
+        // 原生 Agent 会话列表(0.9.0)。baseUrl 里带 "://" 和 ":",instanceName
+        // 可能含空格/中文 —— 两者都必须 Uri.encode。
         composable(
             route = "agent-sessions/{baseUrl}/{instanceName}",
             arguments = listOf(
@@ -101,7 +129,7 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
                 },
             )
         }
-        // 原生 Agent 会话详情(0.9.0)。
+        // 原生 Agent 会话详情(0.9.0)。任务栏的「进行中」行也直接落到这里。
         composable(
             route = "agent-session/{baseUrl}/{instanceName}/{sid}",
             arguments = listOf(
@@ -120,24 +148,6 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
                 onBack = { navController.popBackStack() },
                 onOpenWeb = { url ->
                     navController.navigate("webview/${Uri.encode(url)}")
-                },
-                // 0.10.6:onOpenSessions / onCreateNewSession 都被屏内抽屉
-                // + startNewSession() 替代,这里不再传。AgentSessionsScreen
-                // 仍是单独路由(供 InstancesScreen 的"会话"按钮入口用),
-                // 但 AgentSessionScreen 自身不再 navigate 过去。
-            )
-        }
-        composable("ssh-hosts") {
-            SshHostListScreen(
-                onBack = { navController.popBackStack() },
-                onOpenWebview = { url ->
-                    // Pop ssh-hosts first so back from the auto-launched
-                    // WebView lands on Home, mirroring the scan flow.
-                    navController.popBackStack()
-                    navController.navigate("webview/${Uri.encode(url)}")
-                },
-                onOpenTerminal = { host ->
-                    navController.navigate("ssh-terminal/${Uri.encode(host.id)}")
                 },
             )
         }
@@ -164,5 +174,14 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
                 onBack = { navController.popBackStack() }
             )
         }
+    }
+}
+
+/** 跨 tab 跳转 —— 语义等同点底栏,不叠新层。 */
+private fun NavHostController.goToTab(target: TabDestination) {
+    navigate(target.route) {
+        popUpTo("tab/tasks") { saveState = true }
+        launchSingleTop = true
+        restoreState = true
     }
 }

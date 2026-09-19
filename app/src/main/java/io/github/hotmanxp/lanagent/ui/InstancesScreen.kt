@@ -64,7 +64,8 @@ import kotlinx.coroutines.launch
 @Composable
 fun InstancesScreen(
     baseUrl: String,
-    onBack: () -> Unit,
+    /** null = 作为 tab 根屏展示,不渲染返回箭头(底栏 2「实例管理」)。 */
+    onBack: (() -> Unit)? = null,
     onOpenUrl: (String) -> Unit,
     onOpenSessions: (instanceBaseUrl: String, instanceName: String) -> Unit = { _, _ -> },
 ) {
@@ -199,11 +200,15 @@ fun InstancesScreen(
             TopAppBar(
                 title = { Text(stringResource(R.string.instances_title)) },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.webview_back_cd),
-                        )
+                    // onBack == null(tab 根屏)→ 不占位:留一个空 IconButton 会在
+                    // 标题左边顶出一段莫名的空白。
+                    if (onBack != null) {
+                        IconButton(onClick = onBack) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = stringResource(R.string.webview_back_cd),
+                            )
+                        }
                     }
                 },
                 actions = {

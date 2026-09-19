@@ -55,11 +55,24 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
-class AgentApi(private val baseUrl: String) {
+class AgentApi(
+    private val baseUrl: String,
+    /**
+     * 单个 call 的墙钟上限(`callTimeout`)。0 = 不设(默认)。
+     *
+     * 任务栏的跨实例聚合必须传一个短值:`/api/agent/sessions` 走的是阻塞的
+     * `execute()`,而**协程的 withTimeout 取消不了阻塞在 socket 上的调用**
+     * (阻塞块不响应协程取消)。OkHttp 的 callTimeout 由看门狗线程在到点时
+     * 直接 `cancel()` 连接,阻塞的 execute() 会立刻抛 InterruptedIOException
+     * ——这是唯一能让「一个不可达实例不拖住整轮」的机制。
+     */
+    callTimeoutMs: Long = 0L,
+) {
     private val client = OkHttpClient.Builder()
         .connectTimeout(5, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .writeTimeout(15, TimeUnit.SECONDS)
+        .apply { if (callTimeoutMs > 0) callTimeout(callTimeoutMs, TimeUnit.MILLISECONDS) }
         .build()
 
     /**

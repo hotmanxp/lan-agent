@@ -1,892 +1,196 @@
 # AGENTS.md — `/Users/ethan/code/lan-agent/`
 
-> **lan-agent** — 简单 Android App,把局域网内多个 opencc-web 实例的入口收成卡片列表,点击卡片进入 WebView 详情加载对应 URL;同时**原生**展示 zai 实例管理 API(启动/停止/重启/删除/打开/二维码扫码添加);**原生 Agent 会话列表 + 会话详情**(直连 `/api/agent/sessions` + `/api/event` SSE,不走 WebView);**SSH 一键启动 zai**(当 Mac 没起来 zai 时)。配套工程是 `/Users/ethan/code/opencc-web`,zai 需用 `pnpm --filter @zn-ai/zai dev -- --lan` 启动才能让手机访问(SSH 模块则全局 `zai --lan --port <p>` 启动)。
+> **lan-agent** — Android App,把局域网内多个 opencc-web 实例入口收成卡片列表 + **原生**展示实例管理 API + **原生** Agent 会话(直连 `/api/agent/sessions` + `/api/event` SSE)+ SSH 一键启动 zai。配套工程 `/Users/ethan/code/opencc-web`,zai 需 `pnpm --filter @zn-ai/zai dev -- --lan` 启动。
 >
-> **0.10.0 起视觉体系整体对齐 WorkBuddy**:浅灰页底 + 白色卡片 + 官方机器人形象,并给助手正文接了**自研 Markdown 渲染**(见 §15)。
-> **0.10.1** 收尾两处「还是不像」的地方:**用户气泡改中性浅灰**(不是品牌绿)+ **输入条改 WorkBuddy 双行白卡**(上排文本域 / 下排工具条,发送钮常驻,删掉卡下方的 icon row)。
-> **0.10.2** 把亮色主题的**品牌色改回平安橙 `#ff6600`**(0.10.0 临时改成 WorkBuddy 青绿 `#0CC8A6`,现改回 zai `/m` 的 AI-Agent 头像家族色)。深色主题保持原青绿 `#35D6B6`。
-> **0.10.3** 收尾运行态徽标:**左对齐** + **三个小点波浪动画** 替代文字(0.10.2 还顶着「运行中/重试中」文字 + 主题色,稍重),颜色统一走 `onSurfaceVariant` 灰,只做轻提示不抢输入框。
+> **关键里程碑**: 0.10.0 视觉对齐 WorkBuddy + 自研 Markdown;0.14.0 改底部五栏;0.15.0 任务栏直接是原生 Agent 工作区;0.16.0 DisplayFiles 文件卡片;0.16.1 文件预览改面板内 overlay(不占路由)。**当前 HEAD**: HEAD on `main` · **versionCode 56** · **versionName 0.16.1**。
 >
-> **未发版(versionCode 仍 44 / 0.10.6)** 输入条接上 **「按住说话」语音输入**,走**腾讯云实时语音识别(WebSocket)**(新包 `voice/`,见 §16)。**不是替换**系统 SpeechRecognizer,而是**优先**:`voice/VoiceAsrConfig.providerOrNull(baseUrl)` 返回 null(没配密钥)时输入条行为跟改动前完全一致。凭据从 `local.properties`(已 gitignore)读,经 `BuildConfig.ASR_*` 注入;**SecretKey 不硬编码**。要出局域网需切后端签发(实例侧 `/api/voice/asr-token`)。
->
-> **0.13.0** 新增 **SSH 交互式终端**(xterm.js + PTY,命令/交互双模式 + 全局快捷命令,见 §16)。
-> **0.14.0** 把首页改成 **WorkBuddy 式底部五栏导航**(任务 / 实例 / SSH / 服务 / 设置),新增「远程服务」栏(视频插帧控制台等,带探活)与「设置」栏(主题切换:跟随系统 / 浅色 / 深色),见 §17。
->
-> **0.14.1** 图标整体换 **`Icons.Rounded`**(Material Symbols Rounded):全 App 的 `Filled` / `Default` / `Outlined` 混用统一成一套圆角风格 —— 23dp 下描边版的直角太重,底栏最明显。底栏因此不再需要"实心 / 描边"两套 ImageVector,选中态只靠颜色 + 字重表达(换形状会让选中瞬间"跳"一下)。
->
-> **0.14.2** 底栏改成**常驻**:详情页(会话 / 终端 / WebView / 扫码)也显示,且高亮所属栏。当前 tab 从「路由推导」改成显式状态 `currentTab`,切栏继续走 `saveState / restoreState` —— 切走存整条栏的返回栈 + 可保存状态,切回原样恢复(包括停在某个会话详情页)。
->
-> **0.15.0** 任务栏改成**直接就是原生 Agent 工作区**:打开 App 落在「最近连接的 opencc 实例 + 它最近一条会话」,那个实例下线了就落到第一个在线的实例。会话切换面板(左侧抽屉)顶部加「实例行」→ 点开「选择实例」底部弹层(形态照 WorkBuddy 手机端的「选择设备」,语义换成实例,见 §18)。原任务栏的入口卡片列表 + 扫码搬到**设置栏**,「进行中」跨实例聚合不再有 UI 入口(数据层 `data/ActiveTasks.kt` 保留)。
->
-> **0.15.2** 会话加**精简模式**(设置栏开关,**默认开**):一段连续的工作(工具调用 + 夹在中间的思考过程)默认压成**一条**「工具调用 · N 次」,点整行才铺开成工具卡 / 思考卡(见 §19)。关掉即退回逐条工具卡。
->
-> **0.16.0** 接上 **`DisplayFiles` 工具的文件卡片**:Agent 把一组本地文件展示给用户,Android 端原生渲染 —— 每行「类型图标 + 名字 + `大小 · 相对时间 · 类型` + 等宽路径」,图片带**内联缩略图**,点一行看文件内容(图片 Fit / HTML 走 WebView / `.md` 走自研 Markdown / binary 给「在 Mac 上打开所在目录」)。见 §20。
->
-> **0.16.1** 文件预览从**独立路由的整屏页**改成**会话面板内从右侧滑入的全屏 overlay**(`ui/FileViewerOverlay.kt`):不再占返回栈,系统返回键优先关预览;`file-viewer/{baseUrl}/{path}` 路由与 `onOpenFile` 参数链一并删除。
->
-> **当前 HEAD**: HEAD on `main` · **versionCode 56** · **versionName 0.16.1**
+> **独立顶级目录、独立 git 仓库**,不在 opencc-web monorepo 内。spec / plan 在 `docs/superpowers/{specs,plans}/`(0.6.0 之后已过期,仅作历史参考)。
 
-## 仓库用途
+## 文档索引
 
-`/Users/ethan/code/lan-agent/` 是一个**独立顶级目录、独立 git 仓库**,**不在 opencc-web monorepo** 内。spec / plan 文档在 `docs/superpowers/{specs,plans}/`。
+| 想看什么 | 看哪个文件 |
+|---------|------------|
+| 技术栈版本 / 目录结构 / 路由清单 | [`docs/agents/overview.md`](docs/agents/overview.md) |
+| 已知坑 / 排障经验 | [`docs/agents/pitfalls.md`](docs/agents/pitfalls.md) |
+| WorkBuddy accessToken / 真机探测 | `docs/superpowers/specs/2026-09-14-workbuddy-api-token-applicability.md` |
+| 初始设计 spec / 10-task plan | `docs/superpowers/specs/2026-08-24-lan-agent-android-app-design.md` / `plans/2026-08-24-lan-agent-android-app.md` |
+| 用户向验收清单 | `README.md` |
 
 ## 目标 / 非目标
 
 ### 目标
 
-- 单 Activity + Jetpack Compose + Navigation Compose
-- 首屏卡片列表(数据来源: 写死的 `defaultCards` + DataStore 运行时增删改)
-- **原生实例管理屏**(`InstancesScreen` + `InstanceCard`):直连 `/api/instances` 拉快照,2.5s 轮询
-- **原生 Agent 会话列表 + 会话详情**(0.9.0, 0.9.1 修 wire 兼容):从实例卡「会话」按钮进 → 会话列表 → 会话详情,直连该实例的 `/api/agent/sessions` / `/api/agent/sessions/:id` / `/api/event?sid=` SSE,支持发消息 / 中断 / 队列 steer / 权限确认 / 问询 / 文档审核,不走 WebView
-- **WorkBuddy 视觉体系**(0.10.0, 0.10.1 精修, 0.10.2 改品牌色):固定色板(浅灰页底 + 白卡 + 品牌平安橙,动态取色关闭)、官方机器人形象、启动图标、字号阶梯,全 App 一致;**用户消息气泡中性浅灰 + 四角同半径**(0.10.1);**输入条 = 双行白卡**(上排文本域 / 下排 `语音 · 模型 chip · + · 发送钮`,0.10.1);助手正文 / 思考过程 / 工具输出走 **Markdown 渲染**(`ui/Markdown.kt`)
-- **三种添加实例**:手动表单 / 目录选择器 / **QR 扫码**(CameraX + ML Kit)
-- **SSH 一键启动 zai**(`SshHostListScreen` + JSch):在 Mac 没起来 zai 时,通过 SSH 远程执行 `nohup zai --lan --port <zaiPort>` 一键拉起,自动探测端口 + 跳 InstancesScreen WebView
-- **WebView 长连接保活**:dataSync foreground service + detached WebView,Activity onPause 后 SSE / WebSocket / long-poll 仍跑
-- WebView **文件上传**支持:系统选择器 → `window.lanAgentAttachImages` bridge 注入 base64
-- **可拖拽浮刷新按钮**:位置持久化到独立 DataStore
-- APK 侧载,debug only
+- 单 Activity + Jetpack Compose + Navigation Compose;**不发 release**,只 debug APK
+- 首屏卡片列表(hardcode seed + DataStore 增删改)
+- **原生实例管理**(`InstancesScreen`):直连 `/api/instances`,2.5s 轮询
+- **原生 Agent 会话** + 详情:直连该实例 `/api/agent/*` + `/api/event` SSE,支持发消息 / 中断 / 队列 steer / 权限 / 问询 / 文档审核
+- **WorkBuddy 视觉体系**(关 dynamicColor)+ 自研 Markdown 渲染
+- 三种添加实例: 手动表单 / 目录选择器 / QR 扫码
+- SSH 一键启动 zai(JSch + nohup/disown,自动探测端口)
+- WebView 后台保活(dataSync foreground service + detached WebView)
+- WebView 文件上传(系统选择器 → `window.lanAgentAttachImages` bridge 注入 base64)
+- 浮刷新按钮可拖拽,位置持久化到独立 DataStore
 
-### 非目标(明确不做)
+### 非目标
 
-- 不做账号 / 鉴权(opencc-web 配套侧也不需要)
-- **不发 release**(只 debug APK)
-- **不写自动化测试**(手动验收为主)
-- 不引入 ViewModel / Room / Hilt(用 Compose state + DataStore 已够)
-- 不做 release 签名 / ProGuard
+- 不做账号 / 鉴权;不写 release 签名 / ProGuard
+- **不写自动化测试**(手动验收为主;唯一例外是 `app/src/test/` 下的 JVM 单测,守住 wire 坑)
+- 不引入 ViewModel / Room / Hilt(Compose state + DataStore 够用)
 - 不做 iOS / 鸿蒙
-
-## 技术栈
-
-| 层 | 技术 | 版本 |
-|----|------|------|
-| 语言 | Kotlin | 2.0.21 |
-| 构建 | Gradle / AGP | 8.10 / 8.6.1 |
-| UI | Jetpack Compose (BOM) | 2024.10.00 |
-| 导航 | Navigation Compose | 2.8.4 |
-| 持久化 | DataStore Preferences | 1.1.1 |
-| 序列化 | kotlinx-serialization-json | 1.7.3 |
-| Markdown | **自研**(`ui/Markdown.kt`,不引第三方库) | — |
-| WebView | AndroidX Webkit | 1.12.1 |
-| 相机 | CameraX (core/camera2/lifecycle/view) | 1.3.4 |
-| 扫码 | ML Kit Barcode Scanning | 17.3.0 |
-| HTTP | OkHttp | 4.12.0 |
-| minSdk / target / compile | 26 / 34 / 34 | — |
-| JVM target | 17 | — |
-
-Kotlin DSL,version catalog `gradle/libs.versions.toml`。包名 `io.github.hotmanxp.lanagent`。
-
-## 目录结构
-
-```
-lan-agent/
-├── build.gradle.kts                  # 根(只声明 plugins)
-├── settings.gradle.kts                # 含 :app + Tencent Maven mirror
-├── gradle.properties                  # AndroidX + Kotlin DSL 开关
-├── gradle/libs.versions.toml          # version catalog
-├── gradle/wrapper/                    # Gradle 8.10
-├── gradlew / gradlew.bat
-├── .gitignore
-├── README.md                          # 用户向文档(验收清单)
-├── AGENTS.md                          # ← 本文件
-├── docs/superpowers/
-│   ├── specs/2026-08-24-lan-agent-android-app-design.md
-│   ├── specs/2026-09-14-workbuddy-api-token-applicability.md
-│   └── plans/2026-08-24-lan-agent-android-app.md
-└── app/
-    ├── build.gradle.kts              # compileSdk 34 / minSdk 26
-    ├── proguard-rules.pro             # 空(debug-only)
-    └── src/main/
-        ├── AndroidManifest.xml        # 单 Activity + 6 类权限 + service
-        ├── res/
-        │   ├── values/{strings,themes,colors}.xml
-        │   ├── values-night/{themes,colors}.xml          # 深色冷启动底色 #141517
-        │   ├── xml/network_security_config.xml   # base-config cleartextTrafficPermitted="true"
-        │   ├── mipmap-anydpi-v26/                 # 自适应图标(青绿底 + 机器人头前景)
-        │   ├── mipmap-{hdpi,mdpi,xhdpi,xxhdpi,xxxhdpi}/  # 各密度 PNG(青绿底 + 机器人头)
-        │   └── drawable-nodpi/
-        │       ├── wb_mascot.png                 # WorkBuddy 机器人形象(空态用)
-        │       └── ic_launcher_foreground.png    # 自适应前景(108dp 画布,66dp 安全区)
-        └── java/io/github/hotmanxp/lanagent/
-            ├── MainActivity.kt        # setContent + immersive + 媒体权限申请
-            ├── LanAgentApp.kt         # Application;注册 WebViewKeepAlive 通知 channel
-            ├── ui/
-            │   ├── LanAgentTheme.kt   # WorkBuddy 色板 + 字号阶梯 + 状态栏明暗(无动态取色)
-            │   ├── Markdown.kt        # 自研 Markdown:块级解析(纯函数)+ Compose 渲染 + CodeBox
-            │   ├── MainScaffold.kt    # App 根容器:外 Scaffold 承载底栏 + 内 NavHost(`tab/` 前缀路由决定底栏显隐)
-            │   ├── BottomTabs.kt     # 底栏 5 栏定义(`TabDestination`:路由/名称/图标)+ WorkBuddy 式 56dp 紧凑底栏
-            │   ├── AppNavHost.kt      # NavHost: tab/{tasks,instances,ssh,services,settings} + scan / webview/{url} / agent-sessions/{baseUrl}/{instanceName} / agent-session/{baseUrl}/{instanceName}/{sid} / ssh-terminal/{hostId}
-            │   ├── TasksTabScreen.kt  # 任务栏(0.15.0)= 原生 Agent 工作区本身,薄包装 AgentSessionPane
-            │   ├── InstancesTabScreen.kt  # 实例栏包装:从卡片解析 manager baseUrl,认不出时给引导空态
-            │   ├── RemoteServicesScreen.kt # 远程服务栏:探活状态点 + 打开 + 增删改
-            │   ├── EditRemoteServiceDialog.kt  # 远程服务增改对话框(名称/URL/副标题/探活路径/色条)
-            │   ├── SettingsScreen.kt  # 设置栏:主题模式 / 数据概览 / 恢复默认入口卡片 / 关于
-            │   ├── CardListSection.kt  # 入口卡片列表(0.15.0 从任务栏搬到设置栏;仍供 findManagerBaseUrl / 兜底实例目录)
-            │   ├── InstancePickerSheet.kt  # 「选择实例」底部弹层 + 抽屉顶部实例行(形态照 WorkBuddy「选择设备」)
-            │   ├── EditCardDialog.kt  # 卡片增改对话框(CardListSection 用)
-            │   ├── WebViewScreen.kt   # 全屏 WebView + 文件上传 + Service 启停 + 已刷新 snackbar
-            │   ├── InstancesScreen.kt # 原生实例管理(2.5s 轮询 + 6 动作 + 3 弹窗)
-            │   ├── InstanceCard.kt    # 单张实例卡(状态 Tag + LAN Switch + 描述列表 + 动作行,动作行可横滚)
-            │   ├── InstanceFormat.kt  # 运行时长 / 相对时间(ISO + epoch ms 两版)/ 时间戳格式化 helper
-            │   ├── CreateInstanceDialog.kt  # 创建实例:名称/cwd/LAN/端口/类型
-            │   ├── EditPortDialog.kt  # 编辑启动端口
-            │   ├── DirectoryPickerDialog.kt  # 文件系统目录选择器(拉 /api/fs/picker)
-            │   ├── AgentSessionsScreen.kt  # 原生会话列表(5s 轮询 + 新建会话)
-            │   ├── AgentSessionScreen.kt   # Agent 工作区(`AgentSessionPane`):实例解析/切换 + 会话切换面板 + transcript/SSE;(`AgentSessionScreen`)详情路由薄包装
-            │   ├── AgentSessionStore.kt    # 会话状态机:transcript 归一化 + SSE 事件 reduce → AgentItem 列表
-            │   ├── AgentSessionViews.kt    # 消息渲染组件(用户气泡/助手正文/思考折叠/工具卡/**聚合工具卡 ToolGroupCard**/**DisplayFiles 文件卡 + 内联图片缩略图**/ask·permission·approve 卡/双行白卡输入条)
-            │   ├── FileViewerOverlay.kt     # 文件预览层(DisplayFiles 点进来):会话面板内从右侧滑入的全屏 overlay,图片 Fit / HTML·SVG 走 WebView / 文本走 Markdown / binary 给「打开目录」
-            │   └── VoiceInput.kt           # 语音转文字(平台 SpeechRecognizer + 权限申请 + 部分结果回填)
-            ├── data/
-            │   ├── Cards.kt           # 5 张 hardcode 默认卡片 + findManagerBaseUrl
-            │   ├── CardRepository.kt  # DataStore 持久化(`lan_agent_cards`)+ resetCards()
-            │   ├── ActiveTasks.kt     # 跨实例聚合「进行中」会话(扇出 listSessions + 探 state)+ 进程内缓存 ActiveTasksCache。**0.15.0 起无 UI 入口**,文件保留
-            │   ├── AgentInstances.kt   # 「可切换的 Agent 实例」目录:/api/instances 快照优先,管理器不可达时回落卡片探活;含 pickDefault 降级链
-            │   ├── AgentWorkspacePrefs.kt  # Agent 工作区状态 DataStore(`lan_agent_agent_workspace`):最近连接的实例 + 会话(匹配键 = baseUrl)
-            │   ├── RemoteServicesRepository.kt  # 远程服务 DataStore(`lan_agent_remote_services`,含种子)
-            │   ├── RemoteServiceProbe.kt  # 服务探活(OkHttp 2s connect/read + 3s callTimeout;拿到任何 HTTP 响应即算在线)
-            │   ├── UiPrefsRepository.kt  # UI 偏好:浮按钮拖拽位置 + 主题模式(`lan_agent_ui_prefs`)
-            │   ├── SshRepository.kt   # SSH host DataStore(`lan_agent_ssh_hosts`)
-            │   ├── InstanceModels.kt  # InstanceSnapshot/State/AppProfile + FsPickerEntry
-            │   ├── InstancesApi.kt    # OkHttp 客户端 + PatchValue 三态
-            │   ├── AgentModels.kt     # 会话/transcript/SSE 事件 wire 模型 + JsonElement 取值 helper + 容错时间戳序列化器
-            │   ├── DisplayFiles.kt    # DisplayFiles 工具:wire 解析(两条路径)+ 扩展名分类 + 进程内元数据缓存 + FilePreview
-            │   ├── AgentApi.kt        # 会话 HTTP 客户端(可选 callTimeoutMs)+ callbackFlow 版 SSE(重连/退避/seq 去重)
-            │   └── ImageAttachment.kt # 图片附件:选图 → 采样解码 → 白底铺平 → JPEG 重编码 → base64
-            ├── model/
-            │   ├── Card.kt            # @Serializable data class(accent 存 ARGB Int)
-            │   ├── RemoteService.kt   # @Serializable data class(id/name/subtitle/url/accent/probePath)
-            │   └── SshHost.kt         # @Serializable data class(id/name/host/port/user/password/zaiPort)
-
-            ├── ssh/
-            │   ├── JschClient.kt      # JSch 0.1.55 封装(单次 Session,exec 后 disconnect)
-            │   ├── ZaiLauncher.kt     # 全局 `zai --lan --port ${zaiPort}` 命令预设 + start/stop/tailLog
-            │   └── ZaiPortProbe.kt    # OkHttp 1s × 5 次轮询 9201
-            └── service/
-                ├── WebViewFactory.kt  # WebView 配置单源(避免 foreground/background settings 漂移)
-                └── WebViewKeepAliveService.kt  # dataSync foreground service,挂 detached WebView
-```
 
 ## 关键设计决策
 
-### 1. 入口数据 = 写死 seed + DataStore 持久化
+### 1. 入口数据 = seed + DataStore
 
-- `data/Cards.kt` 里 hardcode 5 张默认卡片,首张 `seed-instances` 指向 `http://$HOST:9201/instances`(其余 4 张是 `9988` / `9977` / `9966` / `9955` 四个 zai 实例的入口页)
-- 首次启动 `Context.cardsFlow()` 读 DataStore;无 key → 返回 `defaultCards`
-- 用户用 APP 内编辑模式增/删/改/拖拽 → 写入 DataStore
-- 改 `Cards.kt` 不会影响已装用户的现存数据(只有卸载重装才回到 seed)
+`data/Cards.kt` 写死 5 张默认卡片(首张 `seed-instances` 指向 `http://$HOST:9201/instances`)。首次启动读 DataStore;无 key → 返回 `defaultCards`。改 `Cards.kt` 不影响已装用户(只有卸载重装才回到 seed)。
 
-### 2. 底部五栏导航(0.14.0 起;0.10.x–0.13.x 是「首页卡片列表 + 顶栏按钮」)
+### 2. 底部五栏导航
 
-底栏 5 栏,顺序固定,**显示名和图标都来自 `TabDestination` 枚举**(`ui/BottomTabs.kt`,单一事实来源):
+5 栏(任务/实例/SSH/服务/设置)显示名与图标来自 `TabDestination` 枚举(`ui/BottomTabs.kt`,**单一事实来源**)。底栏常驻,详情页也显示并高亮所属栏。当前高亮是显式 `currentTab` 状态,不是从路由推导。路由清单与详细栏表见 [`docs/agents/overview.md`](docs/agents/overview.md)。
 
-| # | 栏 | 路由 | 内容 |
-|---|----|------|------|
-| 1 | **任务** | `tab/tasks` | **原生 Agent 工作区**(0.15.0):当前实例 + 当前会话 + 会话切换面板(左侧抽屉:实例行 → 「选择实例」弹层 + 该实例的会话列表)。不再有卡片列表 / 进行中区,见 §18 |
-| 2 | **实例** | `tab/instances` | `InstancesScreen`;baseUrl 仍由 `findManagerBaseUrl(cards)` 从卡片里认 |
-| 3 | **SSH** | `tab/ssh` | `SshHostListScreen`(主机列表 + 终端 + 快捷命令) |
-| 4 | **服务** | `tab/services` | `RemoteServicesScreen`:非 zai 的局域网服务(视频插帧控制台等),探活 + 打开 |
-| 5 | **设置** | `tab/settings` | `SettingsScreen`:主题模式 / **入口卡片**(0.15.0 从任务栏搬来)/ 数据概览 / 关于 |
+### 3. 原生实例管理屏
 
-- 任务栏顶栏只剩 Agent 自己的「抽屉 / 标题 / +」—— 实例管理与 SSH 是独立栏,入口卡片在设置栏。
-- `findManagerBaseUrl(cards)`(`data/Cards.kt`)仍是**唯一**识别"实例管理入口"的方法:URL 路径以 `/instances` 结尾,提取 `http://host:port`;认不出来时**实例栏**给引导空态(不是弹窗),因为那是常驻栏目。
+- 直连 `{baseUrl}/api/instances`,`repeatOnLifecycle(STARTED)` 包裹 2.5s 轮询
+- `down` 超 3min 视作 `stopped`(对齐 web effectiveState),让"启动"按钮可点
+- 三种创建: 手动表单 / 目录选择器 / QR 扫码(QR 不进 InstancesScreen)
+- 见 `ui/InstancesScreen.kt` / `ui/InstanceCard.kt` / `data/InstancesApi.kt`
 
-### 3. 原生实例管理屏(InstancesScreen)
+### 4. 网络
 
-- 入口:HomeScreen → Storage 按钮 → `instances/{baseUrl}` 路由
-- 数据源:`baseUrl/api/instances`(`InstancesApi.listInstances()`),**`repeatOnLifecycle(STARTED)` 包裹的 2.5s 轮询**,STOPPED 自动停
-- 单卡片 `InstanceCard` 视觉对标 web `Instances.tsx`:name + 当前 Tag + 状态 Tag(stopped/starting/running/stopping/down 五态配色对齐 web)+ LAN Switch + 启动端口(可编辑)+ 运行端口/cwd/PID/启动时间/运行时长/创建时间/最后心跳/错误 + 5 个动作按钮(启动/停止/重启/删除/打开)
-- **`down` 超过 3 分钟视作 `stopped`**(`STALE_THRESHOLD_MS`),让"启动"按钮可点(对齐 web 端 effectiveState)
-- 30s 一次的 `now` tick — 让运行时长 / 相对时间不卡在同一数字
-- 操作防抖:`lanBusy` / `actionBusy` 两个 `mutableStateListOf<String>` 记 instanceId,按钮转圈
-- 三种创建方式:
-  - **手动表单**(`CreateInstanceDialog`):name / cwd(可点"浏览"拉 DirectoryPicker)/ LAN checkbox / 端口(自动/手动)/ **实例类型(标准 / task-factory)**
-  - **目录选择器**(`DirectoryPickerDialog`):拉 `/api/fs/picker?path=...`,展示父子导航 + 主页/上级按钮
-  - **QR 扫码**:`ScanQrScreen` 扫 zai 分享的 URL 直接 `webview/{url}`,**不进** InstancesScreen(扫码是给快速进 zai 用的,不是添加实例)
+`AndroidManifest.xml` 设 `usesCleartextTraffic="true"`,`network_security_config.xml` 的 `base-config cleartextTrafficPermitted="true"`。IP 白名单对 /16 段不生效,所以直接全放行。
 
-### 4. 网络: 全局放行 cleartext
+### 5. WebView 文件上传
 
-`AndroidManifest.xml` 设 `android:usesCleartextTraffic="true"`,`network_security_config.xml` 的 `base-config cleartextTrafficPermitted="true"`。
+手动构建 `pickIntent` + `Intent.createChooser(...)`,绕开 OEM ROM 的 `params.createIntent()` 缺 `FLAG_GRANT_READ_URI_PERMISSION` 问题。拿回 `content://` 后**优先**走 `window.lanAgentAttachImages` bridge(`ContentResolver.openInputStream` → base64 → `evaluateJavascript` 注入),不走 WebView 标准路径。见 `ui/WebViewScreen.kt` 的 `onShowFileChooser`。
 
-这是 LAN 工具的合理取舍 — 之前试过白名单 `192.168.0.0` + `includeSubdomains="true"`,但 Android 对 IP + `includeSubdomains` 是 **exact match**,不扩展到整个 /16 段,白名单机制玩不转。
+### 6. SSH 启动 zai
 
-### 5. WebView 配置
+模块: `model/SshHost.kt` + `data/SshRepository.kt` + `ssh/JschClient.kt` + `ssh/ZaiLauncher.kt` + `ssh/ZaiPortProbe.kt`。
 
-```kotlin
-settings.javaScriptEnabled = true
-settings.domStorageEnabled = true
-settings.useWideViewPort = true      // 接受 <meta viewport width=device-width>
-settings.loadWithOverviewMode = false // 不强制 fit content
-settings.textZoom = 85              // opencc-web /m 没 responsive typography,缩 15%
-setBackgroundColor(android.graphics.Color.TRANSPARENT)
-```
+**命令模板**(`ZaiLauncher.PATH_PREFIX` 兜底 sshd PATH 缺失): `export PATH="$HOME/.local/bin:$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"; source ~/.zshenv ~/.bashrc 2>/dev/null; nohup zai --lan --port ${zaiPort} > /tmp/zai.log 2>&1 & disown`。**全局 `zai` 二进制**,不走 `pnpm --filter`。每条 SSH host 独立 `zaiPort`(默认 9201),避免 `EADDRINUSE`。`StrictHostKeyChecking=no`(LAN 工具无 MITM 威胁模型)。密码存 DataStore 明文(Phase 2 接受)。
 
-`onReceivedError` 是 **no-op**(LAN 工具 ERR_FAILED 太频繁,Snackbar 噪声)。
+### 7. WebView 后台保活
 
-### 6. WebView 文件上传(`onShowFileChooser`)
+`WebViewKeepAliveService`(`dataSync` foreground service)持一个未附到 View hierarchy 的 detached WebView — Chromium 跳过 rasterization 但 JS engine + 网络栈照跑。`WebViewScreen.DisposableEffect(url)` 启停。30 分钟 `PARTIAL_WAKE_LOCK` acquire(timeout) 兜底。API 34 必须 3-arg `startForeground(NOTIF, notif, FOREGROUND_SERVICE_TYPE_DATA_SYNC)` + Manifest `FOREGROUND_SERVICE_DATA_SYNC` 权限。通知 channel `webview_keepalive`(`IMPORTANCE_LOW` — MIUI 会隐藏 MIN)。
 
-zai 上传图片 → `<input type="file" accept="image/*">` → WebChromeClient.onShowFileChooser:
+### 8. WebView 配置单源
 
-1. **手动构建 pickIntent**(不依赖 `params.createIntent()`)— 部分 OEM ROM(MIUI / ColorOS / 老 WebView)的 createIntent 不带 `FLAG_GRANT_READ_URI_PERMISSION`,系统选择器会静默失败 / 返回 RESULT_CANCELED / 空 data
-2. `Intent.createChooser(...)` 强制弹出选择 UI(即便只有一个候选)
-3. 拿回 `content://` URI 后:
-   - **优先**用 `window.lanAgentAttachImages` bridge(`scope.launch` + `ContentResolver.openInputStream` 读 bytes → base64 → `evaluateJavascript` 注入) — 绕过 WebView 在 content:// 上的脏转换
-   - **fallback**:bridge 不存在或读失败 → 让 WebView 走标准路径,接受 OEM ROM 上的不可靠
-
-### 7. SSH 启动 zai(0.7.x)
-
-加一个独立模块让手机在 zai 没启动时一键拉起来。
-
-**模块**:
-- `model/SshHost.kt` — `@Serializable data class SshHost(id, name, host, port=22, user, password, zaiPort=9201)`
-- `data/SshRepository.kt` — 独立 DataStore `lan_agent_ssh_hosts`,key=`ssh_hosts_json`,完全照搬 CardRepository 模式
-- `ssh/JschClient.kt` — JSch 0.1.55 封装:connect + exec,统一抛 `SshException`,Session/Channel 显式 disconnect 防 FD 泄漏;`StrictHostKeyChecking=no`(LAN 工具无 MITM 威胁模型)
-- `ssh/ZaiLauncher.kt` — 命令预设 + suspend `start/stop/tailLog`(withContext(IO))
-- `ssh/ZaiPortProbe.kt` — OkHttp 1s × 5 次轮询 `${zaiPort}/instances`,成功 200 后自动跳 WebView
-- `ui/SshHostListScreen.kt` + `ui/EditSshHostDialog.kt` — 列表 + 启停半屏 sheet
-
-**命令模板**(写在 `ZaiLauncher.kt`):
-- **PATH 兜底**:前置 `export PATH="$HOME/.local/bin:$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"; source ~/.zshenv 2>/dev/null; source ~/.bashrc 2>/dev/null;` — JSch 的 `exec` 跑在 non-interactive non-login shell,`.zshrc` 不被 source,sshd 默认 PATH 缺 Homebrew;同时把 `~/.local/bin`(npm-global)、`~/.bun/bin`、`/opt/homebrew/bin`、`/usr/local/bin` 显式 prepend 兜底
-- **start**:`nohup zai --lan --port ${host.zaiPort} > /tmp/zai.log 2>&1 & disown` — 用**全局 `zai` 二进制**(不再走 `pnpm --filter @zn-ai/zai dev`),所以不依赖 cwd 是 `~/code/opencc-web`
-- **stop**:`pkill -f 'zai.*--lan' && echo stopped || echo nothing_to_stop`
-- **tail log**:`tail -50 /tmp/zai.log 2>&1`
-- `nohup ... & disown` 让 zai 脱离 SSH shell,SSH session 关闭后继续跑;`exec` 调用 ~50ms 返回(不等 zai 监听端口,后续用 `ZaiPortProbe` 轮询)
-
-**进程方案选择 nohup+disown**(与用户对齐):不用 tmux(用户需装)、不用 LaunchAgent(配置复杂)。LAN 工具场景够了。
-
-**`zaiPort` 字段**:每条 SSH host 独立配置 `zaiPort`,默认 9201(zai 默认端口)。当 9201 被另一个 supervisor 占了时可换端口,避免 `EADDRINUSE`(`zai --lan` 不会自动扫描空闲端口)。
-
-**已知坑**:
-
-| 现象 | 排查 |
-|------|------|
-| `connect failed` | Mac 「系统设置 → 通用 → 共享 → 远程登录」 没开(macOS 13+),或 IP 错 |
-| `Auth fail` | 密码错,或 Mac 用户没勾「允许远程登录」 |
-| exit 127(`command not found`) | sshd PATH 不全,`~/.zshenv` 加 `export PATH="/opt/homebrew/bin:$PATH"`(或全局装 npm/zai) |
-| exit 0 但端口不通 | 全局 `zai` 没装;`which zai` 在 Mac 上验证;或 `zaiPort` 已被占 |
-| 端口探测超时 | zai 启动慢(冷启动 5-10s),5s 内探测失败正常;等几秒手动点 Storage 进 InstancesScreen 看 |
-
-**改路径 / 改命令**:`ssh/ZaiLauncher.kt` 的 `PATH_PREFIX` / `ZAI_PORT`(改完重 build 只影响卸载重装后的首次启动,已有 SSH host 数据从 DataStore 读)。
-
-**改依赖**:JSch 在 `gradle/libs.versions.toml` `[versions] jsch = "0.1.55"` + `[libraries] jsch`,`app/build.gradle.kts` `implementation(libs.jsch)`。Tencent mirror 已代理。
-
-**密码明文**:与 Card.url 一致,DataStore 存明文。Phase 2 接受,Phase 3 再上 Keystore 加密。
-
-`MainActivity.onCreate` 会主动申请 `READ_MEDIA_IMAGES` (API 33+) / `READ_EXTERNAL_STORAGE` (更早),但只影响 base64 注入是否成功,不会阻塞选图弹窗。
-
-### 8. WebView 后台保活(WebViewKeepAliveService)
-
-Android `Activity.onPause` 会冻结 WebView 网络栈 — 用户切走再回来时 SSE / WebSocket / long-poll 全断。
-
-解法:`dataSync` foreground service:
-
-- 持一个**未附加到 View hierarchy 的 detached WebView** — Chromium 检测到没 surface 就跳过 rasterization,但 JS engine + 网络栈照跑(正是想要的)
-- `WebViewScreen` 的 `DisposableEffect(url)` 启停服务;切走 WebViewScreen(onDispose)就 stop,回到 HomeScreen 后 stop 触发,服务自销毁
-- 30 分钟 `PARTIAL_WAKE_LOCK` 超时是兜底(防止 caller 崩了忘 stop 把电池榨干)
-- API 34 用 3-arg `startForeground(NOTIF_ID, notification, FOREGROUND_SERVICE_TYPE_DATA_SYNC)`,匹配 manifest 的 `foregroundServiceType="dataSync"`
-- 通知 channel ID `webview_keepalive`(`LanAgentApp.onCreate` 注册,IMPORTANCE_LOW,silent)— 部分 OEM ROM(MIUI)对 MIN 通道隐藏,所以选 LOW
-- 通知 ongoing 用户不能滑掉,点回 tapIntent(`FLAG_ACTIVITY_SINGLE_TOP | FLAG_ACTIVITY_CLEAR_TOP`)回 MainActivity
-- `START_STICKY`:被 OS 杀掉的进程恢复时用空 intent 启动,fallback `about:blank`(MIUI / EMUI / ColorOS 不理 STICKY,已知 limitation — 让用户在系统设置里加白名单)
+`service/WebViewFactory.create(context, url)` 是**唯一**创建入口,settings 集中: `javaScriptEnabled` / `domStorageEnabled` / `useWideViewPort=true` / `loadWithOverviewMode=false` / `textZoom=85` / TRANSPARENT 背景。`WebViewScreen` 和 `WebViewKeepAliveService` 共用,避免 foreground/background settings 漂移让 SSE 重连定时器悄悄重置。
 
 ### 9. WebView 背景色陷阱
 
-`webView.setBackgroundColor(...)` 在 hardware-accelerated surface 下是 no-op。深色背景必须**在 Compose 层画**:
+深色背景**必须在 Compose 层画**(`Box.background(...)`),WebView 的 `setBackgroundColor` 在 hardware-accelerated 下是 no-op。WebView 设 `TRANSPARENT`。
 
-```kotlin
-Box(Modifier.fillMaxSize().background(Color(0xFF1F2937))) {
-    AndroidView(factory = { webView.also { it.setBackgroundColor(TRANSPARENT) } }, ...)
-}
-```
+### 10. 系统栏 + inset
 
-### 10. 系统栏(immersive)
+`WindowCompat.setDecorFitsSystemWindows(window, false)` + `WindowInsetsControllerCompat.hide(navigationBars())` + `BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE`。状态栏保留可见,图标颜色随主题切(`isAppearanceLightStatusBars = !darkTheme`)。外层 Scaffold `contentWindowInsets = 0`,inset 全交给内层屏幕(否则状态栏被扣两次)。
 
-`MainActivity.onCreate`:
+### 11. 浮刷新按钮
 
-- `WindowCompat.setDecorFitsSystemWindows(window, false)` — edge-to-edge
-- `WindowInsetsControllerCompat.hide(WindowInsetsCompat.Type.navigationBars())` — 隐藏**底部导航栏**
-- `WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE` — 边缘 swipe 临时显示
-- **状态栏保留可见**(用户要看到时间/电池)
-- 状态栏背景设 `Color.TRANSPARENT`
-- **状态栏图标颜色跟着主题切**(0.10.0):`LanAgentTheme` 里
-  `WindowInsetsControllerCompat.isAppearanceLightStatusBars = !darkTheme` —— 内容画到状态栏
-  后面,浅色页面必须配深色图标,否则状态栏等于隐形。`values/themes.xml` /
-  `values-night/themes.xml` 只负责冷启动那一帧的窗口底色(`#F8F8F8` / `#141517`),
-  别把配色逻辑写进 XML。
+`WebViewScreen` 右中浮一个 28dp `Box + clickable` 圆形刷新按钮(`IconButton` 会被 `minimumInteractiveComponentSize=48dp` 强制覆盖)。位置持久化到独立 `data/UiPrefsRepository.kt`(DataStore `lan_agent_ui_prefs`,key=`refresh_btn_x/y`)。**不要写到 CardRepository**(卡片 schema 演进会拖累 UI 偏好)。
 
-`WebViewScreen` AndroidView 加 `windowInsetsPadding(WindowInsets.statusBars)` + `padding(top = 4.dp)` + `imePadding()`(让出状态栏 + 软键盘,避免输入框被 IME 盖住)。**不要用负 padding**(`(-8).dp`),某些 Compose 版本会抛 IllegalArgumentException。
+### 12. 实例 app profile
 
-### 11. WebView 顶栏 / 返回 + 浮按钮位置持久化
+`InstanceAppProfile { TaskFactory, Weixin }`(枚举名 `@SerialName` 映射到 `'task-factory'` / `'weixin'`)对齐 opencc-web `InstanceDefinition.app`。**`weixin` 不在创建表单露**(服务端自动管,只通过卡片 `WeixinTag` 显示);`task-factory` 有顶栏 `RocketLaunch` 快捷按钮。创建后 PATCH 不接受 `app`(只读显示)。`null` / 未知字符串都 400(`parseAppField`),所以 `InstancesApi.createInstance` 在 `app != null` 时才写 body,避免发字面 `null`。
 
-**无 App 顶栏**;WebView 右中浮一个 28dp `Box + clickable` 圆形刷新按钮(不用 `IconButton`,因为它的 `minimumInteractiveComponentSize = 48dp` 会覆盖 `Modifier.size` 让圆圈固定 48dp)。刷新后 `webViewClient.onPageStarted` 弹 "已刷新" snackbar 确认。
+### 13. 原生 Agent 会话
 
-**浮按钮可拖拽**:长按拖动改变位置;落点写入 `data/UiPrefsRepository.kt`(独立 DataStore `lan_agent_ui_prefs`,key=`refresh_btn_x/y`)。下次启动从 DataStore 读取恢复。**不要把位置写到 CardRepository** — 卡片 schema 演进时不会拖累 UI 偏好。
+- 数据流三步(顺序不能换): `GET /api/agent/sessions/:id` → `GET /state` → `GET /api/event?sid=` SSE
+- **transcript 时间戳双形态**(数字 / ISO 字符串),`TranscriptEntry.timestamp` 必须 `JsonElement?` + `EpochMsSerializer`,否则一条 system 就能让整页反序列化失败
+- **SSE 三条血泪坑**(见 pitfalls.md): 不传 topics;按 seq 单调去重;`cancelled` 标志循环/catch/退避三处都看
+- 工具卡 key 固定 `tool-<toolUseId>`,首次 upsert 清流式气泡游标(`curTextIdx` / `curThinkIdx`);用户消息**本地乐观追加**(`appendLocalUser`,SSE 没"用户消息"事件)
+- 工具输出/入参**入库即截断**(`capForDisplay`,输出 20k / 入参 6k);图片附件**统一重编码 JPEG**(白底铺平,长边 1600 / Q85),`contentBlocks` 只能放图片块,**文本必须留顶层 `prompt`**;只发图合法,**不传** `prompt` 字段
+- 单测 `app/src/test/.../data/AgentModelsTest.kt` 钉 wire 坑(浮点 mtime / 双形态 timestamp / tool_result 三形态)
+- 见 `ui/AgentSessionScreen.kt` / `data/AgentSessionStore.kt` / `data/AgentApi.kt`
 
-返回用 Android 系统手势 / 返回键(`BackHandler` 接管 — `webView.canGoBack()` 时 `webView.goBack()`,否则 `popBackStack()` 回 HomeScreen)。
+### 14. WorkBuddy 视觉体系 + Markdown
 
-### 12. WebView 配置单源(`service/WebViewFactory.kt`)
+- **关 dynamicColor**;`surface` = 页底灰,卡片族 = 白(`Scaffold` / `Card` / `ModalBottomSheet` 一次性对齐)
+- 亮色品牌 `#ff6600`,深色 `#35D6B6`;用户气泡中性浅灰 `#E2E4E3`(非品牌绿,WorkBuddy vs 绿色气泡 IM 的分水岭);发送钮禁用态 `#E0E3E8` → 本地 `LocalWbExtras`(`@Immutable data class WbExtras`,M3 槽位装不下)
+- 输入条 = **双行白卡**(上排文本域 / 下排工具条),发送钮常驻只有颜色变(空输入 = 浅蓝灰禁用,有内容 = 品牌橙,运行中 = error 实心圆 + 停止图标)
+- `ui/Markdown.kt` 自研: 解析/渲染分离(`MarkdownParser.parse` 是纯 Kotlin 函数,不 import Compose);**未闭合围栏直接当代码块渲染**(流式输出中间态);**找不到闭合标记的行内标记原样输出**(半截 `**` / 半截 `` ` ``);表格 `horizontalScroll` + `widthIn(min = 96.dp)`;链接用 `LinkAnnotation.Url` + `TextLinkStyles`,`Text` 自动走 `LocalUriHandler`
+- 见 `ui/LanAgentTheme.kt` / `ui/Markdown.kt`;改色板 → `WbPalette`,改字号 → `WbTypography`,换机器人图 → 覆盖 `drawable-nodpi/wb_mascot.png`
 
-可见 `WebViewScreen` 和后台 `WebViewKeepAliveService` 都用 WebView;若 settings 在两边各自写一遍,foreground 进入后台时 settings 漂移会让 session 形状变(SSE 重连定时器、cookie jar、text zoom 等悄悄重置)。
+### 15. SSH 终端 + 快捷命令(0.13.0)
 
-解法:`service/WebViewFactory.kt` 的 `WebViewFactory.create(context, url)` 是**唯一**创建入口,集中:
+- **命令模式**(默认): 每条走独立 `exec`,输出干净、带 exit code + 耗时、可停止;**交互模式**: `ChannelShell` + `setPty(true)`,WebView 跑 xterm.js;顶部 Terminal 图标切换,只关 pty(`exec` 继续可用)
+- 快捷命令**全局共用一份**(`model/QuickCommand.kt`,DataStore `lan_agent_quick_commands`);`confirm=true` 弹二次确认;交互模式下写进 pty(`command + "\n"`);assets 打包 xterm.js 5.5.0 + addon-fit 0.10.0,页面无网络
+- `SshShell` 线程: reader / writer 两条 daemon 读写分离;UI 线程只入队不碰 socket;UTF-8 用**状态化** `CharsetDecoder` 流式解码(3 字节 CJK 跨两次 8KB 读会被 `String(bytes, UTF_8)` 切两个 U+FFFD)
+- 桥 `TerminalJsBridge`(`window.AndroidTerm`): `ready`/`send`/`resize`/`copy`/`hideIme`/`diag`,双向 base64;碰 Compose 状态 / View 的 `post` 回主线程
+- 排障: `WebChromeClient.onConsoleMessage` + 页面 `__diag/__fatal/__metrics` → `adb logcat -s LanAgentTerm`
+- 测试基建(`/tmp`,不进仓库): `fake-sshd.py`(paramiko sshd:2222,`test/test`,造 `utf8`/`bigout`/`slow`/`fail`/`sleep 60`/`cols`/`echo X`;⚠️ **没终端行规程**,Enter `\r` 不会 ICRNL 折 `\n`,分行要同时认 `\r` 和 `\n`)+ `ui.py`(adb UI driver)+ 纯 JVM `jsch-0.1.55.jar` 复现隔离 Android / Compose / WebView / IME
 
-```kotlin
-settings.javaScriptEnabled = true
-settings.domStorageEnabled = true
-settings.useWideViewPort = true      // 接受 <meta viewport width=device-width>
-settings.loadWithOverviewMode = false // 不强制 fit content
-settings.textZoom = 85              // opencc-web /m 没 responsive typography,缩 15%
-setBackgroundColor(android.graphics.Color.TRANSPARENT)
-```
+### 16. 底部五栏导航细节
 
-`WebViewScreen` 和 `WebViewKeepAliveService` 都调 `WebViewFactory.create(...)`,settings 改动只需要改一处。
+- 视觉: 白底 + 顶部 0.5dp hairline,内容区 56dp(M3 NavigationBar 80dp 太肥);5 等分,每格 23dp 图标 + 3dp 间距 + 10sp label
+- 选中 = 深色图标 + SemiBold 深色文字;未选中 = `onSurfaceVariant` 灰 + Regular + 图标 0.78 不透明度。**两态同一个 ImageVector**(不靠"实心/描边"换形状);不用 M3 indicator 药丸;去水波纹
+- 图标一律 `Icons.Rounded`(Material Symbols Rounded);新增前先 `unzip -l classes.jar | grep rounded/<Name>Kt`(导入路径都是 `androidx.compose.material.icons.rounded.*`,带镜像语义的走 `.automirrored.rounded.*`)
+- `material3 Icon(imageVector, …)` 没 `alpha` 参数,要压不透明度走 `Modifier.alpha(...)`
+- tab 切换: `popUpTo(起始 tab) { saveState = true }` + `restoreState = true`,切走存整条返回栈 + 可保存状态;App 内跨栏跳转走 `selectTab`(`AppNavHost(onSelectTab = …)`),不要自己 `navigate`
+- 「进行中」聚合(`data/ActiveTasks.kt`): 卡片去重 → 每实例 `listSessions()` → 留 30 分钟内更新的前 3 条 → 对最活跃 2 条再拉 `/state`;**只探前 2 条**避免 O(N·M);**每实例 2.5s callTimeout**(看门狗线程强制 cancel,`withTimeout` 在阻塞 socket 上没用);进程内 `ActiveTasksCache` 兜底(0.15.0 起无 UI 入口,文件保留)
+- 主题切换: `UiPrefsRepository.ThemeMode` + MainActivity collect 后喂 `LanAgentTheme(darkTheme = …)`,即时全局生效,不需 `recreate()`;落盘存 `storageKey` 字符串不是 ordinal,认不出回落 `System`
+- 远程服务栏: 探活**拿到任何 HTTP 响应就算在线**(含 401/404/500);离线用灰不用红
 
-### 13. 实例启动 profile `app`(0.8.0,0.8.1 加 weixin,对齐 opencc-web)
+### 17. 任务栏 = 原生 Agent 工作区
 
-`data/InstanceModels.kt` 的 `InstanceAppProfile { TaskFactory, Weixin }`(枚举名,`@SerialName` 映射到字符串字面量 `'task-factory'` / `'weixin'`)对齐 opencc-web `packages/zai/src/shared/instances.ts` 的 `InstanceDefinition.app?: 'task-factory' | 'weixin'`。
+- 一个屏两个入口: tab 根(`initialBaseUrl/SessionId = null`,屏自己解析)/ 会话详情路由(`agent-session/{baseUrl}/{instanceName}/{sid}`,路由给出);两者共用 `AgentSessionPane`
+- **实例目录**(`data/AgentInstances.kt`): 首选 `/api/instances`(supervisor 快照,离线用 `startPort` 拼 baseUrl)/ 回落卡片扇出探 `/api/agent/sessions`(1.5s callTimeout);**不排序**(沿用服务端/卡片自然顺序)
+- `pickDefault` 降级链: 记住的且在线 → 第一个在线子实例(跳 `__current__`)/ 第一个在线 / 目录第一条
+- 记住最近: `AgentWorkspacePrefs`(DataStore `lan_agent_agent_workspace`),匹配键 **baseUrl**(实例 id 会随重建变);四字段同一 `edit` 事务落盘,分开写会出现半截状态
+- 切换实例 in-place(`api = remember(active?.baseUrl)`、`store = remember(currentSid)` 换 key),不 push 路由
+- 「选择实例」弹层(`InstancePickerSheet`,照 WorkBuddy「选择设备」): 列表 `heightIn(max = 360.dp).verticalScroll(...)` + `skipPartiallyExpanded = true`;在线用实例栏 running 绿 `#52C41A` + 浅底 `#F6FFED`,离线用文案不用颜色块、不禁用
+- 空态三分支: 目录空 → `NoInstanceState`;实例在但无会话 → `NoSessionState`(实例离线时不显示「新建会话」);有会话无消息 → 原来的 `AgentSessionEmptyState`;**没有会话时整条输入区不渲染**
 
-- **标准实例** = `app` 字段缺省(`null`)。服务端不写 `app` 字段,行为与既有实例一致。
-- **任务工厂实例** = `app = 'task-factory'`。supervisor spawn 时把它转成 `--app task-factory` flag 传给子进程,`cli/index.ts` 把 `process.env.ZAI_APP = 'task-factory'` 落到进程环境,`routes/agent.ts` 强制把 `mainAgent` 锁定为 `'task-factory'`(不走全局 `settings.mainAgent`),`/api/system` 回显后前端 `TaskFactoryRedirect` 把入口重定向到 `/super-tasks`。
-- **微信专用实例**(0.8.1 新增) = `app = 'weixin'`。机器上**唯一**持有微信通道 owner 锁、负责收发微信消息的进程,由主实例按 `settings.weixinBot` 自动拉起(`packages/zai/src/server/services/weixinBot/weixinDedicatedInstance.ts`),一般不通过 UI 创建。卡片头部展示绿色 `weixin` tag(`WeixinTag`,#07C160,区分于运行态 #52C41A 与任务工厂橙 #D48806)。
-- **`null` 与未知字符串都 400**(`packages/zai/src/server/routes/instances.ts:165-171` 的 `parseAppField`),所以 `InstancesApi.createInstance` 在 `app != null` 时才把 key 写进 body,避免发字面 `null`。用 `when` 显式映射枚举 → 字符串字面量(Kotlin 编译器在新增枚举值时给出 non-exhaustive 警告),避免硬编码字符串漏改。
-- **创建后不可改** — PATCH `/api/instances/:id` 不接受 `app` 字段(`InstanceSnapshot.app` 只读显示)。
-- **UI**:InstancesScreen 顶栏 actions 加 `RocketLaunch` 快捷按钮(对齐 web 端 `RocketOutlined` + `data-testid="new-task-factory-instance"`),打开 Modal 时预选 `app='task-factory'` 并预填 `currentCwd`;右下 FAB 「新建实例」保持标准实例入口。Modal 内「实例类型」 Radio.Group(`标准实例` / `task-factory`)对齐 web 端 `app-radio` — **`weixin` 不在创建表单里露**(对齐 web UX,服务端自动管),只通过卡片 tag 展示。
+### 18. 会话精简模式
 
-### 14. 原生 Agent 会话（0.9.0 → 0.9.2）
+设置栏开关,**默认开**(`UiPrefsRepository.compact_tools`,未设过 = `true`);`compactToolsFlow().collectAsState(initial = true)` 读,改完立刻生效(只影响渲染粒度)。
 
-把「看 Agent 在干什么」从 WebView 收回原生。以前只能点「打开」把 `/m` 塞进 WebView；现在实例卡多一个「会话」按钮，进原生会话列表 → 原生会话详情。
+**分组**(`buildAgentBlocks`,住 `ui/AgentSessionStore.kt`): 一段 = 连续 [工具调用 + 思考];**思考不打断段落**;段内工具数 ≥ 2 才聚合;**正文/用户消息/提示条断开段落**。
 
-**入口链路**：`InstancesScreen` 实例卡「会话」按钮（`Icons.AutoMirrored.Filled.Chat`，只要有 `inst.port != null` 就能点）→ `agent-sessions/{baseUrl}/{instanceName}` → 点某条 → `agent-session/{baseUrl}/{sid}`。
+**渲染**(`ToolGroupCard`): 折叠态一行 `⚒ 工具调用 · N 次` + 副行名字汇总(`Edit ×4 · Bash ×3`,同校按首次出现合并、>1 时加 `×N`) + 右侧状态(运行中 tertiary 暖橙 / 失败 error 红 + `N 失败` chip / 否则 `完成`) + `⌄`;**点整行**展开(不做下拉手势);展开 key = 段内首条成员 key(流式追加不合并);**块存下标不存快照**(`items[idx]` 读实时值,工具输出原地替换不渲染过期);`remember(items.size, compact)` 缓存是有意的(items 只 append);自动滚动 key 改"块数"(段内增长不动视口)。
 
-`baseUrl` = `http://<host from 实例管理 baseUrl>:<inst.port>`。**每个实例都是完整 zai 进程**，自带 `/api/agent/*` 与 `/api/event`，所以不需要经由 `/api/instances` 转发。route 里 baseUrl 含 `://` 和 `:`、instanceName 可能是中文，两处都必须 `Uri.encode`（`Uri.encode` 会编码 `/` 和 `:`，正好保证不碎在 path 分隔符上）。
+### 19. DisplayFiles 文件卡片
 
-**数据流三步（顺序不能换）**：
-1. `GET /api/agent/sessions/:id` → `{transcript:{meta,messages}}` → `AgentSessionStore.hydrate()` 归一化成 `AgentItem` 列表
-2. `GET /api/agent/sessions/:id/state` → `{cwd,v2Tasks,bashTasks,agentTasks}` → `hydrateState()`（可选增强，失败静默）
-3. `GET /api/event?sid=<sid>` SSE → `AgentSessionStore.apply()` 增量 reduce
+- wire: `runtime.tool_call.input.paths` + `runtime.tool_result.output`(JSON 字符串,`content[0].json.files = FileMeta[]`,`kind ∈ text|image|html|binary`)
+- **三大坑**: ① transcript 里 `tool_result` 是字面量 `'done'`,元数据只走一次 SSE 且 take-and-delete → **冷启动后只剩路径**(`DisplayFilesCache` 进程内兜"离开再回来") ② `mtime` 浮点(`fs.Stats.mtimeMs`),`size` 别赌整数,一律容错 ③ 路径解析拆两条:`parseDisplayFilePaths(input)`(任何时态,`kind` 客户端按扩展名猜)+ `parseDisplayFileMeta(output)`(仅直播态)+ `mergeDisplayFiles(...)` 合并
+- 预览字节: `GET {instanceBaseUrl}/api/fs/preview?path=...` 无鉴权;`maxBytes` clamp `[1024, 1 MiB]`(`PREVIEW_DEFAULT_MAX`,**不是 512KB**),超 413 ETOOBIG;目录 400 EISDIR;不存在 404 → 这三个必须翻译成人话(`previewErrorMessage`)
+- 四分支渲染: **图片** → 内联缩略图(`RemoteImageThumb` **必须采样**`inJustDecodeBounds`+`inSampleSize`;SVG 解不了走 WebView);**HTML/SVG** → `FileViewerOverlay` WebView(`WebViewFactory.createForContent`,**textZoom=100**;`shouldOverrideUrlLoading` 一律 true 只读);**文本** → `.md` 自研 Markdown / 其余 `CodeBox`;**binary / 超 1 MiB** → 「在 Mac 上打开目录」(`POST /api/fs/reveal`,`open -R`)
+- 限制: ① 单次最多 20 ② 超 1 MiB 不内联 ③ 冷启动只有路径
+- 改前看 `data/DisplayFilesTest` + `ui/AgentSessionStoreDisplayFilesTest`(后者守"重开会话",直播正常、只有离开再回来才坏)
+- 见 `data/DisplayFiles.kt` / `ui/AgentSessionViews.kt` 的 `DisplayFilesBody` / `ui/FileViewerOverlay.kt`
 
-**为什么必须先 hydrate 再连 SSE**：服务端首次连接（不带 `Last-Event-ID`）时，会把 `runtime.delta` / `thinking` / `tool_call` / `tool_result` 从 replay 里过滤掉（`eventBus.ts:100-108` `STREAMING_REPLAY_EXCLUDE`），因为这些内容已落盘进 transcript、重放会重复。反过来说这些内容**只能**靠 hydrate 拿到。
-
-**transcript 不是归一化事件流**，是磁盘 JSONL 原文，解析要过四道关：
-1. `message` 可能整条缺失（`session-meta` / `custom-title` / `queue-operation` / `file-history-snapshot` 控制行）→ 先 `entry.message?.content ?: continue`
-2. `type` 白名单 `{user, assistant, tool_use, tool_result}`，其余（`system` / `attachment` / `compact_boundary` / 各种控制行）跳过
-3. `isMeta == true` 必须隐藏（给 LLM 看的旁路内容，如展开后的 slash 指令、inbox 注入）
-4. `message.content` 既可能是 `String`（user 纯文本）也可能是 `ContentBlock[]`；**tool_result 藏在 `type:"user"` 的条目里**，必须贴回对应的工具卡而不是渲染成用户气泡
-
-**`timestamp` 是双形态（实测坑）**：同一个文件里，`assistant` / `user` 条目是 epoch 毫秒**数字**，而 `system` / `queue-operation` 是 ISO-8601**字符串**（`"2026-09-06T04:06:35.048Z"`）。所以 `TranscriptEntry.timestamp` 声明成 `JsonElement?` + `tsMs` 访问器折算，**不能声明 `Long`** —— 否则一条 system 条目就能让整份 transcript 反序列化失败，表现是整个详情页打不开（`isLenient` 救不了 quoted-string→number）。
-
-**服务端时间戳一律当「可能是浮点」处理（0.9.1 真机踩到）**：`GET /api/agent/sessions` 的 `updatedAt` 直接来自 Node `fs.Stats.mtimeMs`，是**带小数的 double**（`1789274126878.9248`）。实测 4 个在跑实例 **115/115 条全会话的 `updatedAt` 都是 float**，不是偶发。把它声明成 `Long` 会让 `decodeFromString` 抛 `Unexpected symbol ':' in numeric literal at path: $.sessions[0].updatedAt` → **整个会话列表页报错打不开**。`createdAt` 走 `Date.now()` 是整数，但别赌。
-
-> **通用规则**：zai 没有 OpenAPI / JSON Schema，wire 类型全是实测倒推的。**任何展示型/统计型的数值字段都可能出现 Python float 那类形态**（0.5 这种整数浮点也一样危险 —— Kotlin `Long` 解码器看到 `2.0` 也会炸）。时间戳字段一律挂 `@Serializable(with = EpochMsSerializer::class)`（`EpochMsSerializer` / `EpochMsNullableSerializer`，容忍整数 / 浮点 / 数字字符串 / ISO 字符串，取整误差 < 1ms 对「x 分钟前」无影响）；从 `JsonObject` 随手取值也走 `toEpochMs()` 而不是 `toLongOrNull()`。
-
-**这个模块有 JVM 单测了（0.9.1 起）**：`app/src/test/java/.../data/AgentModelsTest.kt` 把上述实测坑逐条钉成用例（浮点 mtime、双形态 timestamp、stat 失败回 0、未知字段容忍、tool_result 三种形态）。跑法：
+## 常用命令 + 强制开发规则(合并)
 
 ```bash
-./gradlew :app:testDebugUnitTest          # 全量
-./gradlew :app:testDebugUnitTest --tests "*AgentModelsTest*"
-```
-
-**每发现一个新的 wire 形态坑，就往这个文件加一条用例** —— 这类 bug 的特点是「只在新数据上炸」，靠手点很难复现，靠断言才拦得住。
-
-**SSE 用 `callbackFlow` 手搓**（`AgentApi.eventStream`），不引 `okhttp-sse`：
-
-- OkHttp 的独立 `sseClient` **`readTimeout` 必须为 0** —— 服务端心跳 15s 一次，任何有界超时都会在空闲时掐掉长连接
-- **不传 `topics`**：`ServerEventBus.topicMatches` 的 topic 白名单（`eventBus.ts:223-245`）里**没有** `prompt.approve` / `prompt.permission` / `queue.changed`，一旦传 topics 这些事件永远收不到。只传 `?sid=` 才拿到完整事件面
-- **服务端补发按 `eventId` 匹配，但 `id:` 行写的是 `seq` 数字**（`sse.ts:45-54` vs `eventBus.ts:208`）→ 回传的 `Last-Event-ID` 永远 miss → 每次重连都退化成「全量 replay 最近 256 条」。所以**去重必须在客户端按 seq 单调丢弃**（`seq <= lastSeq` 丢）。这样重连窗口内漏掉的事件 seq 更大会被保留，已应用的 seq 更小会被丢掉
-- **取消语义要靠标志位，不能只靠 `call.cancel()`**：`Call.cancel()` 不是线程中断，阻塞读抛的异常会被 catch 吞掉，循环会继续**重新建连** → collect 早结束了后台线程却永远重连（漏 socket + 白耗电）。`awaitClose` 里既 `cancel()` 又置 `cancelled` 标志，循环条件 / catch 分支 / 退避睡眠三处都看这个标志（退避按 250ms 分片轮询标志，避免退出时白等 15s）
-
-**用户消息必须本地乐观追加**（`AgentSessionStore.appendLocalUser`）：SSE 事件面里**没有**「用户发了消息」这一类（`runtime.*` 全是助手侧），用户消息只在 assistant 回复落盘时间接进 transcript。不本地追加的话，自己刚发的消息要等下一次 re-hydrate 才出现。
-
-**工具卡 key 固定 `tool-<toolUseId>`**：同一次调用可能在 `assistant` 消息块和独立的 `tool_use` 行里各出现一次，靠 key upsert 去重（web 端同款）。另外**工具卡一出现就清掉流式气泡游标**（`curTextIdx` / `curThinkIdx`）—— 否则工具之后的 text 会 append 到工具卡**前面**那个旧气泡里，视觉顺序就错了。
-
-**渲染细节**：
-- 消息列表用 `reverseLayout = true`（index 0 贴底）—— 流式追加时视口自动跟住新内容，不需要每帧手算滚动偏移；「贴底」判据是 `firstVisibleItemIndex <= 3`
-- 工具输出/入参入库即截断（`capForDisplay`，输出 20k / 入参 6k 字符 + 尾部标注原始长度）。不截断的话单条 200KB Bash 输出塞进 Compose `Text` 会真的卡住布局（单 Text 长文本是 O(n)）
-- **正文按 Markdown 渲染**（0.10.0 起，见 §15）：`ui/Markdown.kt` 自研子集解析器，不引 markdown 依赖；助手正文 / 思考过程 / 工具输出都走同一套渲染，代码块带复制按钮；**未闭合围栏也渲染**（流式输出中间态就是没闭合的）
-- 三种待处理交互（`prompt.ask` / `prompt.permission` / `prompt.approve`）统一走 `respondPending`：**无论成败都 `clearPending()`** —— 服务端对过期请求回 404，只在成功时清卡片会让用户被一张永远点不掉的卡片卡住（SSE replay 也可能带出旧请求）
-- 文档审核「驳回」必须带非空 `comment`（服务端 schema 强制 1..2000），UI 固定填「手机端驳回」；批准可不带
-- **不确定图标存不存在就直接查，别猜名字**（写错编译就红，但改一次要一轮构建）：
-  ```bash
-  J=$(find ~/.gradle/caches -name "material-icons-extended-*-runtime.jar" | head -1)
-  unzip -l "$J" | grep -E "filled/(GraphicEq|ArrowUpward)Kt.class"
-  ```
-  `Add` / `Close` / `Check` / `Refresh` / `MoreVert` / `KeyboardArrow*` 这些在 **material-icons-core**（另一个 jar）；`Stop` / `GraphicEq` / `ArrowUpward` / `AddPhotoAlternate` / `ContentPaste` / `SmartToy` / `OpenInNew` 在 extended。**风格一律取 `rounded/`**（0.14.1 起全 App 统一），所以 grep 的路径是 `rounded/<Name>Kt.class`。图标落在 core 还是 extended 不用管 —— import 路径都是 `androidx.compose.material.icons.rounded.*`（带镜像语义的走 `.automirrored.rounded.*`，如 `Chat` / `ArrowBack` / `OpenInNew`）。
-
-**输入条：WorkBuddy 双行白卡（0.10.1 定稿）**。演进过程：0.9.2 是「独立输入框 + 框外圆按钮」（两套圆角、窄屏压掉文本框）→ 0.10.0 改成单胶囊（语音 / 文本 / 右按钮同一行）→ **0.10.1 定稿为双行白卡**，因为 WorkBuddy 的输入区是「上排纯文本域 + 下排工具条」，不是一行的胶囊：
-
-```
-┌────────────────────────────────────────────┐
-│ 输入消息…                                   │   ← 第一行：BasicTextField 独占整行（maxLines=6）
-│ (波形)  ◍ deepseek-v4.1 ⌄   (＋)      (➤)  │   ← 第二行：工具条，发送钮贴右
-└────────────────────────────────────────────┘
-```
-
-- **卡**：`Surface(RoundedCornerShape(24.dp))` 白底 + `shadow(2.dp)`，**无描边**（描边会让它像输入框而不是卡片）；左右外边距 16dp
-- **第二行内容**（左 → 右）：语音图标（`voice.available` 才渲染）→ 模型 chip（`ModelChip`：图标 + 别名 + `⌄`，别名 `.widthIn(max = 116.dp)` 省略号）→ `+`（打开附件/粘贴面板）→ `Spacer(weight(1f))` → 发送/停止圆钮
-- **发送钮常驻、只有颜色变**（`InputBarCircle`，外层 40dp / 内层 38dp）：空输入 = 浅蓝灰 `#E0E3E8` + 白箭头（禁用，按下无反应）；有内容 = 品牌平安橙；运行中 = `error` 实心圆 + 停止图标。**不要**再回到「空输入时把发送钮换成 `+`」——那样按钮会随输入状态跳变，WorkBuddy 是 `+` 与发送钮**并存**
-- **卡下方的 icon row（图片/粘贴/模型/更多）已删除**：WorkBuddy 没有这一行。功能没丢 —— 图片/粘贴收进 `+` 的面板，模型走卡内 chip
-- 附件缩略图挂在白卡**上方**（横向可滚），不挤占输入宽度
-
-**「按住说话」走云 ASR**（`voice/` 包）。与上面的 `SpeechRecognizer` **并存**，由 `local.properties` 开关切换：
-
-| | 腾讯云实时 ASR | 复用 WorkBuddy 登录态 |
-|---|---|---|
-| 开关 | `asrAppId`/`asrSecretId`/`asrSecretKey`，或 `asrSignViaBackend=true` | `asrUseWorkBuddy=true` + `asrWbAccessToken` |
-| 鉴权 | URL 签名（HMAC-SHA1，无登录环节） | `Authorization: Bearer <Keycloak JWT>` + `X-User-Id` |
-| 收尾 | 文本帧 `{"type":"end"}` | **空二进制帧** |
-| 下行 | `result.slice_type` 切片（1 非稳态 / 2 稳态） | **整段全量 `text`，覆盖，不能追加** |
-
-- 判定顺序在 `voice/VoiceAsrConfig.kt`：后端签发 → WorkBuddy 直连 → 腾讯云自签 → 都没配就回落 `SpeechRecognizer`（行为跟加之前一致）。
-- 协议差异抽在 `AsrDialect { TencentCloud, WorkBuddy }`；采集与上行两家一致（16k/mono/PCM16、100ms 一片、裸二进制帧）。
-- WorkBuddy 那条的凭据位置/续期/风险见 [`docs/superpowers/specs/2026-09-14-workbuddy-api-token-applicability.md`](docs/superpowers/specs/2026-09-14-workbuddy-api-token-applicability.md)（含 JWT claims 解码、`acc-product-config-v3.json` 配置、app.asar 反编译出的端点表、`copilot.tencent.com` 真机探测矩阵）。⚠️ 它的 refresh_token 是**一次性轮换**的，别在桌面端和后端同时刷，会把桌面端踢下线。**通用结论**：同一把 JWT 在 `copilot.tencent.com` 下覆盖绝大多数业务接口（对话/定时任务/连接器/配额/自定义技能/项目等），仅续期/切账号走 `X-Refresh-Token`、`/console/as/*` 管理面被 403、pre-login 流程需 `X-No-Authorization: true`。
-- 为什么非绕开 `SpeechRecognizer` 不可：国行无 Google 服务的 ROM 上 `isRecognitionAvailable()` 恒为 false，按钮**直接不渲染**（`if (voice.available)`）—— 云 ASR 没这个依赖。
-
-**语音输入走平台 `SpeechRecognizer`**（`ui/VoiceInput.kt`），不引第三方 SDK：零依赖 / 零 key / 零体积，代价是必须联网且设备得真有识别服务。三个必须知道的点：
-
-1. **Manifest 必须写 `<queries><intent action="android.speech.RecognitionService">`**（targetSdk 30+ 包可见性）。漏掉会在真机上**稳定** `isRecognitionAvailable() == false`，且不报任何错 —— 表现为「语音按钮永远点不动」。
-2. **`SpeechRecognizer` 只能在主线程创建/调用**（内部要绑 Service）。Compose 的 `remember` / 点击回调都在主线程，所以不切线程，但也别挪到协程里。
-3. **`onError(ERROR_CLIENT)` 是噪音**：主动 `stopListening()` / `cancel()` / `destroy()` 都会回调它，弹「识别失败」很蠢 → 静默吞掉。
-4. **`stop()` 之后仍会异步回调 `onResults`** —— 点发送时要调 `discard()`（内部 `cancel()` + `discardResults` 标志）而不是 `stop()`，否则刚发出去的话会被识别结果重新填回已清空的输入框，看着像「发出去的话又回来了」。
-5. `onPartialResults` 给的是**累积整句**，所以是覆盖回填（`baseText + partial`）而不是追加。
-
-**图片附件统一重编码成 JPEG**（`data/ImageAttachment.kt`，长边 1600 / Q85 / 白底铺平）。三条理由缺一不可：
-
-- 服务端 `ImageBlock.source.media_type` 是**枚举** `image/jpeg|png|gif|webp`（agent.ts:216-221）—— 相册里的 HEIC / BMP / AVIF 原样传会被 zod 拒成 400
-- 紧跟一道 magic bytes 预检（agent.ts:1906-1914）：声明的 media_type 与字节头不一致就 400 `image_format_mismatch`，而 `content://` 的 MIME 在部分 ROM 上会撒谎
-- `express.json({ limit: '20mb' })`（server/index.ts:171）是整包上限，现在手机随手一张 4–12MB，base64 再 ×1.33 直接顶格
-
-重编码后 media_type 恒为 `image/jpeg`，单张 200–500KB。**白底铺平那步不能省**：PNG 截图带 alpha，`compress(JPEG)` 会把透明区压成黑色，深色主题下像图坏了。
-
-**`contentBlocks` 里只能放图片块，文本必须留在顶层 `prompt`**。服务端自己拼 user content：`blocks.length ? [...blocks, ...(text ? [{type:'text',text}] : [])] : text`（agent.ts:1201-1204）。客户端"贴心"地再加一个 text block → 用户看到自己发的话重复两遍。这条契约钉在 `AgentApiBodyTest` 里。只发图（空 prompt）是合法的，此时**不传** `prompt` 字段而不是传空串。
-
-**顶栏只留「返回 + 标题 + 副标题」**：刷新 / 在网页打开 / 全部会话元信息都收进**副标题点开的 BottomSheet**（`SessionInfoSheet`），状态标签只在非空闲时出现。对齐 WorkBuddy 的顶栏密度 —— 之前塞了 4 个 action，标题被挤得只剩几个字。
-
-**限制（已知）**：超大会话（实测有 13MB / ~1300 条消息的 jsonl）hydrate 时要把整份 JSON 读进内存解析，峰值可能到几十 MB；极端长会话在低端机上可能 OOM。会话列表轮询 5s，本身不做 SSE（实时性由详情页负责）。图片附件图片张数上限 4（`ImageAttachments.MAX_COUNT`），因为 `AttachedImage` 持有 base64 常驻内存。
-
-### 15. WorkBuddy 视觉体系 + Markdown 渲染（0.10.0 / 0.10.1 精修）
-
-**为什么改**：0.9.x 用的是 Material You 动态取色（`dynamicColor = true`），配色跟着手机壁纸跑 —— 真机截图整屏泛紫，跟本项目一直对标的 WorkBuddy 完全不是一个东西。0.10.0 把视觉体系钉成一套固定 token。
-
-**色板（唯一来源 `ui/LanAgentTheme.kt`）**：数值取自两处硬证据 —— WorkBuddy 官方图标
-（青绿渐变，`ascii` 采样 `#0DC8A6 → #14CA85`）和 WorkBuddy 手机端截图采样。
-
-| 槽位 | 亮色 | 深色 | 用途 |
-|------|------|------|------|
-| `background` **=` `surface`** | `#F8F8F8` | `#141517` | 页面底 + **顶栏**(所以顶栏不再是白条) |
-| `surfaceContainerLow/Lowest/Container/High` / `surfaceBright` | `#FFFFFF` | `#1F2124` | 卡片 / 输入条 / 弹层 / 对话框 |
-| `surfaceContainerHighest` | `#F3F4F6` | `#26282C` | 代码块 / 未选中项(唯一比卡片深一档的槽) |
-| `onSurface` / `onSurfaceVariant` | `#1F1F1F` / `#8C8C8C` | `#ECEDEF` / `#9AA0A8` | 正文 / 次要文字 |
-| `primary` | `#ff6600` | `#35D6B6` | 主按钮 / 发送按钮 / 运行中 |
-| `tertiary` | `#E2932F` | `#F0B160` | 「运行中」工具卡的强调色 |
-| `outlineVariant` | `#EBEDF0` | `#2B2D31` | 卡片发丝描边 |
-
-**M3 槽位装不下的两个色（0.10.1）**：用户气泡底色、发送钮禁用态底色**没有**对应的
-M3 语义槽（硬塞 `surfaceVariant` 会连带改掉代码块底色等无关位置），所以单开一个
-`LocalWbExtras`（`ui/LanAgentTheme.kt`，`@Immutable data class WbExtras`），由
-`LanAgentTheme` 用 `CompositionLocalProvider` 提供：
-
-| 字段 | 亮色 | 深色 | 用途 |
-|------|------|------|------|
-| `userBubble` | `#E2E4E3` | `#2A2D2C` | 用户消息气泡 |
-| `sendDisabled` | `#E0E3E8` | `#34383D` | 发送钮禁用态 |
-
-**用户气泡：中性浅灰，不是品牌绿（0.10.1 修正）**。0.10.0 用 `primaryContainer`（薄荷绿
-`#DDF6F0`）+ 右下角 4dp 小尖角，跟 WorkBuddy 放在一起一眼就能看出不是一个产品。
-WorkBuddy 手机端采样结果：气泡底 **`#E2E4E3`**（中性灰）、正文 `#1F2120`、**四角同半径
-18dp（没有 IM 那种尖角尾巴）**、长文可以占到接近满宽（**不设 320dp 上限**）。
-品牌平安橙只留给发送按钮/主按钮 —— 这是 WorkBuddy 与「绿色气泡 IM」的分水岭。
-
-**两个关键设计**：
-
-1. **`surface` 直接设成页底色，卡片族全设成白色** —— 于是 `Scaffold` / `TopAppBar`
-   默认取 `surface`（灰，跟页面连成一片），`Card` / `ModalBottomSheet`
-   （`surfaceContainerLow`）/ AlertDialog / 会话行 / 工具卡（`surfaceContainerHigh`）
-   默认取白色。全项目一百多处 `MaterialTheme.colorScheme.*` 调用一次性对齐，
-   不用逐个屏幕改颜色。
-2. **`dynamicColor` 默认关**（参数保留，默认 `false`）。真要开 Material You 才显式传 `true`。
-3. **状态栏图标明暗自适应**：状态栏透明 + 内容画到状态栏后面，所以 `LanAgentTheme`
-   里用 `WindowInsetsControllerCompat.isAppearanceLightStatusBars = !darkTheme` 跟着页面深浅切，
-   否则浅色页面上白图标 = 隐形状态栏。
-
-**字号阶梯**：`WbTypography` 只覆盖高频档位 —— 顶栏标题 `titleMedium` 16sp/SemiBold、
-正文 15sp/22sp、次要 12sp、说明 10–11sp。Markdown 内部另有一套（h1 21sp → h4 15.5sp，
-代码 12sp/18sp 等宽），见下。
-
-**机器人形象 / 图标**：
-- 素材来源：从 WorkBuddy 桌面端 `app.asar` 里抽出来的官方资源
-  （`renderer/assets/mascot-new-*.png`，1080×1038 RGBA，透明底）。
-- `drawable-nodpi/wb_mascot.png` = 去白边 + 缩到 640px，给空态用（会话空态 168dp、
-  首页空态 132dp）。
-- 启动图标 = 品牌平安橙底 + **机器人头**（从 mascot 上半部裁的头部，`app/src/main/res/mipmap-*`
-  各密度 PNG + `drawable-nodpi/ic_launcher_foreground.png` 自适应前景）。
-  自适应前景按 108dp 画布的 **66dp 安全区**（内容 ≤61%）留白（`pad = 0.20`），
-  这样任意启动器遮罩下耳朵都不会被切。
-- 空态问候语「LAN Agent,我帮你」照搬 WorkBuddy 的「XXX,我帮你」句式，
-  文案在 `strings.xml` 的 `agent_session_empty_title`，改文案只动这一处。
-
-**Markdown 渲染（`ui/Markdown.kt`）**：
-
-- **不引第三方库**：通用 markdown 库（多平台版）会带语法高亮 / 数学公式 / HTML 子集，
-  体积几 MB 而本项目只需要一个子集。
-- **解析与渲染分离**：`MarkdownParser.parse(String): List<MdBlock>` 是**纯 Kotlin 函数**
-  （不 import 任何 Compose 类），渲染层只做 `when (block)` 映射。
-  以后想加单测 / 换渲染实现都只动一层。
-- **覆盖范围**：块级 `#{1,6}` / 段落 / ``` 围栏代码 / `>` 引用 / `-`·`1.` 列表(嵌套 +
-  `- [x]` 任务框) / 表格 / `---` 分割线；行内 `**粗**` `*斜*` `` `码` `` `~~删~~`
-  `[文字](url)` 裸链接 `\` 转义。行内是**递归下降**，所以「粗体里套行内码」天然支持。
-- **链接点击**：用 Compose 1.7 的 `LinkAnnotation.Url` + `TextLinkStyles`，
-  `Text` 自动走 `LocalUriHandler` 打开系统浏览器 —— 不需要 `ClickableText` / 手动命中测试。
-- **流式安全（两条硬约束）**：
-  1. **未闭合的围栏**直接当代码块渲染到结尾 —— 不能把后面所有内容吞进代码块后再也不吐出来；
-  2. **找不到闭合标记的行内标记**（半截 `**` / 半截 `` ` ``）原样输出，不能吞掉后面的字。
-  这两点决定了「先 hydrate 再 SSE 逐字渲染」的观感，改动解析器时必须守住。
-- **表格**：整表包一层 `horizontalScroll`，列宽 `widthIn(min = 96.dp)` —— 窄屏横向滚动
-  而不是把每列挤成竖排单字。
-- **`CodeBox` 也住在 Markdown.kt**（工具卡 / 权限卡 / 文档审核卡都在用）：
-  等宽 + 独立底框 + 横滚 + 右上角「复制」。
-- **`MarkdownText(compact = true)`** 给思考过程这类副文本用（块间距 4dp 而不是 7dp，
-  配 12sp 次要文字色）。
-
-**改配色 / 改字号 / 换机器人形象要动哪里**：
-配色 → `ui/LanAgentTheme.kt` 的 `WbPalette` + 两个 scheme；字号 → 同文件的 `WbTypography`；
-空态文案 → `strings.xml`；机器人图 → 覆盖 `drawable-nodpi/wb_mascot.png`；
-启动图标 → 覆盖 `mipmap-*` 各密度 PNG + `drawable-nodpi/ic_launcher_foreground.png`
-（`values/colors.xml` 的 `ic_launcher_background` 是底色）。
-
-### 16. SSH 终端 + 快捷命令(0.13.0)
-
-**入口**:SSH 主机列表点整张卡片 → `SshTerminalScreen`(路由 `ssh-terminal/{hostId}`,hostId 经 `Uri.encode`,**密码不进导航参数**)。
-
-**两种模式**(顶部 Terminal 图标切换),共用同一个 `SshSession`(只认证一次):
-
-- **命令模式**(默认):每条命令走独立 `exec` 通道(`SshSession.exec`)。输出干净、带 exit code + 耗时、可停止 / 重跑。适合 `git pull` / `docker ps` 这类一次性命令。
-- **交互模式**:`ChannelShell` + `setPty(true)`(`SshShell`),WebView 里跑 xterm.js 的真终端。能跑 `top` / `vim` / `sudo`。代价是回显 + ANSI 噪声。
-
-退出交互模式只关 pty 通道(`shell.close()`),`exec` 继续可用 —— 所以切回命令模式不用重连。
-
-**快捷命令**:`model/QuickCommand.kt` 的 `QuickCommand(id, label, command, confirm)`,**全局共用一份**(DataStore `lan_agent_quick_commands`,不是 per-host)。`confirm = true` 的先弹二次确认。交互模式下快捷命令是**写进 pty**(`command + "\n"`),所以 `cd` / `alias` 之后的相对路径跟真终端一致;命令模式下才走 `exec`。
-
-**为什么是 WebView + xterm.js**:任何「Compose 终端」要么不支持 VT 转义(`top` 花屏),要么就是包一层 WebView。assets 里打包 `xterm.js` 5.5.0 + `addon-fit` 0.10.0,页面**无网络访问**,SSH 全在 Kotlin 侧。
-
-**`SshShell` 的线程模型**:reader / writer 两条 daemon 线程,读写分离 —— reader 阻塞在 `inputStream`(shell 静默时本来就在等),writer 从 `LinkedBlockingQueue` 取字节。UI 线程只入队,绝不碰 socket(socket 写会在 pty 窗口满时阻塞,比如远端正卡在 `top`)。UTF-8 用**状态化** `CharsetDecoder`(`Utf8Stream`)流式解码 —— 一个 3 字节 CJK 字符跨两次 8KB 读,用 `String(bytes, UTF_8)` 会被切成两个 U+FFFD,而终端输出里 `╭─` 和 CJK 遍地都是。
-
-`close()` 幂等且任意线程可调:主线程只入队 `disconnectMarker`,真正的 `channel.disconnect()` 交给 writer 线程。
-
-**JS ↔ Kotlin 桥**(`TerminalJsBridge`,页面里的 `window.AndroidTerm`):`ready` / `send` / `resize` / `copy` / `hideIme` / `diag`。双向一律 base64(控制字符走字符串容易被中间转义层改写)。桥方法跑在 JavaBridge 线程,碰 Compose 状态(`ready`)或 View(`hideIme`)的要 `post` 回主线程。
-
-**排障入口**:终端页出问题时屏幕上往往只有一片黑。`WebChromeClient.onConsoleMessage` + 页面里的 `__diag/__fatal/__metrics` 把内部状态打成一行文本送到 logcat —— `adb logcat -s LanAgentTerm` 一把捞全(终端页和 `SshShell` 共用这个 tag)。
-
-**测试基建**(在 `/tmp`,不进仓库):
-
-- `fake-sshd.py` —— paramiko 起的最小 sshd(端口 2222,`test/test`),exec + PTY shell 都有。造了几种真机不好造的输出:`utf8`(多字节字符**故意 1 字节一片**发,验流式解码)、`bigout`(2000 行)、`slow`(带 0.4s 间隔,验边跑边出)、`fail`(exit 3)、`sleep 60`(验停止)、`cols`(验 window-change 真同步到远端)、`echo X`。控制字节额外回一份 hex,方便验收脚本看清收到了什么。
-  - ⚠️ 它**没有终端行规程**:Enter 的 `\r` 不会被 ICRNL 折成 `\n`,所以分行逻辑要同时认 `\r` 和 `\n`(不然用 `adb` 敲回车会发现命令不执行 —— 那是脚本的锅,不是 App 的)。
-- `ui.py` —— adb UI driver(`dump` / `tap` / `tapxy` / `text` / `key` / `shot` / `wait` / `exists` / `alltext`)。
-- **隔离排障法**:`jsch-0.1.55.jar` 就在 gradle 缓存里,写一个纯 JVM 单文件复现(`java -cp jsch.jar Probe.java`)能把 Android / Compose / WebView / IME 全部排除掉,直接观测 JSch 行为(甚至用反射 dump channel 的 `rwsize` 等内部字段)。0.13.0 这次就是靠它把范围从「Android WebView 输入链路」缩到「JSch 三个字节的缓冲」。
-
-### 17. 底部五栏导航(0.14.0)
-
-**视觉**(对着 WorkBuddy 手机端截图逐项对的,`ui/BottomTabs.kt`):
-
-- 白底 + 顶部 **0.5dp hairline**(不靠阴影分隔),内容区高 **56dp**(M3 `NavigationBar` 默认 80dp 太肥)
-- 5 等分;每格 **23dp 图标 + 3dp 间距 + 10sp label**
-- **选中 = 深色图标 + SemiBold 深色文字,未选中 = `onSurfaceVariant` 灰 + Regular,图标再乘 0.78 不透明度**。两态是**同一个 ImageVector** —— 早期版本给每栏配了"实心 / 描边"两套图标,问题是切换时形状会变,选中瞬间"跳"一下;现在只动颜色和字重。不用 M3 的 indicator 药丸(浅色主题下那颗灰胶囊很抢眼)
-- 点击**去掉水波纹**(高频点按区,涟漪在窄条上会溢到相邻格子)
-- 图标**一律 `Icons.Rounded`**(Material Symbols Rounded 那一套,转角和笔画端点全圆),0.14.1 起全 App 统一,新增图标也照此。图标全在 `material-icons-extended`(已在依赖里),`Settings` 在 core。**换图标前先核 classes.jar,而且核的是 `rounded/` 而不是 `filled/`**:`unzip -l classes.jar | grep rounded/<Name>Kt`
-- **material3 的 `Icon(imageVector, …)` 没有 `alpha` 参数**(只有 `bitmap` / `painter` 重载带),要压不透明度得走 `Modifier.alpha(...)`
-
-**路由 / 显隐**:单 NavHost,tab 根路由统一 `tab/` 前缀 —— 这个前缀现在只是**命名空间**,不再决定底栏显隐(0.14.2 起底栏常驻,详情页也有)。「当前高亮哪一栏」是一份**显式 UI 状态** `currentTab`(`MainScaffold.kt`,`rememberSaveable`):点底栏更新它;tab 内进详情页时路由变了但 `currentTab` 不动 → 底栏照常显示并高亮所属栏;从详情页返回时 `currentTab` 从未变过,高亮天然正确。**不要改回「从当前路由推导 tab」** —— 详情页路由(webview / agent-session / ssh-terminal / scan)匹配不到任何 tab,一推导底栏就没得高亮了。外层 Scaffold `contentWindowInsets = 0`,窗口 inset 全交给内层屏幕的 Scaffold(否则状态栏被扣两次)。
-
-**tab 切换 / 状态保持**:`popUpTo(起始 tab) { saveState = true }` + `restoreState = true`。切走时该栏的整条返回栈(含详情页)+ Compose 可保存状态(滚动位置、输入内容)整体存档,切回**原样恢复**——包括「刚才停在某个会话详情页」这种状态;tab 根目的地的 ViewModel 也不销毁。重复点当前栏直接吞掉。App 内跨栏跳转(实例栏引导页「去添加」)必须走**同一条** `selectTab`(`AppNavHost(onSelectTab = …)`),自己 `navigate` 会漏掉 `currentTab` 更新,底栏高亮就错位。SSH 栏的 `onOpenWebview` **不能** `popBackStack()`(旧版是从首页 push 进去的,pop 掉它等于删掉这一栏)—— 详情页直接 `navigate`,返回自然落回 SSH 栏。
-
-**「进行中」聚合**(`data/ActiveTasks.kt`):卡片 baseUrl 去重 → 每实例 `listSessions()` → 留 30 分钟内更新的前 3 条 → 对最活跃的 2 条再拉 `/state` 数未完成任务 → 合并排序(在跑的在前)。三个刻意的取舍:
-
-1. **只探前 2 条**:全量拉 state 是 O(N·M) 请求,10 秒一轮会打满手机和 Mac;而「跑着的」按定义必然最近更新过,取头部就够。
-2. **每实例 2.5s callTimeout**:一个写错 IP 的卡片不能让整段「进行中」等十几秒才出现。注意 **`withTimeout` 在这里没用** —— 协程取消不了阻塞在 socket 上的 `execute()`,只有 OkHttp 的 `callTimeout`(看门狗线程强制 cancel)能让它立刻返回。
-3. **`ActiveTasksCache`(进程内,不落盘)**:跳进会话详情再返回时 NavHost 已销毁任务栏的 composition,没有缓存就得空等一轮。
-
-**主题切换**(`data/UiPrefsRepository.kt` 的 `ThemeMode` + `MainActivity`):MainActivity 里 collect `themeModeFlow()` 后喂给 `LanAgentTheme(darkTheme = ...)`,所以「设置 → 深色」是即时全局生效,不需要 `recreate()`。落盘存的是枚举的 `storageKey` 字符串(不是 ordinal),认不出的值回落 `System`。
-
-**远程服务栏**(`RemoteServicesScreen`):和入口卡片的语义分工是「**卡片**可能有原生 Agent(右下角启动原生按钮);**服务**只看不聊,点开就是 WebView」。探活判据很松 —— **拿到任何 HTTP 响应就算在线**(含 401/404/500):这一栏回答的是「那个进程还在跑吗」,不是「这个 URL 好不好用」。离线用灰色不用红色(局域网服务没起来是常态,不是错误)。
-
-### 18. 任务栏 = 原生 Agent 工作区(0.15.0)
-
-**为什么改**:0.14.x 的任务栏是「进行中 + 入口卡片列表」两段式,点一个实例还要再选一次会话才能说话,中间两层全是导航噪声;而实例管理早就是底栏第 2 栏了。用户要求「默认直接进入原生 Agent 页面」,于是这一栏直接变成 Agent 本身。
-
-**一个屏两个入口**(`ui/AgentSessionScreen.kt`):
-
-| 入口 | `initialBaseUrl` / `initialSessionId` | 行为 |
-|------|----------------------------------------|------|
-| **任务栏 tab 根**(`tab/tasks`) | 都传 `null` | 屏自己解析:实例 = 上次连接的 → 第一个在线的;会话 = 上次停的 → 最新一条 |
-| 会话详情路由(`agent-session/{baseUrl}/{instanceName}/{sid}`) | 由路由给出 | 只补全实例元信息(名字 / 在线态),实例与会话都听路由的 |
-
-两者共用 `AgentSessionPane`,`AgentSessionScreen(...)` 退化成一个薄包装。
-
-**实例目录**(`data/AgentInstances.kt`):
-
-1. **首选 `/api/instances`**(supervisor 快照,一次请求拿到全部子实例的 name / state / port / startPort / isCurrent)。在线判据 = `state == running && port != null`。**离线实例没有 port,退到 `startPort` 拼 baseUrl** —— 这样「离线」也能进选择面板(参考图里离线设备是照常列出来的),否则只能显示在线的那几个。
-2. **回落卡片列表**:管理器不可达时,用卡片 URL 抽 baseUrl 并发探 `/api/agent/sessions`(1.5s callTimeout)。比第 1 档贵(扇出 N 个请求),但能保证「管理器死了,活着的子实例照样能聊」。
-3. **不排序**:顺序沿用服务端 / 卡片的自然顺序。在线优先看着更聪明,但会让行位置随实例起落跳动,而且选择面板与实例栏顺序会不一致。
-
-`pickDefault(preferred)` 的降级链:**记住的且在线 → 第一个在线的子实例(跳过 `__current__`,它的 cwd 是家目录)→ 第一个在线的 → 目录第一条(全离线时也得有东西可选)**。
-
-**记住最近连接的实例 + 会话**(`data/AgentWorkspacePrefs.kt`,独立 DataStore `lan_agent_agent_workspace`):四个字段在同一个 `edit` 事务里落盘 —— 分开写会出现「实例已换、会话还是旧的」这种半截状态。匹配键是 **baseUrl**(实例 id 会随定义重建而变)。
-
-**切换实例是 in-place 的**:`active` 是 state,`api = remember(active?.baseUrl)`、`store = remember(currentSid)`,所以换实例 = 换 key → hydrate / SSE / 会话列表轮询全部自动重建,不 push 路由(否则返回栈里会堆一串「实例快照」,返回语义就乱了)。
-
-**「选择实例」底部弹层**(`ui/InstancePickerSheet.kt`,形态照 WorkBuddy 的「选择设备」):标题「选择实例」+ ✕ / 白底圆角容器 / 每行「图标 + 名称 + 在线·离线 tag + 当前项绿色对勾」/ 行间 hairline 从 52dp 起画。三个细节:
-- **列表必须 `heightIn(max = 360.dp) + verticalScroll`** —— ModalBottomSheet 的内容**默认不滚动**,不限高就是「8 个实例里下面 3 个被屏幕切掉、点不到」。
-- 在线/离线是**文案不是颜色块**(在线用实例栏那套 running 绿 `#52C41A` + 浅底 `#F6FFED`),离线不给红、不禁用 —— 用户可能就是想点进去看看它为什么挂。
-- 抽屉顶部的「实例行」(`InstanceSwitcherRow`)显示当前实例名 + 在线态 + `⌄`,点开弹层;弹层挂在**抽屉外面**,ModalBottomSheet 是独立窗口所以能盖在抽屉之上。
-
-**空态三分支**(都在会话区里):
-- 目录为空 → `NoInstanceState`:机器人 + 「还没有可用的 opencc 实例」+ 「重新检测 / 切换实例」两个按钮。
-- 实例在但一条会话都没有 → `NoSessionState`:机器人 + 实例名 + 「新建会话」pill。**不自动建会话** —— 每次打开 App 多攒一条空会话很脏。实例离线时换成提示文案,并且**不给**新建按钮(点了必然失败);抽屉里的「新建会话」pill 也同步压暗(`NewSessionPill(enabled = false)`)。
-- 有会话但没消息 → 原来的 `AgentSessionEmptyState`。没有会话时**整条输入区不渲染**(发给谁?)。
-
-**原任务栏两段东西的去向**:
-
-- **入口卡片列表 + 扫码** → `ui/CardListSection.kt`,挂在设置栏。它仍是 `findManagerBaseUrl` 与「兜底实例目录」的数据源,不能删;降级成低频管理面(增删改 / 拖拽 / 双按钮 / 扫码一个没少)。自包含:自己读 DataStore、自己管编辑态、自己弹对话框,外层只需给三个导航动作 + 一个 `SnackbarHostState`。**不用 LazyColumn**(它已经在设置栏的 LazyColumn 里,嵌套同向滚动会打架),卡片是个位数直接 `forEachIndexed` 铺开。
-- **「进行中」跨实例聚合**(`data/ActiveTasks.kt` + `ActiveTasksCache`)→ **不再有 UI 入口**。任务栏现在按实例分家,抽屉里的会话列表自带相对时间与模型标签,跨实例那层聚合失去了位置。文件保留(扇出 + 超时 + 进程内缓存那套逻辑经过验证,删了可惜),但没有任何屏引用它 —— 需要的话可以直接接回某个 tab。
-
-### 19. 会话精简模式(0.15.2)
-
-**为什么**:一个跑顺的回合里,Agent 会连着甩出七八次工具调用(`mcp__cua-driver__click` × 7 这种),每张工具卡都是「图标 + 名字 + 完成 + ⌄」的一整块白卡,一屏滚下去全是重复的行,正文被冲得看不见。精简模式把「一段工作」压成**一条**,想看细节再点开。
-
-**开关**:设置栏 → 会话 → 「工具调用精简模式」,**默认开**。落盘在 `data/UiPrefsRepository.kt` 的 `compact_tools`(`booleanPreferencesKey`,未设置过 = `true`);会话页用 `context.compactToolsFlow().collectAsState(initial = true)` 读,所以**改完立刻生效,不需要重新 hydrate** —— 它只影响渲染粒度。
-
-**分组规则**(`buildAgentBlocks`,纯函数,住在 `ui/AgentSessionStore.kt`):
-
-- 一段 = **连续的工作**,成员是 [工具调用] 与 [思考过程];
-- **思考过程不打断段落**(定稿):编码会话里最常见的形态是「Bash → 思考 → Bash → 思考」,若按严格连续工具分组,整屏还是单张工具卡,聚合形同没做。真机实测:`lan-agent` 那种 7 连击会聚合,而普通编码会话几乎不聚合;
-- 段内**工具数 >= 2** 才聚合;只有一次工具调用时保持原样 —— 它本来就是一张卡,再套一层聚合行只是让用户多点一次;
-- **正文 / 用户消息 / 提示条会断开段落** —— 助手开始说话或用户插话,就该断;
-- 关掉开关 = 全部退化成单条块,即改动前的逐条渲染。
-
-**渲染**(`ui/AgentSessionViews.kt` 的 `ToolGroupCard`):
-
-- 折叠态**一行**:`⚒ 工具调用 · N 次` / 副行名字汇总(`Edit ×4 · Bash ×3`,同名校验按首次出现顺序合并、只在 >1 时加 `×N`) / 右侧状态(运行中转圈 = `tertiary` 暖橙、有失败 = `error` 红 + `N 失败` chip、否则 `完成`)/ `⌄`;
-- **点整行**展开与收起(不做下拉手势:会话流本身是可滚列表,下拉要跟 LazyColumn 抢纵向手势,还不好发现)。展开后按 transcript **原顺序**铺开工具卡与思考卡 —— 两级折叠,单张卡再点开才看入参/输出;
-- 展开状态 `remember(groupKey)`,key 取**段内首条成员**的 key,所以段落边跑边增长时 key 不变:流式追加不会把已展开的段合并回去(真机验证过:展开着的一段落从 6 次长到 8 次,展开态与滚动位置都稳)。
-
-**实现上的两个要点**:
-
-1. **块存下标,不存快照**。`AgentBlock.ToolGroup(indices)` / `Single(index)` 只记 items 下标,渲染时 `items[index]` 读实时值 —— 工具输出是原地替换(`applyToolResult` 的 `items[idx] = cur.copy(...)`),存快照会渲染出过期内容。
-2. **`remember(items.size, compact)` 缓存是有意的**。items 只会 append,原地更新全是**同类替换**(见 `appendText` / `applyToolResult` / `upsertToolCall`),所以「下标 → 类型」的映射只在条数变化时才变。渲染侧再兜一层 `getOrNull` + `filterIsInstance`,任何情况下都不会把正文画进工具段。
-3. **自动滚动的 key 也从「条数」换成「块数」**:段落继续吞新工具时块数不变(视口不用动),新开一段才把视口拉回底部。
-
-### 20. DisplayFiles 文件卡片(0.16.0)
-
-**是什么**:opencc 内置工具 `DisplayFiles`(服务端实现见 opencc-web
-`packages/zn-agent-core/src/opencc-src/server/displayFilesOpencc.ts`)让 Agent 把
-一组本地文件「展示给用户」——「完成文件编辑 / 生成 / 汇报任务后,把产物路径列给用户」。
-zai 前端有专门的渲染器(`toolRenderers/fileDisplay.tsx`),Android 这版对齐它:会话里的
-工具卡变成**文件卡片** —— 每行一个文件(类型图标 + 名字 + `大小 · 相对时间 · 类型` +
-等宽路径),图片多一张**内联缩略图**,点一行打开**会话面板内从右侧滑入的预览层**
-(`ui/FileViewerOverlay.kt`,不占路由)。
-
-**wire 形状**(实测):
-
-```
-runtime.tool_call    { toolName:"DisplayFiles", input:{ paths:[绝对路径…] } }   # 1..20 个
-runtime.tool_result  { output: "<JSON 字符串>" }
-   → JSON.parse(output).content[0].json.files = FileMeta[]
-   FileMeta = { path, name, size, mtime, kind, error?:{code,message} }
-   kind ∈ text | image | html | binary     # 服务端按扩展名分类
-```
-
-**三个必须记住的坑**:
-
-1. **transcript 里 tool_result 是字面量 `'done'`,不是这段 JSON。** 服务端
-   `mapToolResultToToolResultBlockParam` 回灌给 LLM 的 content 恒为 `'done'`(省上下文),
-   真正的 wrapper 只从 SSE 走**一次**,而且 `takeDisplayFilesOutput` 是**取出即删**。
-   所以重新 hydrate 一条历史会话时**拿不到 size / kind / error** —— 只有 tool_use 的
-   `input.paths` 还在。解析因此拆成两条路径:
-   - `parseDisplayFilePaths(input)` — 路径(**任何时态都有**),`kind` 按扩展名在**客户端**猜
-     (规则与服务端 `displayFilesOpencc.ts:38-70` 同步);
-   - `parseDisplayFileMeta(output)` — 完整元数据(**仅直播态**);
-   - `mergeDisplayFiles(...)` 合并(元数据优先,元数据没有的路径靠 input 补)。
-2. **`mtime` 是浮点**(Node `fs.Stats.mtimeMs`,与 `EpochMsSerializer` 注释里那条同源),
-   `size` 也别赌是整数 —— 一律走容错解码。
-3. **那份元数据离开页面就没了。** 切底栏 tab 会销毁会话页 composition(`saveState` 保得住
-   返回栈与 `rememberSaveable`,保不住 `remember`),回来重新 hydrate → 卡片上的
-   `293.6 KB · 5 天前` 凭空消失(真机实测:副标题从 `293.6 KB · 5 天前 · 图片` 退化成
-   `图片`,且同一会话内再也不会恢复)。所以有 `DisplayFilesCache`(进程内、不落盘,与
-   `ActiveTasksCache` 同款取舍:只为「离开再回来」兜底)。
-   **0.16.1 起点文件不再触发这一条** —— 预览是面板内 overlay,不跳路由、不销毁
-   composition;但切 tab / 重开会话仍然会命中。**冷启动后只剩路径**,这是服务端形状
-   决定的既定限制,不是 bug。
-
-**文件字节从哪来**:`GET {instanceBaseUrl}/api/fs/preview?path=<绝对路径>`
-(opencc-web `routes/fs.ts:1020`,**无鉴权**,与 `/api/agent/*` 是同一个实例进程 ——
-文件系统在 Mac 上,由实例去读盘)。响应按 `kind` 分岔:
-
-| kind | `content` | Android 侧怎么用 |
-|------|-----------|-----------------|
-| `image` | **base64** | 内联缩略图 + 全屏 `ContentScale.Fit` |
-| `html` | 原文 UTF-8 | WebView `loadDataWithBaseURL` |
-| `text` | 原文 UTF-8 | `.md`/`.markdown` → `MarkdownText`,其余 `CodeBox` |
-| `binary` | **没有**(只有 `ext`) | 不内联,给「在 Mac 上打开所在目录」 |
-
-`maxBytes` 被 clamp 在 `[1024, 1 MiB]`(`PREVIEW_DEFAULT_MAX`,**不是 512KB**),超了回
-**413 ETOOBIG**;目录回 400 EISDIR;不存在回 404。**这三个必须翻译成人话**
-(`previewErrorMessage`)—— 413 的含义是「这文件太大,去 Mac 上看」,不是「坏了」。
-
-**四个渲染分支**:
-
-- **图片** → 内联缩略图(`RemoteImageThumb`)。**必须采样**(先 `inJustDecodeBounds` 读尺寸,
-  再按 `inSampleSize` 解):1 MiB 的 PNG 解出来可能是 4000×4000,`ARGB_8888` 下约 64MB,
-  一次渲染几张就能把低端机推爆。**SVG 例外** —— `BitmapFactory` 解不了矢量图(XML),
-  只走查看器的 WebView。
-- **HTML / SVG** → `FileViewerOverlay` 里的 WebView。用
-  `WebViewFactory.createForContent`(**textZoom 100**,不是那个给 opencc-web `/m` 的 85);
-  `shouldOverrideUrlLoading` 一律返回 true —— 只读预览,点链接跳走会让用户莫名离开文件
-  且没有地址栏可以回来(子资源不受影响,那本来就不是主框架导航)。
-- **文本** → `.md` 走自研 Markdown,其余 `CodeBox`。
-- **binary / 超过 1 MiB** → 元数据 + 「在 Mac 上打开所在目录」
-  (`POST /api/fs/reveal`,macOS 走 `open -R`)。
-
-**已知限制**:① 超过 1 MiB 的文件不能内联预览(服务端上限,不是客户端懒);② 冷启动后
-文件卡没有 size / 时间(见坑 1);③ 单次最多 20 个文件(服务端 schema)。
-
-**改哪里**:wire 解析 / 扩展名分类 / 缓存 → `data/DisplayFiles.kt`;HTTP →
-`data/AgentApi.kt` 的 `previewFile` / `revealFile`;卡片与缩略图 →
-`ui/AgentSessionViews.kt` 的 `DisplayFilesBody` / `DisplayFileRow` / `RemoteImageThumb`;
-预览层 → `ui/FileViewerOverlay.kt`;宿主(持有开合状态 + `BackHandler`)→
-`ui/AgentSessionScreen.kt` 的 `AgentSessionPane`。**预览不占路由** —— 早期版本曾走
-`ui/AppNavHost.kt` 的 `file-viewer/{baseUrl}/{path}`,0.16.1 改成面板内 overlay。
-**改这条链路前先看
-`data/DisplayFilesTest` + `ui/AgentSessionStoreDisplayFilesTest`** —— 后者里那条
-「重开会话」用例守的正是最容易静默坏掉的那段(直播正常、只有离开再回来才坏)。
-
-## 强制开发规则
-
-
-
-- **JAVA_HOME 必须显式设**:`/usr/libexec/java_home` 在这台机器上是 broken,直接用:
-  ```bash
-  export JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home
-  ```
-- **dl.google.com 不可达** — `settings.gradle.kts` 加了 Tencent Maven mirror。普通网络用户可移除。
-- **Android SDK 在 `/Users/ethan/Library/Android/sdk`**,`local.properties` 已 gitignore。
-- **JDK 21 替代 JDK 17**:AGP 8.6.1 支持,JDK 17 没装,`compileOptions` 仍保持 `VERSION_17` bytecode target。
-- **JDK 升级 / 依赖升级**:version catalog 锁版本,升级单独跑一次。
-- **不要给 release 写 minify / signing**(spec §2.2)— `isMinifyEnabled = false`,`proguard-rules.pro` 是空文件。
-
-## 常用命令
-
-```bash
-# 编译
+# 编译 + 装到当前 adb 设备
 cd /Users/ethan/code/lan-agent
 export JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home
-./gradlew :app:assembleDebug         # 出 APK 到 app/build/outputs/apk/debug/app-debug.apk
-./gradlew :app:installDebug         # 装到当前 adb 设备
+./gradlew :app:installDebug
+adb shell am start -n io.github.hotmanxp.lanagent/.MainActivity
 
 # 本地起 serve,手机扫码下载
 npx serve -l tcp://0.0.0.0:8765 app/build/outputs/apk/debug/
-# 手机访问 http://<本机 LAN IP>:8765/
-
-# bump version
-# 改 app/build.gradle.kts: versionCode / versionName
 
 # 重置 DataStore(回 seed)
 adb shell pm clear io.github.hotmanxp.lanagent
+
+# JVM 单测(钉 wire 坑)
+./gradlew :app:testDebugUnitTest --tests "*AgentModelsTest*"
 ```
 
-## 改入口卡片
+**强制规则**:
 
-有 5 种方式:
+- `JAVA_HOME` 必须显式设(同上面命令);`/usr/libexec/java_home` 在这台机器是 broken
+- `dl.google.com` 不可达 → `settings.gradle.kts` 已加 Tencent Maven mirror(普通网络用户可移除)
+- Android SDK 在 `/Users/ethan/Library/Android/sdk`,`local.properties` 已 gitignore
+- JDK 21 替代 17(AGP 8.6.1 支持),`compileOptions` 仍保持 `VERSION_17` bytecode target
+- **不写 release**(`isMinifyEnabled = false`,`proguard-rules.pro` 空);每次手动 bump `versionCode` + `versionName`(`app/build.gradle.kts`),否则手机装上看不出是新版
+- 改入口卡片 → APP 内编辑模式 / `data/Cards.kt` 的 `defaultCards`(只影响卸载重装后的首次启动)/ 网络白名单 → `res/xml/network_security_config.xml`(默认 base-config 已全放行 cleartext,多半不用动);详见 `README.md`
 
-1. **APP 内编辑模式** — 点首屏右上 `✎` 进 edit mode,长按拖拽换位,点 `🗑` 删除,点 `+` 加新卡。改完即时写 DataStore,下次启动还是这些。
-2. **APP 内添加实例** — 首屏右上 `Storage` 进 InstancesScreen → 右下 `+` 浮动按钮 → 选手动表单 / 目录选择 / QR 扫码。**新加的是服务端实例定义,不是首页 Card**;首页 Card 列表独立于实例管理。
-3. **QR 扫码进入** — 首屏右上 QR 图标 → 扫 zai 分享的 URL → 直接跳 WebView。**不进实例管理,也不写 DataStore**。
-4. **SSH 一键启动 zai** — 首屏右上 `Memory` 图标 → SshHostListScreen → 加一条 SSH host(name/IP/22/Mac 用户名/密码/`zaiPort` 9201) → 点「启动 zai」→ 全局 `nohup zai --lan --port <zaiPort>` 远程拉起,端口可达后自动跳 InstancesScreen WebView。
-   - **点整张卡片**(而不是「启动 zai」按钮)进的是 **SSH 终端**(见 §16),与「启动 zai」是同一屏的两条路。快捷命令在终端页的「管理」里增删改排序,全局共用。
-5. **改 seed 卡片** — 编辑 [`app/src/main/java/io/github/hotmanxp/lanagent/data/Cards.kt`](app/src/main/java/io/github/hotmanxp/lanagent/data/Cards.kt) 里的 `defaultCards` 列表,改完 `./gradlew :app:installDebug` 重装即可。**只影响卸载重装后的首次启动**(已有数据从 DataStore 读)。
+## 配套:opencc-web
 
-如目标 IP 不在白名单,还要编辑
-[`app/src/main/res/xml/network_security_config.xml`](app/src/main/res/xml/network_security_config.xml)
-加一行 `<domain includeSubdomains="true">你的.IP</domain>`(默认 base-config 已经全放行 cleartext,这一步多半不需要)。
-
-## 已知坑 / 经验
-
-| 坑 | 现象 | 解法 |
-|----|------|------|
-| `webView.setBackgroundColor(...)` 不生效 | WebView 内容周围还是白底 | 用 Compose `Box.background()` 画底色,WebView 设 TRANSPARENT |
-| `useWideViewPort = false` + web 有 `<meta viewport>` | 页面按 980px 渲染,看起来元素过大 | 必须 `useWideViewPort = true` |
-| `dl.google.com` 超时 | `:app:mergeDebugGlobalSynthetics` 卡死 | `settings.gradle.kts` 已加 Tencent mirror,新机器要手动加 |
-| `(-8).dp` 负 Dp | `IllegalArgumentException` 闪退 | 用 `windowInsetsPadding(...)` + `padding(top = 4.dp)`,不要负 Dp |
-| `IconButton.size(28.dp)` 强制 48dp | 浮动刷新按钮变 48dp 而不是 28dp | 用 `Box + Modifier.clickable`,不绕 IconButton 的 minimumInteractiveComponentSize |
-| Android 11+ gesture bar 不消失 | 看到底部一条细线 | 系统限制,只能 swipe 唤起后自动隐;要彻底隐需切 3-button nav |
-| Wi-Fi IP 变了 | 卡片 URL 全部失效 | 编辑模式 → 点卡 → 改 URL;或改 `data/Cards.kt` 重 build |
-| zai 9201 listen localhost | 手机访问 `192.168.x.x:9201/instances` 拒连 | `pnpm --filter @zn-ai/zai dev -- --lan` 重启 zai 绑 0.0.0.0 |
-| OEM ROM `params.createIntent()` 没带 `FLAG_GRANT_READ_URI_PERMISSION` | 选图后 WebView 拿不到 bytes,`<input>.files` 为空 | 手动构建 pickIntent + `Intent.createChooser`,绕过 `params.createIntent()` |
-| WebView `onShowFileChooser` 对 content:// URI 转换不可靠 | FileReader.readAsDataURL 拿不到字节 | 走 `window.lanAgentAttachImages` bridge,直接把 base64 注入 `<input>` |
-| Activity.onPause 冻结 WebView 网络栈 | 切走再回来 SSE / WebSocket 全断 | `WebViewKeepAliveService`(detached WebView + dataSync foreground)+ `DisposableEffect(url)` 启停 |
-| 服务忘 stop 把电池榨干 | WebViewScreen 跳走但服务没收到 onDispose | 30 分钟 `PARTIAL_WAKE_LOCK` acquire(timeout) 兜底,过期自动释放 |
-| Android 14 (API 34) 启 dataSync 服务 SecurityException | `startForeground(2-arg)` 抛异常 | 用 3-arg `startForeground(NOTIF, notif, FOREGROUND_SERVICE_TYPE_DATA_SYNC)` |
-| 通知 channel MIN 重要性被 MIUI 完全隐藏 | 用户看不到后台运行通知 | channel 用 IMPORTANCE_LOW(不算最小,不算骚扰) |
-| 没声明 `FOREGROUND_SERVICE_DATA_SYNC` | API 34+ startForeground SecurityException | AndroidManifest.xml 加 `<uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />` |
-| 没在首页添加「实例管理」入口 Card | 点 Storage 按钮弹"未配置实例管理入口卡片"对话框 | 加一张 `url = "http://host:port/instances"` 的 Card(参考 `defaultCards` 第 0 张) |
-| `down` 状态心跳超时但不到 3 分钟 | "启动"按钮不可点 | 用 `effectiveState()` 把超过 `STALE_THRESHOLD_MS = 3min` 的 `down` 视为 `stopped` |
-| IME 弹出时 WebView 不让出 | 输入框被键盘盖住看不到 | `AndroidView.modifier.imePadding()` 让出软键盘 |
-| SSH exit 127 (`command not found`) | `which zai` 在 Mac 上返回空 | `npm i -g zai` 全局装,或 `~/.zshenv` 加 `export PATH="/opt/homebrew/bin:$PATH"` |
-| SSH 启动 zai 报 `EADDRINUSE` | 默认 9201 被另一个 supervisor 占 | 改 SSH host 配置的 `zaiPort`(默认 9201 可改成 9202/9203),或停掉那个 supervisor |
-| SSH host DataStore 损坏 | 启动后 SshHostListScreen 为空 | `adb shell pm clear io.github.hotmanxp.lanagent` 会**同时清掉 cards/ui_prefs/ssh_hosts**;只清 ssh 用 `pm clear --user 0 io.github.hotmanxp.lanagent` 后改 DataStore name |
-| WebView settings 在 foreground / background 漂移 | 切走再回来 SSE 重连定时器悄悄重置 | 用 `service/WebViewFactory.kt` 单源,不要在 `WebViewScreen` 和 `WebViewKeepAliveService` 各写一遍 |
-| 浮刷新按钮位置不持久 | 每次启动按钮都在默认位置 | 检查 `data/UiPrefsRepository.kt`(独立 DataStore `lan_agent_ui_prefs`)+ `WebViewScreen` 是否有 `LaunchedEffect(Unit)` 读 `readRefreshButtonPos()` |
-| 会话详情页整个打不开(报反序列化错) | `GET /api/agent/sessions/:id` 返回后解析失败 | `TranscriptEntry.timestamp` 必须声明 `JsonElement?` —— transcript 里 `system` / `queue-operation` 条目的 timestamp 是 ISO **字符串**(其余条目是数字)。声明成 `Long` 时一条 system 就能让整份 transcript 解码失败 |
-| SSE 连上后收不到权限/队列事件 | 审批卡、队列条永不出现 | 不要给 `/api/event` 传 `topics` —— 白名单里没有 `prompt.approve` / `prompt.permission` / `queue.changed`,只传 `?sid=` |
-| 重连后消息重复 | 切后台再回来,历史气泡翻倍 | 服务端 `Last-Event-ID` 按 `eventId` 匹配、而 `id:` 行写的 `seq`,永远 miss → 每次都全量 replay。客户端必须按 `seq` 单调去重(见 `AgentApi.eventStream`) |
-| 退出会话页后日志里还在反复重连 | 后台线程永不退出,漏 socket | 只 `call.cancel()` 不够(`Call.cancel()` 不是线程中断,异常被 catch 吞掉后循环会重新建连)。`awaitClose` 里必须同时置 `cancelled` 标志,循环/catch/退避三处都看它 |
-| 自己刚发的消息不显示 | 发完消息气泡不出现 | 服务端 SSE **没有**「用户消息」类事件,必须 `AgentStore.appendLocalUser()` 本地乐观追加 |
-| 工具卡之后的助手文本跑到工具卡前面 | 消息顺序错乱 | 工具卡 upsert 时清掉流式气泡游标(`curTextIdx` / `curThinkIdx`) |
-| 权限/审批卡点不掉 | 点批准弹 404 后卡片还在 | `respondPending` 必须**无论成败**都 `clearPending()`,服务端对过期请求回 404 |
-| 打开大会话卡顿/OOM | 详情页转圈很久或崩溃 | transcript 是整份 JSON 一次读入;实测有 13MB / ~1300 条消息的会话。工具输出已按 20k 字符截断入库,再大只能靠服务端侧分页(未做) |
-| **JSch 写 pty 远端收不到数据** | `write`/`flush` 都正常返回、无异常无阻塞,但远端**一个字节都收不到**(静默丢包) | `Channel.getOutputStream()` **不是幂等的** —— 每次调用都 `new` 一个带缓冲的包装器(`com.jcraft.jsch.Channel$1`,内部有 `dataLen`/`buffer`/`packet`)。`write()` 只把字节攒进**自己**的 buffer;真正组装并发送 `SSH_MSG_CHANNEL_DATA` 的是**同一个实例**的 `flush()`,而它第一行是 `if (dataLen == 0) return`。所以 `channel.outputStream.write(x); channel.outputStream.flush()` 是「写进实例 A、flush 了全新实例 B」→ 数据永远留在 A 里。**必须 `val out = channel.outputStream` 取一次复用**(见 `SshShell` writer 线程) |
-| 交互模式软键盘弹出瞬间终端整片变白 | 收起键盘又恢复,内容其实没丢 | `imePadding()` 在 WebView 和输入行上**各加了一次** → ime 高度被扣两次,WebView 被压到接近 0 高,xterm 的 paint 树塌掉。**只留输入行那一处**,WebView 靠 Column 的 `weight(1f)` 被动收缩(收缩正是 pty `window-change` 的来源,不能没有) |
-| WebView 在 Compose 里全黑(只有背景色) | xterm 起不来、页面像 0 高 | `factory` 里 `loadUrl` 时 WebView 还没测量,尺寸 0x0 → `html{height:100%}` 解析成 0、paint 树被裁成 0 高。必须 `doOnLayout { if (height > 0) loadUrl }`,并每次 `addOnLayoutChangeListener` 把物理尺寸推给页面(`wbTerm.setViewport`),页面据此**显式写死** `html/body/#root` 高度再 refit |
-| 注入 keyevent 到 xterm 看不到回显 | 日志显示 keydown 到了 `.xterm-helper-textarea`,于是判断「xterm 不吐 data」 | 误判:xterm 完全正常,`term.onData` 照常触发。是上面那条 JSch 静默丢包让远端没有回显。**先确认数据真的出了 socket**(看 `fake-sshd` 的 `recv` 日志),再看上层 |
-| 「进行中」区十几秒才出现 / 一直空 | 一张写错 IP 的卡片把整轮聚合拖到该 host 的 readTimeout 之后 | 光加 `withTimeout` 没用 —— 协程取消不了阻塞在 socket 上的 OkHttp `execute()`。必须给 `AgentApi` 传 `callTimeoutMs`(0.14.0 加的参数),靠 OkHttp 看门狗强制 cancel |
-| 从会话详情返回后「进行中」区空白 | NavHost 已销毁任务栏 composition,`remember` 状态清零 | 进程内缓存 `ActiveTasksCache`;**并且** `LaunchedEffect` 的 key 要能区分「DataStore 还没读到(null)」和「真的没有卡片(emptyList)」—— 用 `currentCards`(null→emptyList)当 key 会在首帧把缓存清掉,缓存等于白做 |
-| 编辑态拖拽排序动的是别的条目 | 任务栏上方多了「进行中」区,卡片在 LazyColumn 里的绝对下标 ≠ 卡片下标 | `DraggableCardItem` 要同时收 `index`(卡片下标,回调用)和 `listIndex`(绝对下标,`layoutInfo` 命中用),`onMove` 里把命中的绝对下标减回卡片下标 |
-| 底栏在详情页里消失 / 高亮错位 | 拿「当前路由」去推导 tab | 详情页路由匹配不到任何 tab,一推导就没得高亮。改成显式 `currentTab` 状态(见 §17「路由 / 显隐」) |
-| 详情页内容被底栏顶掉一截,或反过来贴太近 | 内层屏幕自己又加了一次 `navigationBarsPadding` | 底栏常驻后 inset 已被底栏扣过一次。会话输入条那处 `navigationBarsPadding` 已在 0.14.2 去掉;**ModalBottomSheet 里的要留着**(弹层不受外层 NavHost padding 约束) |
-| 状态栏被扣两次 | 根 Scaffold 的 `contentWindowInsets` 没关 | 外层 `Scaffold(contentWindowInsets = WindowInsets(0,0,0,0))`,inset 全交给内层屏幕的 Scaffold |
-| 底栏图标选中时"跳"一下 | 每栏配了"实心 / 描边"两套 ImageVector,选中时形状在变 | 形状切换是可感知但廉价的动效。改成两态**同一个图标**,只换 tint / 字重 / 不透明度 |
-| 图标整体观感"硬"、不像 WorkBuddy | 全 App 混用 `Icons.Filled` / `Default` / `Outlined`,23dp 下描边版直角很扎眼 | 统一换 `Icons.Rounded`(Material Symbols Rounded)。**批量替换后记得查重复 import** —— `filled.Chat` + `outlined.Chat` 会变成两行一样的 `rounded.Chat` |
-| 选择实例弹层的后几个实例点不到 | 被屏幕底边切掉,而且滚不动 | ModalBottomSheet 的**内容默认不滚动**。列表要 `Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())`,并 `rememberModalBottomSheetState(skipPartiallyExpanded = true)`(选择弹层直接展开,不要半屏态) |
-| **DisplayFiles 卡片离开页面后丢了 size 与时间** | 副标题从 `293.6 KB · 5 天前 · 图片` 退化成 `图片`,同一会话内再也不恢复 | 服务端把 transcript 里的 tool_result 存成**字面量 `'done'`**,元数据只走一次 SSE 且 take-and-delete。`DisplayFilesCache`(进程内,`data/DisplayFiles.kt`)兜「离开再回来」;**冷启动后只剩路径,无解**(见 §20 坑 1) |
-| 预览图片被判成「过大」 | 明明才 800 KB 却说文件过大 | 服务端上限是 **1 MiB**(`routes/fs.ts` 的 `PREVIEW_DEFAULT_MAX`),不是 512KB。`FILE_PREVIEW_MAX_BYTES` 必须与它一致,否则会误拦一半可用文件 |
-| **Kotlin 文件里写 `/api/*` 导致整文件编译失败** | 报 `Syntax error: Unclosed comment` + `Missing '}'`,但报错行在几百行之外,看不出跟那句注释有关系 | Kotlin **块注释可嵌套**:KDoc 里的 `/*`(比如 `` `/api/*` ``)会开一个嵌套注释,把本该闭合的 `*/` 吃掉,后面整块代码被吞。路径通配写成 `` `/api/…` ``,或放进 `//` 行注释(`//` 不嵌套,安全) |
-| 任务栏打开落到了错的实例 / 会话 | 以为「记住上次」没生效 | 记住的实例**下线时本来就会回落**到第一个在线的子实例(`AgentInstances.pickDefault`);先确认 `/api/instances` 里它的 `state` 是不是 `running`。另外匹配键是 baseUrl,IP 变了就等于换了个实例 |
-| 选择实例弹层里出现「Instances 实例管理」这种卡片标题、且状态全是离线 | 管理器 `/api/instances` 不可达,走了卡片兜底目录(名字取卡片标题、在线靠逐个探活) | 先确认管理器可达。兜底目录是**故意**的设计(管理器死了也不能把活着的子实例一起判死),代价是名字与在线判据都粗一档 |
-
-## 配套:opencc-web 端
-
-lan-agent 是消费者,opencc-web 是服务方。opencc-web 那侧需要:
-
-- `pnpm --filter @zn-ai/zai dev -- --lan` 启动,绑 0.0.0.0(zai 默认端口 9201 / MobileAgent 路由 8101)
-- zai 的 mobile Agent 路由 `/m`(`packages/zai/src/web/src/pages/MobileAgent.tsx`)
-- zai 的实例管理路由 `/instances`(`packages/zai/src/web/src/pages/Instances.tsx`) + `/api/instances` + `/api/fs/picker`
-- **运行时只剩 `repl` 一种形态**:opencc-web 阶段 3(2026-09-12)删除 `RuntimeCore` 类型 / `runtimeCore` 字段 / `--runtimeCore` CLI flag / `PUT /api/agent/settings/runtime-core` 端点;lan-agent 的 `InstanceRuntimeCore` 枚举已同步移除(见 `data/InstanceModels.kt` 历史字段说明)
-
-**两种启动 zai 的方式**:
-1. **桌面手动**:`pnpm --filter @zn-ai/zai dev -- --lan`(opencc-web 仓库内,会拉 monorepo deps)
-2. **SSH 一键**(lan-agent 的 0.7.x 功能):全局装 `zai` 二进制后,从手机 SSH 到 Mac 执行 `nohup zai --lan --port <zaiPort>`,cwd 无关,适用于 zai 没起来的场景
-
-opencc-web 仓库在 `/Users/ethan/code/opencc-web/`,详见 `opencc-web/AGENTS.md`。
+`pnpm --filter @zn-ai/zai dev -- --lan`(绑 0.0.0.0,9201 / MobileAgent 路由 8101)。移动 Agent 路由 `/m`;实例管理 `/instances` + `/api/instances` + `/api/fs/picker`。**运行时只剩 `repl` 一种形态**(阶段 3 删 `RuntimeCore` / `--runtimeCore` / `PUT /api/agent/settings/runtime-core`),lan-agent 的 `InstanceRuntimeCore` 同步移除。仓库 `/Users/ethan/code/opencc-web/`,详见 `opencc-web/AGENTS.md`。
 
 ## 版本 / 发布
 
-- 当前: **0.16.1** (versionCode 56) — `refactor(agent): 文件预览改成会话面板内右侧滑入的全屏 overlay(不再占路由),删 file-viewer 路由与 onOpenFile 参数链`
-- 上一版: **0.16.0** (versionCode 55) — `feat(agent): DisplayFiles 文件卡片 —— 图片内联缩略图 + 文件查看器(图片/HTML/文本/binary),见 §20`
-- 上一版: **0.15.2** (versionCode 54) — `feat(agent): 会话精简模式 —— 工具调用 + 思考聚合为一条,点开看全部`
-- 上一版: **0.15.1** (versionCode 53) — 会话信息面板「上下文 current / max」三路 SSE 取值(`runtime.started` / `runtime.done` / `session/projection`)
-- 上一版: **0.15.0** (versionCode 52) — `feat(tasks): 任务栏默认落点为原生 Agent 工作区 + 会话切换面板支持实例切换`
-- 上一版: **0.14.2** (versionCode 51) — `feat(nav): 底栏常驻(详情页也显示)+ 切栏恢复原状态`
-- 上一版: **0.14.1** (versionCode 50) — `style(icons): 全 App 图标统一 Icons.Rounded,底栏选中态改同形配色`
-- 上上版: **0.14.0** (versionCode 49) — `feat(nav): WorkBuddy 式底部五栏(任务/实例/SSH/服务/设置)+ 远程服务栏 + 主题切换`
-- 上一版: **0.13.0** (versionCode 48) — `feat(ssh): 交互式 PTY 终端(xterm.js)+ 快捷命令全局列表`
-- 再上一版: **0.12.1** (versionCode 47) — `feat(voice): 录音全屏动效 —— 绿浪涌起 + 实时音量波形`
-- 不发 release,只本地 debug APK
-- 每次改完手动 bump `versionCode` + `versionName`(`app/build.gradle.kts`),否则手机装上后版本号不变看不出是新版
-- 历史里程碑:`0.1.1` (WebView 基础) → `0.1.2/0.1.3/0.1.4` (WebView 边距/icon) → `0.6.0` (多实例管理 + 后台保活 + 文件上传) → `0.6.2` (portrait 锁定) → `0.7.0` (SSH 启动 zai) → `0.7.1` (`--runtime` 选项) → `0.7.2`(`kernel` → `runtimeCore` 重命名) → `0.7.3`(`runtimeCore` 加 `repl` 枚举值) → `0.8.0`(实例类型 `app` profile:标准 / 任务工厂 `task-factory`,对齐 opencc-web `InstanceDefinition.app`) → `0.8.1`(`InstanceAppProfile` 加 `Weixin` 防止反序列化崩溃 + 卡片 `WeixinTag`) → `0.9.0`(**原生 Agent 会话**:会话列表 + 会话详情,直连 `/api/agent/sessions` + `/api/event` SSE,支持发消息/中断/队列 steer/权限确认/问询/文档审核;实例卡加「会话」动作,动作行改可横滚) → `0.9.1`(修 `updatedAt` 浮点导致会话列表整页报错打不开;建 JVM 单测基建 `app/src/test/`) → `0.9.2`(**输入条对齐 WorkBuddy**:单胶囊三态(语音/文本/发送·停止·`+`)、系统 `SpeechRecognizer` 语音转文字、图片附件(Photo Picker → 重编码 JPEG → `contentBlocks`)、顶栏瘦身(刷新/分享收进副标题面板)、空态改大图标+文案) → `0.10.0`–`0.12.1`(WorkBuddy 视觉体系 / Markdown 渲染 / 原生 Agent 会话打磨 / ASR 语音输入两段式 + 录音动效) → `0.13.0`(**SSH 交互式终端**:xterm.js PTY 终端 + 命令/交互双模式 + 全局快捷命令列表) → `0.14.0`(**底部五栏导航**:任务(卡片入口 + 跨实例「进行中」聚合)/ 实例 / SSH / 服务(远程服务清单 + 探活)/ 设置(主题切换),`AppNavHost` 改 `tab/` 前缀路由) → `0.14.1`(全 App 图标统一 `Icons.Rounded`;底栏弃用"实心/描边"双图标,选中态改同形配色) → `0.14.2`(底栏常驻,详情页也显示并高亮所属栏;当前 tab 改显式状态,切栏靠 saveState/restoreState 原样恢复) → `0.15.0`(任务栏 = 原生 Agent 工作区 + 「选择实例」弹层) → `0.15.1`(会话信息面板的「上下文 current / max」) → `0.15.2`(**会话精简模式**:工具调用 + 期间思考折叠成一条「工具调用 · N 次」,点整行展开;设置栏可关)
-- 详细开发产物见 `docs/superpowers/specs/2026-08-24-lan-agent-android-app-design.md`(原 v0.1 spec)+ `docs/superpowers/plans/2026-08-24-lan-agent-android-app.md`(10-task 实现 plan)+ `docs/superpowers/specs/2026-09-14-workbuddy-api-token-applicability.md`(WorkBuddy accessToken 适用面调研,含真机探测矩阵)。**注意**:spec/plan 在 0.6.0 / 0.7.x 大幅扩展后已过期,但作为初始设计参考仍可读;后续新增功能没再写独立 spec/plan,只有 0.10.x 的 ASR 路线在 2026-09-14 这份调研里留下了 WorkBuddy 鉴权与端点适用面的最新事实底座。
+**当前**: 0.16.1 (56) — 文件预览 overlay。0.16.0 (55) DisplayFiles;0.15.2 (54) 会话精简模式;0.15.0 (52) 任务栏 = 原生 Agent 工作区;0.14.0 (49) 底部五栏。不发 release;详细历史见 git log。

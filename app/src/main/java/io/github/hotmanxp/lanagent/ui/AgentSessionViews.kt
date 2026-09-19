@@ -1604,14 +1604,15 @@ internal fun AgentInputBar(
                             )
                         }
 
-                        // chip 占中间剩余空间(fill = false:短模型名时不撑满,
-                        // 长名时靠 Row 内部的 weight 把右侧的 +/发送钮挡在外面,
-                        // 而不是反过来把发送钮挤扁)。
+                        // chip 撑满中间空间,把右侧 `+` 与发送钮顶到右边挨着。
+                        // 短模型名时空出来的水平由 chip 内部的 Text fill=true
+                        // 承载(左对齐 + 空白),长名时由 Text 的 weight + Ellipsis
+                        // 自动收尾,不会反过来挤扁右侧两个按钮。
                         ModelChip(
                             model = currentModel,
                             enabled = availableModels.isNotEmpty(),
                             onClick = { showModelPicker = true },
-                            modifier = Modifier.weight(1f, fill = false),
+                            modifier = Modifier.weight(1f, fill = true),
                         )
 
                         // `+` 与发送钮**并存**(WorkBuddy 行为)。附件/粘贴收进
@@ -1709,9 +1710,10 @@ internal fun AgentInputBar(
  * 是冗余的(provider 在 picker 分组时已经看过一次),纯 id 既短又能
  * 跟服务端 / log 对得上号。
  *
- * 外部传 `modifier = Modifier.weight(1f, fill = false)`,chip 内部不再
- * 限文本宽度 —— 由 Row 的 weight 自然提供 ellipsis 边界,避免把右侧
- * 的 + / 发送钮挤扁。
+ * 外部传 `modifier = Modifier.weight(1f, fill = true)`,让 chip 撑满
+ * 工具条中间剩余空间,把右侧的 `+` / 发送钮顶到右边挨着 —— 不然 chip
+ * 自然宽度时 `+` 与发送钮之间会留一段空。chip 内部 Text 也是
+ * `weight(1f, fill = true)`,长模型名走 ellipsis,短名左对齐 + 留白在右。
  *
  * `enabled = false`(拿不到模型列表)时整块变淡且不可点,避免点开一个空 picker。
  */
@@ -1741,13 +1743,17 @@ private fun ModelChip(
             tint = tint,
             modifier = Modifier.size(18.dp),
         )
+        // chip 外部是 fill=true 时,Text 内部也用 fill=true,
+        // 让模型名在 chip 内贴左展示 + 留白在右,长名时由 weight 把
+        // 宽度预算给 Text 后走 ellipsis 截断 —— 不会因为 chip 撑满了
+        // 整个中间就把文本挤到右边的 ⌄ 之外。
         Text(
             text = model?.model ?: stringResource(R.string.agent_input_model_short),
             fontSize = 14.sp,
             color = tint,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f, fill = false),
+            modifier = Modifier.weight(1f, fill = true),
         )
         Icon(
             imageVector = Icons.Rounded.KeyboardArrowDown,

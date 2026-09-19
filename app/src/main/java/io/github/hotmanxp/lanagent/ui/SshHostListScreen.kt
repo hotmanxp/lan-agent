@@ -14,13 +14,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Stop
+import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -111,7 +111,7 @@ fun SshHostListScreen(
                     if (onBack != null) {
                         IconButton(onClick = onBack) {
                             Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
                                 contentDescription = stringResource(R.string.webview_back_cd),
                             )
                         }
@@ -120,7 +120,7 @@ fun SshHostListScreen(
                 actions = {
                     IconButton(onClick = { adding = true }) {
                         Icon(
-                            imageVector = Icons.Default.Add,
+                            imageVector = Icons.Rounded.Add,
                             contentDescription = stringResource(R.string.ssh_add_cd),
                         )
                     }
@@ -247,7 +247,7 @@ private fun SshHostRow(
                 )
                 // 整卡可点(进终端)的可见提示 —— 只靠"能点"没人会去点。
                 Icon(
-                    imageVector = Icons.Default.Terminal,
+                    imageVector = Icons.Rounded.Terminal,
                     contentDescription = stringResource(R.string.ssh_terminal_cd_open),
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(18.dp),
@@ -271,25 +271,25 @@ private fun SshHostRow(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Button(onClick = onStart, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Default.PlayArrow, contentDescription = null)
+                    Icon(Icons.Rounded.PlayArrow, contentDescription = null)
                     androidx.compose.foundation.layout.Spacer(Modifier.padding(horizontal = 4.dp))
                     Text(stringResource(R.string.ssh_action_start))
                 }
                 IconButton(onClick = onStop) {
                     Icon(
-                        imageVector = Icons.Default.Stop,
+                        imageVector = Icons.Rounded.Stop,
                         contentDescription = stringResource(R.string.ssh_action_stop),
                     )
                 }
                 IconButton(onClick = onEdit) {
                     Icon(
-                        imageVector = Icons.Default.Edit,
+                        imageVector = Icons.Rounded.Edit,
                         contentDescription = stringResource(R.string.ssh_action_edit),
                     )
                 }
                 IconButton(onClick = onDelete) {
                     Icon(
-                        imageVector = Icons.Default.Delete,
+                        imageVector = Icons.Rounded.Delete,
                         contentDescription = stringResource(R.string.ssh_action_delete),
                         tint = MaterialTheme.colorScheme.error,
                     )

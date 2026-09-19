@@ -19,10 +19,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.RocketLaunch
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.RocketLaunch
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -205,7 +205,7 @@ fun InstancesScreen(
                     if (onBack != null) {
                         IconButton(onClick = onBack) {
                             Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
                                 contentDescription = stringResource(R.string.webview_back_cd),
                             )
                         }
@@ -221,13 +221,13 @@ fun InstancesScreen(
                         createOpen = true
                     }) {
                         Icon(
-                            imageVector = Icons.Default.RocketLaunch,
+                            imageVector = Icons.Rounded.RocketLaunch,
                             contentDescription = stringResource(R.string.instances_create_task_factory),
                         )
                     }
                     IconButton(onClick = { scope.launch { refresh() } }) {
                         Icon(
-                            imageVector = Icons.Default.Refresh,
+                            imageVector = Icons.Rounded.Refresh,
                             contentDescription = stringResource(R.string.instances_refresh),
                         )
                     }
@@ -242,7 +242,7 @@ fun InstancesScreen(
                     createInitialApp = null
                     createOpen = true
                 },
-                icon = { Icon(Icons.Default.Add, contentDescription = null) },
+                icon = { Icon(Icons.Rounded.Add, contentDescription = null) },
                 text = { Text(stringResource(R.string.instances_create)) },
             )
         },

@@ -49,13 +49,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.automirrored.filled.OpenInNew
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.rounded.OpenInNew
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.Menu
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -444,7 +444,7 @@ fun AgentSessionScreen(
                     Row {
                         IconButton(onClick = { scope.launch { drawerState.open() } }) {
                             Icon(
-                                imageVector = Icons.Default.Menu,
+                                imageVector = Icons.Rounded.Menu,
                                 contentDescription = stringResource(
                                     R.string.agent_session_open_sessions_cd
                                 ),
@@ -452,7 +452,7 @@ fun AgentSessionScreen(
                         }
                         IconButton(onClick = onBack) {
                             Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
                                 contentDescription = stringResource(R.string.webview_back_cd),
                             )
                         }
@@ -480,7 +480,7 @@ fun AgentSessionScreen(
                             horizontalArrangement = Arrangement.spacedBy(3.dp),
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Folder,
+                                imageVector = Icons.Rounded.Folder,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(13.dp),
@@ -494,7 +494,7 @@ fun AgentSessionScreen(
                                 modifier = Modifier.weight(1f, fill = false),
                             )
                             Icon(
-                                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
                                 contentDescription = stringResource(R.string.agent_session_info_title),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(14.dp),
@@ -508,7 +508,7 @@ fun AgentSessionScreen(
                     // createSession + 切 currentSid(in-place),不走 navigate。
                     IconButton(onClick = { startNewSession() }) {
                         Icon(
-                            imageVector = Icons.Default.Add,
+                            imageVector = Icons.Rounded.Add,
                             contentDescription = stringResource(R.string.agent_session_new_cd),
                         )
                     }
@@ -820,12 +820,12 @@ private fun SessionInfoSheet(
         Spacer(Modifier.height(4.dp))
 
         InfoActionRow(
-            icon = Icons.Default.Refresh,
+            icon = Icons.Rounded.Refresh,
             label = stringResource(R.string.agent_sessions_refresh),
             onClick = onRefresh,
         )
         InfoActionRow(
-            icon = Icons.AutoMirrored.Filled.OpenInNew,
+            icon = Icons.AutoMirrored.Rounded.OpenInNew,
             label = stringResource(R.string.agent_session_open_web),
             onClick = onOpenWeb,
         )

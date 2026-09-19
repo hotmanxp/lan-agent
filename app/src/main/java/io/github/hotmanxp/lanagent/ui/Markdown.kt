@@ -38,9 +38,9 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.RadioButtonUnchecked
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.RadioButtonUnchecked
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalTextStyle
@@ -491,9 +491,9 @@ private fun ListItemRow(
         when {
             item.checked != null -> Icon(
                 imageVector = if (item.checked) {
-                    Icons.Default.CheckCircle
+                    Icons.Rounded.CheckCircle
                 } else {
-                    Icons.Default.RadioButtonUnchecked
+                    Icons.Rounded.RadioButtonUnchecked
                 },
                 contentDescription = null,
                 tint = if (item.checked) {
@@ -632,7 +632,7 @@ internal fun CodeBox(body: String, lang: String? = null) {
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Icon(
-                            imageVector = Icons.Default.ContentCopy,
+                            imageVector = Icons.Rounded.ContentCopy,
                             contentDescription = "复制代码",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(12.dp),

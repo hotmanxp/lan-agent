@@ -47,20 +47,20 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowRight
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.AddPhotoAlternate
-import androidx.compose.material.icons.filled.ArrowUpward
-import androidx.compose.material.icons.filled.Build
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ContentPaste
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.GraphicEq
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.Psychology
-import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.automirrored.rounded.ArrowRight
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.AddPhotoAlternate
+import androidx.compose.material.icons.rounded.ArrowUpward
+import androidx.compose.material.icons.rounded.Build
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.ContentPaste
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.Psychology
+import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -296,7 +296,7 @@ private fun FullScreenImageViewer(
                     .navigationBarsPadding(),
             ) {
                 Icon(
-                    imageVector = Icons.Default.Close,
+                    imageVector = Icons.Rounded.Close,
                     contentDescription = stringResource(android.R.string.cancel),
                     tint = Color.White,
                 )
@@ -343,7 +343,7 @@ internal fun ThinkingBubble(item: AgentItem.Thinking) {
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 Icon(
-                    imageVector = Icons.Default.Psychology,
+                    imageVector = Icons.Rounded.Psychology,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(15.dp),
@@ -361,7 +361,7 @@ internal fun ThinkingBubble(item: AgentItem.Thinking) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                 )
                 Icon(
-                    imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(16.dp),
@@ -418,7 +418,7 @@ internal fun ToolCallCard(item: AgentItem.ToolCall) {
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Icon(
-                    imageVector = Icons.Default.Build,
+                    imageVector = Icons.Rounded.Build,
                     contentDescription = null,
                     tint = accent,
                     modifier = Modifier.size(16.dp),
@@ -445,7 +445,7 @@ internal fun ToolCallCard(item: AgentItem.ToolCall) {
                     )
                 }
                 Icon(
-                    imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(16.dp),
@@ -590,7 +590,7 @@ internal fun V2TaskStrip(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Icon(
-                    imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(16.dp),
@@ -605,7 +605,7 @@ internal fun V2TaskStrip(
                             modifier = Modifier.padding(vertical = 2.dp),
                         ) {
                             Icon(
-                                imageVector = if (isDone) Icons.Default.Check else Icons.AutoMirrored.Filled.ArrowRight,
+                                imageVector = if (isDone) Icons.Rounded.Check else Icons.AutoMirrored.Rounded.ArrowRight,
                                 contentDescription = null,
                                 tint = if (isDone) {
                                     MaterialTheme.colorScheme.primary
@@ -673,7 +673,7 @@ internal fun QueueStrip(
                     }
                     IconButton(onClick = { onCancel(q) }, modifier = Modifier.size(28.dp)) {
                         Icon(
-                            imageVector = Icons.Default.Close,
+                            imageVector = Icons.Rounded.Close,
                             contentDescription = "取消",
                             modifier = Modifier.size(14.dp),
                         )
@@ -766,7 +766,7 @@ private fun AskCard(
                             }
                             if (selected) {
                                 Icon(
-                                    imageVector = Icons.Default.Check,
+                                    imageVector = Icons.Rounded.Check,
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(15.dp),
@@ -1160,7 +1160,7 @@ internal fun AgentInputBar(
                         // 不依赖系统识别服务,国行无 Google 服务的 ROM 上也照常能用。
                         if (holdToTalk != null) {
                             InputBarIcon(
-                                icon = Icons.Default.GraphicEq,
+                                icon = Icons.Rounded.GraphicEq,
                                 contentDescription = stringResource(R.string.agent_input_voice),
                                 tint = if (voiceMode) {
                                     MaterialTheme.colorScheme.primary
@@ -1172,7 +1172,7 @@ internal fun AgentInputBar(
                             )
                         } else if (voice.available) {
                             InputBarIcon(
-                                icon = Icons.Default.GraphicEq,
+                                icon = Icons.Rounded.GraphicEq,
                                 contentDescription = stringResource(R.string.agent_input_voice),
                                 tint = if (voice.listening) {
                                     MaterialTheme.colorScheme.primary
@@ -1193,7 +1193,7 @@ internal fun AgentInputBar(
                         // `+` 与发送钮**并存**(WorkBuddy 行为)。附件/粘贴收进
                         // 这个面板,所以卡下方不再需要 icon row。
                         InputBarIcon(
-                            icon = Icons.Default.Add,
+                            icon = Icons.Rounded.Add,
                             contentDescription = stringResource(R.string.agent_input_more),
                             tint = MaterialTheme.colorScheme.onSurface,
                             onClick = { showMoreMenu = true },
@@ -1203,7 +1203,7 @@ internal fun AgentInputBar(
 
                         if (busy) {
                             InputBarCircle(
-                                icon = Icons.Default.Stop,
+                                icon = Icons.Rounded.Stop,
                                 contentDescription = stringResource(R.string.agent_input_stop),
                                 container = MaterialTheme.colorScheme.error,
                                 content = MaterialTheme.colorScheme.onError,
@@ -1212,7 +1212,7 @@ internal fun AgentInputBar(
                             )
                         } else {
                             InputBarCircle(
-                                icon = Icons.Default.ArrowUpward,
+                                icon = Icons.Rounded.ArrowUpward,
                                 contentDescription = stringResource(R.string.agent_input_send),
                                 container = MaterialTheme.colorScheme.primary,
                                 // 禁用态:浅灰底 + 白箭头(对齐 WorkBuddy 空输入时的样子)
@@ -1235,7 +1235,7 @@ internal fun AgentInputBar(
         ) {
             Column(modifier = Modifier.navigationBarsPadding()) {
                 InputSheetAction(
-                    icon = Icons.Default.AddPhotoAlternate,
+                    icon = Icons.Rounded.AddPhotoAlternate,
                     title = stringResource(R.string.agent_input_add_image),
                     subtitle = stringResource(R.string.agent_input_add_image_sub),
                     onClick = {
@@ -1244,7 +1244,7 @@ internal fun AgentInputBar(
                     },
                 )
                 InputSheetAction(
-                    icon = Icons.Default.ContentPaste,
+                    icon = Icons.Rounded.ContentPaste,
                     title = stringResource(R.string.agent_input_paste),
                     subtitle = stringResource(R.string.agent_input_paste_sub),
                     onClick = {
@@ -1305,7 +1305,7 @@ private fun ModelChip(
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Icon(
-            imageVector = Icons.Default.Psychology,
+            imageVector = Icons.Rounded.Psychology,
             contentDescription = null,
             tint = tint,
             modifier = Modifier.size(18.dp),
@@ -1319,7 +1319,7 @@ private fun ModelChip(
             modifier = Modifier.widthIn(max = 116.dp),
         )
         Icon(
-            imageVector = Icons.Default.KeyboardArrowDown,
+            imageVector = Icons.Rounded.KeyboardArrowDown,
             contentDescription = null,
             tint = tint,
             modifier = Modifier.size(16.dp),
@@ -1379,7 +1379,7 @@ private fun ModelPickerSheetContent(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Psychology,
+                        imageVector = Icons.Rounded.Psychology,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(20.dp),
@@ -1405,7 +1405,7 @@ private fun ModelPickerSheetContent(
                     }
                     if (isCurrent) {
                         Icon(
-                            imageVector = Icons.Default.Check,
+                            imageVector = Icons.Rounded.Check,
                             contentDescription = stringResource(R.string.agent_input_model_current),
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(20.dp),
@@ -1533,7 +1533,7 @@ private fun AttachmentChip(image: AttachedImage, onRemove: () -> Unit) {
             contentAlignment = Alignment.Center,
         ) {
             Icon(
-                imageVector = Icons.Default.Close,
+                imageVector = Icons.Rounded.Close,
                 contentDescription = stringResource(R.string.agent_input_remove_attachment),
                 tint = MaterialTheme.colorScheme.surface,
                 modifier = Modifier.size(14.dp),

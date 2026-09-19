@@ -28,12 +28,12 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Bolt
-import androidx.compose.material.icons.filled.DeleteSweep
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Bolt
+import androidx.compose.material.icons.rounded.DeleteSweep
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Stop
+import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
@@ -172,7 +172,7 @@ private fun SshTerminalContent(host: SshHost, onBack: () -> Unit) {
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
                             contentDescription = stringResource(R.string.webview_back_cd),
                         )
                     }
@@ -185,7 +185,7 @@ private fun SshTerminalContent(host: SshHost, onBack: () -> Unit) {
                         },
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Terminal,
+                            imageVector = Icons.Rounded.Terminal,
                             contentDescription = stringResource(
                                 if (store.interactive) R.string.ssh_terminal_cd_to_command
                                 else R.string.ssh_terminal_cd_to_interactive
@@ -196,7 +196,7 @@ private fun SshTerminalContent(host: SshHost, onBack: () -> Unit) {
                     }
                     IconButton(onClick = { manageOpen = true }) {
                         Icon(
-                            imageVector = Icons.Default.Bolt,
+                            imageVector = Icons.Rounded.Bolt,
                             contentDescription = stringResource(R.string.ssh_quick_manage_title),
                         )
                     }
@@ -207,7 +207,7 @@ private fun SshTerminalContent(host: SshHost, onBack: () -> Unit) {
                         },
                     ) {
                         Icon(
-                            imageVector = Icons.Default.DeleteSweep,
+                            imageVector = Icons.Rounded.DeleteSweep,
                             contentDescription = stringResource(R.string.ssh_terminal_cd_clear),
                         )
                     }
@@ -541,7 +541,7 @@ private fun QuickCommandStrip(
                 leadingIcon = if (qc.confirm) {
                     {
                         Icon(
-                            imageVector = Icons.Default.Bolt,
+                            imageVector = Icons.Rounded.Bolt,
                             contentDescription = stringResource(R.string.ssh_quick_cd_confirm),
                             modifier = Modifier.size(14.dp),
                             tint = MaterialTheme.colorScheme.tertiary,
@@ -563,7 +563,7 @@ private fun QuickCommandStrip(
             },
             leadingIcon = {
                 Icon(
-                    imageVector = Icons.Default.Bolt,
+                    imageVector = Icons.Rounded.Bolt,
                     contentDescription = null,
                     modifier = Modifier.size(16.dp),
                     tint = MaterialTheme.colorScheme.primary,
@@ -635,7 +635,7 @@ private fun CommandInputRow(
                 )
             }
             CircleButton(
-                icon = if (running && showStop) Icons.Default.Stop else Icons.Default.PlayArrow,
+                icon = if (running && showStop) Icons.Rounded.Stop else Icons.Rounded.PlayArrow,
                 contentDescription = stringResource(
                     if (running && showStop) R.string.ssh_terminal_stop else R.string.ssh_terminal_send_line
                 ),

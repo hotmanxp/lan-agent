@@ -32,11 +32,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Language
-import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Language
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -128,7 +128,7 @@ fun RemoteServicesScreen(
                 actions = {
                     IconButton(onClick = { adding = true }) {
                         Icon(
-                            imageVector = Icons.Default.Add,
+                            imageVector = Icons.Rounded.Add,
                             contentDescription = stringResource(R.string.svc_add_cd),
                         )
                     }
@@ -272,7 +272,7 @@ private fun RemoteServiceRow(
             ) {
                 TextButton(onClick = onOpen) {
                     Icon(
-                        imageVector = Icons.Default.Language,
+                        imageVector = Icons.Rounded.Language,
                         contentDescription = null,
                         modifier = Modifier.size(16.dp),
                     )
@@ -282,14 +282,14 @@ private fun RemoteServiceRow(
                 Spacer(Modifier.weight(1f))
                 IconButton(onClick = onEdit) {
                     Icon(
-                        imageVector = Icons.Default.Edit,
+                        imageVector = Icons.Rounded.Edit,
                         contentDescription = stringResource(R.string.svc_action_edit),
                         modifier = Modifier.size(18.dp),
                     )
                 }
                 IconButton(onClick = onDelete) {
                     Icon(
-                        imageVector = Icons.Default.Delete,
+                        imageVector = Icons.Rounded.Delete,
                         contentDescription = stringResource(R.string.svc_action_delete),
                         tint = MaterialTheme.colorScheme.error,
                         modifier = Modifier.size(18.dp),

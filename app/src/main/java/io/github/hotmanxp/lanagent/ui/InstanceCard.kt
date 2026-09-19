@@ -33,17 +33,17 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Chat
-import androidx.compose.material.icons.automirrored.filled.OpenInNew
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.Memory
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material.icons.filled.Storage
-import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.automirrored.rounded.Chat
+import androidx.compose.material.icons.automirrored.rounded.OpenInNew
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.Memory
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.Storage
+import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -325,12 +325,12 @@ fun InstanceCard(
                 InfoGrid(
                     cells = listOf(
                         InfoCellSpec(
-                            icon = Icons.Filled.Storage,
+                            icon = Icons.Rounded.Storage,
                             label = stringResource(R.string.instances_field_port),
                             value = { TextValue(inst.port?.toString() ?: "-") },
                         ),
                         InfoCellSpec(
-                            icon = Icons.Filled.Schedule,
+                            icon = Icons.Rounded.Schedule,
                             label = stringResource(R.string.instances_field_runtime),
                             value = {
                                 TextValue(
@@ -341,28 +341,28 @@ fun InstanceCard(
                             },
                         ),
                         InfoCellSpec(
-                            icon = Icons.Filled.Favorite,
+                            icon = Icons.Rounded.Favorite,
                             label = stringResource(R.string.instances_field_last_heartbeat),
                             value = { TextValue(formatRelativeAgo(inst.lastHeartbeatAt, now)) },
                         ),
                         InfoCellSpec(
-                            icon = Icons.Filled.Folder,
+                            icon = Icons.Rounded.Folder,
                             label = stringResource(R.string.instances_field_cwd),
                             value = { TextValue(inst.cwd, mono = true) },
                             wide = true,
                         ),
                         InfoCellSpec(
-                            icon = Icons.Filled.Memory,
+                            icon = Icons.Rounded.Memory,
                             label = stringResource(R.string.instances_field_pid),
                             value = { TextValue(inst.pid?.toString() ?: "-") },
                         ),
                         InfoCellSpec(
-                            icon = Icons.Filled.Schedule,
+                            icon = Icons.Rounded.Schedule,
                             label = stringResource(R.string.instances_field_started_at),
                             value = { TextValue(formatTimestamp(inst.startedAt, now)) },
                         ),
                         InfoCellSpec(
-                            icon = Icons.Filled.Schedule,
+                            icon = Icons.Rounded.Schedule,
                             label = stringResource(R.string.instances_field_created_at),
                             value = { TextValue(formatTimestamp(inst.createdAt, now)) },
                         ),
@@ -401,25 +401,25 @@ fun InstanceCard(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     ActionIconBtn(
-                        icon = Icons.Filled.PlayArrow,
+                        icon = Icons.Rounded.PlayArrow,
                         label = stringResource(R.string.instances_action_start),
                         enabled = canStart,
                         onClick = { onAction(Action.Start) },
                     )
                     ActionIconBtn(
-                        icon = Icons.Filled.Stop,
+                        icon = Icons.Rounded.Stop,
                         label = stringResource(R.string.instances_action_stop),
                         enabled = canStop,
                         onClick = { onAction(Action.Stop) },
                     )
                     ActionIconBtn(
-                        icon = Icons.Filled.Refresh,
+                        icon = Icons.Rounded.Refresh,
                         label = stringResource(R.string.instances_action_restart),
                         enabled = canRestart,
                         onClick = { onAction(Action.Restart) },
                     )
                     ActionIconBtn(
-                        icon = Icons.Filled.Delete,
+                        icon = Icons.Rounded.Delete,
                         label = stringResource(R.string.instances_action_delete),
                         enabled = canDelete,
                         destructive = true,
@@ -430,7 +430,7 @@ fun InstanceCard(
                     // 本身,只要它 --lan 起了)也能看。
                     if (inst.port != null) {
                         ActionIconBtn(
-                            icon = Icons.AutoMirrored.Filled.Chat,
+                            icon = Icons.AutoMirrored.Rounded.Chat,
                             label = stringResource(R.string.instances_action_sessions),
                             enabled = true,
                             onClick = { onAction(Action.Sessions) },
@@ -438,7 +438,7 @@ fun InstanceCard(
                     }
                     if (showOpen) {
                         ActionIconBtn(
-                            icon = Icons.AutoMirrored.Filled.OpenInNew,
+                            icon = Icons.AutoMirrored.Rounded.OpenInNew,
                             label = stringResource(R.string.instances_action_open),
                             enabled = true,
                             onClick = { onAction(Action.Open) },

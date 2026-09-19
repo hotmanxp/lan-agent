@@ -16,12 +16,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowDownward
-import androidx.compose.material.icons.filled.ArrowUpward
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.ArrowDownward
+import androidx.compose.material.icons.rounded.ArrowUpward
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -131,7 +131,7 @@ internal fun QuickCommandsSheet(
                 onClick = { adding = true },
                 modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
             ) {
-                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.size(6.dp))
                 Text(stringResource(R.string.ssh_quick_add))
             }
@@ -237,7 +237,7 @@ private fun QuickCommandRow(
                 }
                 IconButton(onClick = onRun, modifier = Modifier.size(36.dp)) {
                     Icon(
-                        imageVector = Icons.Default.PlayArrow,
+                        imageVector = Icons.Rounded.PlayArrow,
                         contentDescription = stringResource(R.string.ssh_quick_run),
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(20.dp),
@@ -250,25 +250,25 @@ private fun QuickCommandRow(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 MiniIconAction(
-                    icon = Icons.Default.ArrowUpward,
+                    icon = Icons.Rounded.ArrowUpward,
                     contentDescription = stringResource(R.string.ssh_quick_move_up),
                     enabled = canMoveUp,
                     onClick = onMoveUp,
                 )
                 MiniIconAction(
-                    icon = Icons.Default.ArrowDownward,
+                    icon = Icons.Rounded.ArrowDownward,
                     contentDescription = stringResource(R.string.ssh_quick_move_down),
                     enabled = canMoveDown,
                     onClick = onMoveDown,
                 )
                 MiniIconAction(
-                    icon = Icons.Default.Edit,
+                    icon = Icons.Rounded.Edit,
                     contentDescription = stringResource(R.string.ssh_action_edit),
                     enabled = true,
                     onClick = onEdit,
                 )
                 MiniIconAction(
-                    icon = Icons.Default.Delete,
+                    icon = Icons.Rounded.Delete,
                     contentDescription = stringResource(R.string.ssh_action_delete),
                     enabled = true,
                     tint = MaterialTheme.colorScheme.error,

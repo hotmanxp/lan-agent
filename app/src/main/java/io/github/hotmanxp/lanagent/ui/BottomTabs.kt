@@ -3,10 +3,15 @@
 // 与 Material3 `NavigationBar` 的差异(照 WorkBuddy 截图逐项对的):
 //   1. **高度收窄**:M3 默认 80dp + 图标底下一堆留白,WorkBuddy 是 ~56dp
 //      紧凑条 —— 手机端这条栏每年被看几万次,多 20dp 都是从内容里抢的。
-//   2. **选中态用「实心图标 + 深色文字」**表达,不用 M3 的 indicator 药丸
+//   2. **选中态用「深色图标 + 深色文字」**表达,不用 M3 的 indicator 药丸
 //      (`NavigationBarItem` 那颗灰底胶囊在浅色主题下很抢眼,和 WorkBuddy
 //      的克制风格不搭)。
-//   3. **未选中态是描边图标**,所以每个 tab 需要给两套 ImageVector。
+//   3. **图标一律 `Icons.Rounded`**(Material Symbols Rounded 那一套):
+//      转角和笔画端点全圆。最早这里是 Filled + Outlined 两套,23dp 下
+//      描边版的直角太重、不像 WorkBuddy —— 现在整个 App 都统一到 Rounded,
+//      底栏因此不再需要"实心 / 描边"两套 ImageVector:选中态完全由
+//      **颜色 + 字重**区分。顺带解决一个体感问题:换形状会让选中瞬间
+//      "跳"一下,同形状只变色就平滑。
 //   4. 顶部一条 0.5dp hairline —— WorkBuddy 底栏和内容之间靠这根线分隔,
 //      而不是靠阴影。
 //
@@ -29,16 +34,11 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Chat
-import androidx.compose.material.icons.automirrored.outlined.Chat
-import androidx.compose.material.icons.filled.Dns
-import androidx.compose.material.icons.filled.Hub
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Terminal
-import androidx.compose.material.icons.outlined.Dns
-import androidx.compose.material.icons.outlined.Hub
-import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.Terminal
+import androidx.compose.material.icons.automirrored.rounded.Chat
+import androidx.compose.material.icons.rounded.Dns
+import androidx.compose.material.icons.rounded.Hub
+import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -48,6 +48,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -57,7 +58,7 @@ import androidx.compose.ui.unit.sp
 import io.github.hotmanxp.lanagent.R
 
 /**
- * 五个 tab 的单一事实来源:路由、显示名、选中/未选中图标都在这。
+ * 五个 tab 的单一事实来源:路由、显示名、图标都在这。
  *
  * 路由统一 `tab/` 前缀 —— 底栏是否显示就是「当前路由能否 [fromRoute] 出来」,
  * 不需要在每个详情页里手写「我要隐藏底栏」的标记。
@@ -65,38 +66,32 @@ import io.github.hotmanxp.lanagent.R
 enum class TabDestination(
     val route: String,
     @StringRes val labelRes: Int,
-    val selectedIcon: ImageVector,
-    val unselectedIcon: ImageVector,
+    val icon: ImageVector,
 ) {
     Tasks(
         route = "tab/tasks",
         labelRes = R.string.tab_tasks,
-        selectedIcon = Icons.AutoMirrored.Filled.Chat,
-        unselectedIcon = Icons.AutoMirrored.Outlined.Chat,
+        icon = Icons.AutoMirrored.Rounded.Chat,
     ),
     Instances(
         route = "tab/instances",
         labelRes = R.string.tab_instances,
-        selectedIcon = Icons.Filled.Dns,
-        unselectedIcon = Icons.Outlined.Dns,
+        icon = Icons.Rounded.Dns,
     ),
     Ssh(
         route = "tab/ssh",
         labelRes = R.string.tab_ssh,
-        selectedIcon = Icons.Filled.Terminal,
-        unselectedIcon = Icons.Outlined.Terminal,
+        icon = Icons.Rounded.Terminal,
     ),
     Services(
         route = "tab/services",
         labelRes = R.string.tab_services,
-        selectedIcon = Icons.Filled.Hub,
-        unselectedIcon = Icons.Outlined.Hub,
+        icon = Icons.Rounded.Hub,
     ),
     Settings(
         route = "tab/settings",
         labelRes = R.string.tab_settings,
-        selectedIcon = Icons.Filled.Settings,
-        unselectedIcon = Icons.Outlined.Settings,
+        icon = Icons.Rounded.Settings,
     ),
     ;
 
@@ -106,6 +101,12 @@ enum class TabDestination(
             entries.firstOrNull { it.route == route }
     }
 }
+
+/**
+ * 未选中态的图标不透明度。低于 1 是为了让"没选中"更轻 —— 颜色本身
+ * (onSurfaceVariant vs onSurface)在深色主题下差异偏小,补一点透明度更稳。
+ */
+private const val INACTIVE_ICON_ALPHA = 0.78f
 
 /** 底栏本体。`current` 为 null 时不渲染(详情页直接不显示)。 */
 @Composable
@@ -173,10 +174,15 @@ private fun WbBottomBarItem(
         verticalArrangement = Arrangement.Center,
     ) {
         Icon(
-            imageVector = if (selected) tab.selectedIcon else tab.unselectedIcon,
+            imageVector = tab.icon,
             contentDescription = stringResource(tab.labelRes),
             tint = tint,
-            modifier = Modifier.size(23.dp),
+            // 选中态满不透明,未选中略淡。
+            // 注意:这里的 material3 `Icon` 没有 `alpha` 参数(只有 bitmap/painter
+            // 重载带),所以只能走 Modifier。
+            modifier = Modifier
+                .alpha(if (selected) 1f else INACTIVE_ICON_ALPHA)
+                .size(23.dp),
         )
         Spacer(Modifier.height(3.dp))
         Text(

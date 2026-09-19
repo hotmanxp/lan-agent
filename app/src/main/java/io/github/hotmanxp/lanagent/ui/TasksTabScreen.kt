@@ -39,14 +39,14 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Chat
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Language
-import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.QrCodeScanner
+import androidx.compose.material.icons.automirrored.rounded.Chat
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Language
+import androidx.compose.material.icons.rounded.Menu
+import androidx.compose.material.icons.rounded.QrCodeScanner
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -201,26 +201,26 @@ fun TasksTabScreen(
                     if (editMode) {
                         IconButton(onClick = { editMode = false }) {
                             Icon(
-                                imageVector = Icons.Default.Check,
+                                imageVector = Icons.Rounded.Check,
                                 contentDescription = stringResource(R.string.home_done_cd)
                             )
                         }
                     } else {
                         IconButton(onClick = onScanClick) {
                             Icon(
-                                imageVector = Icons.Default.QrCodeScanner,
+                                imageVector = Icons.Rounded.QrCodeScanner,
                                 contentDescription = stringResource(R.string.home_scan_cd)
                             )
                         }
                         IconButton(onClick = { editMode = true }) {
                             Icon(
-                                imageVector = Icons.Default.Edit,
+                                imageVector = Icons.Rounded.Edit,
                                 contentDescription = stringResource(R.string.home_edit_mode_cd)
                             )
                         }
                         IconButton(onClick = { showAddDialog = true }) {
                             Icon(
-                                imageVector = Icons.Default.Add,
+                                imageVector = Icons.Rounded.Add,
                                 contentDescription = stringResource(R.string.home_add_cd)
                             )
                         }
@@ -535,13 +535,13 @@ private fun DraggableCardItem(
             if (editMode) {
                 IconButton(onClick = onDelete) {
                     Icon(
-                        imageVector = Icons.Default.Delete,
+                        imageVector = Icons.Rounded.Delete,
                         contentDescription = stringResource(R.string.home_delete_cd),
                         tint = MaterialTheme.colorScheme.error
                     )
                 }
                 Icon(
-                    imageVector = Icons.Default.Menu,
+                    imageVector = Icons.Rounded.Menu,
                     contentDescription = stringResource(R.string.home_drag_cd),
                     modifier = Modifier.padding(start = 4.dp)
                 )
@@ -549,14 +549,14 @@ private fun DraggableCardItem(
                 if (hasNative) {
                     IconButton(onClick = onNativeClick) {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Filled.Chat,
+                            imageVector = Icons.AutoMirrored.Rounded.Chat,
                             contentDescription = stringResource(R.string.home_card_native_cd),
                             tint = MaterialTheme.colorScheme.primary,
                         )
                     }
                     IconButton(onClick = onWebClick) {
                         Icon(
-                            imageVector = Icons.Default.Language,
+                            imageVector = Icons.Rounded.Language,
                             contentDescription = stringResource(R.string.home_card_web_cd),
                         )
                     }

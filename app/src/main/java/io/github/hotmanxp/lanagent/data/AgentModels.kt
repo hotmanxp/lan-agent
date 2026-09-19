@@ -455,8 +455,8 @@ fun JsonElement.toolResultText(): String {
 
 /**
  * 单条模型配置。字段名对齐 opencc-web `packages/zai/src/shared/settings.ts`
- * 的 `ModelEntry` 接口(providerId / model / alias / label / description),
- * 缺的字段(`baseUrl` / `capabilities`)本端暂用不上,按需扩展。
+ * 的 `ModelEntry` 接口(providerId / model / alias / label / description /
+ * capabilities),只把手机端会消费的子集挑进来。
  *
  * 同一 `model` 名出现在多个 provider profile 时,**`(providerId, model)` 元组**
  * 才是 picker 的真正唯一键(`ModelEntry.providerId` 文档),picker 渲染
@@ -472,6 +472,32 @@ data class ModelEntry(
     val label: String? = null,
     val description: String? = null,
     val providerId: String? = null,
+    /**
+     * 单模型能力元数据(0.15.1 引入)。对齐 opencc-web
+     * `packages/zai/src/shared/settings.ts` 的 `ModelCapabilities` 接口 —
+     * 当前只用 `contextWindow`(显示「上下文: current / max」,见
+     * web 端 `ConversationInfoCard`);其余能力位暂不消费,字段先暴露出来
+     * 避免以后每加一个就再改一次 schema。
+     */
+    val capabilities: ModelCapabilities? = null,
+)
+
+/**
+ * 单模型能力(对齐 `opencc-web shared/settings.ts` 的 `ModelCapabilities`)。
+ *
+ * 所有字段全部 optional + 默认 null:服务端不一定每个 model 都填全,
+ * 而且我们这边只想展示 context window。`contextWindow` 单位是 tokens,
+ * 展示时按 K 收口(< 1000 保留原文)。
+ */
+@Serializable
+data class ModelCapabilities(
+    val contextWindow: Int? = null,
+    val maxOutputTokens: Int? = null,
+    val supportsVision: Boolean? = null,
+    val supportsFunctionCalling: Boolean? = null,
+    val supportsReasoning: Boolean? = null,
+    val supportsJsonMode: Boolean? = null,
+    val supportsStreaming: Boolean? = null,
 )
 
 /**

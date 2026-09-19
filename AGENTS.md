@@ -18,7 +18,9 @@
 >
 > **0.15.0** 任务栏改成**直接就是原生 Agent 工作区**:打开 App 落在「最近连接的 opencc 实例 + 它最近一条会话」,那个实例下线了就落到第一个在线的实例。会话切换面板(左侧抽屉)顶部加「实例行」→ 点开「选择实例」底部弹层(形态照 WorkBuddy 手机端的「选择设备」,语义换成实例,见 §18)。原任务栏的入口卡片列表 + 扫码搬到**设置栏**,「进行中」跨实例聚合不再有 UI 入口(数据层 `data/ActiveTasks.kt` 保留)。
 >
-> **当前 HEAD**: HEAD on `main` · **versionCode 52** · **versionName 0.15.0**
+> **0.15.2** 会话加**精简模式**(设置栏开关,**默认开**):一段连续的工作(工具调用 + 夹在中间的思考过程)默认压成**一条**「工具调用 · N 次」,点整行才铺开成工具卡 / 思考卡(见 §19)。关掉即退回逐条工具卡。
+>
+> **当前 HEAD**: HEAD on `main` · **versionCode 54** · **versionName 0.15.2**
 
 ## 仓库用途
 
@@ -127,7 +129,7 @@ lan-agent/
             │   ├── AgentSessionsScreen.kt  # 原生会话列表(5s 轮询 + 新建会话)
             │   ├── AgentSessionScreen.kt   # Agent 工作区(`AgentSessionPane`):实例解析/切换 + 会话切换面板 + transcript/SSE;(`AgentSessionScreen`)详情路由薄包装
             │   ├── AgentSessionStore.kt    # 会话状态机:transcript 归一化 + SSE 事件 reduce → AgentItem 列表
-            │   ├── AgentSessionViews.kt    # 消息渲染组件(用户气泡/助手正文/思考折叠/工具卡/ask·permission·approve 卡/双行白卡输入条)
+            │   ├── AgentSessionViews.kt    # 消息渲染组件(用户气泡/助手正文/思考折叠/工具卡/**聚合工具卡 ToolGroupCard**/ask·permission·approve 卡/双行白卡输入条)
             │   └── VoiceInput.kt           # 语音转文字(平台 SpeechRecognizer + 权限申请 + 部分结果回填)
             ├── data/
             │   ├── Cards.kt           # 5 张 hardcode 默认卡片 + findManagerBaseUrl
@@ -638,6 +640,32 @@ WorkBuddy 手机端采样结果：气泡底 **`#E2E4E3`**（中性灰）、正�
 - **入口卡片列表 + 扫码** → `ui/CardListSection.kt`,挂在设置栏。它仍是 `findManagerBaseUrl` 与「兜底实例目录」的数据源,不能删;降级成低频管理面(增删改 / 拖拽 / 双按钮 / 扫码一个没少)。自包含:自己读 DataStore、自己管编辑态、自己弹对话框,外层只需给三个导航动作 + 一个 `SnackbarHostState`。**不用 LazyColumn**(它已经在设置栏的 LazyColumn 里,嵌套同向滚动会打架),卡片是个位数直接 `forEachIndexed` 铺开。
 - **「进行中」跨实例聚合**(`data/ActiveTasks.kt` + `ActiveTasksCache`)→ **不再有 UI 入口**。任务栏现在按实例分家,抽屉里的会话列表自带相对时间与模型标签,跨实例那层聚合失去了位置。文件保留(扇出 + 超时 + 进程内缓存那套逻辑经过验证,删了可惜),但没有任何屏引用它 —— 需要的话可以直接接回某个 tab。
 
+### 19. 会话精简模式(0.15.2)
+
+**为什么**:一个跑顺的回合里,Agent 会连着甩出七八次工具调用(`mcp__cua-driver__click` × 7 这种),每张工具卡都是「图标 + 名字 + 完成 + ⌄」的一整块白卡,一屏滚下去全是重复的行,正文被冲得看不见。精简模式把「一段工作」压成**一条**,想看细节再点开。
+
+**开关**:设置栏 → 会话 → 「工具调用精简模式」,**默认开**。落盘在 `data/UiPrefsRepository.kt` 的 `compact_tools`(`booleanPreferencesKey`,未设置过 = `true`);会话页用 `context.compactToolsFlow().collectAsState(initial = true)` 读,所以**改完立刻生效,不需要重新 hydrate** —— 它只影响渲染粒度。
+
+**分组规则**(`buildAgentBlocks`,纯函数,住在 `ui/AgentSessionStore.kt`):
+
+- 一段 = **连续的工作**,成员是 [工具调用] 与 [思考过程];
+- **思考过程不打断段落**(定稿):编码会话里最常见的形态是「Bash → 思考 → Bash → 思考」,若按严格连续工具分组,整屏还是单张工具卡,聚合形同没做。真机实测:`lan-agent` 那种 7 连击会聚合,而普通编码会话几乎不聚合;
+- 段内**工具数 >= 2** 才聚合;只有一次工具调用时保持原样 —— 它本来就是一张卡,再套一层聚合行只是让用户多点一次;
+- **正文 / 用户消息 / 提示条会断开段落** —— 助手开始说话或用户插话,就该断;
+- 关掉开关 = 全部退化成单条块,即改动前的逐条渲染。
+
+**渲染**(`ui/AgentSessionViews.kt` 的 `ToolGroupCard`):
+
+- 折叠态**一行**:`⚒ 工具调用 · N 次` / 副行名字汇总(`Edit ×4 · Bash ×3`,同名校验按首次出现顺序合并、只在 >1 时加 `×N`) / 右侧状态(运行中转圈 = `tertiary` 暖橙、有失败 = `error` 红 + `N 失败` chip、否则 `完成`)/ `⌄`;
+- **点整行**展开与收起(不做下拉手势:会话流本身是可滚列表,下拉要跟 LazyColumn 抢纵向手势,还不好发现)。展开后按 transcript **原顺序**铺开工具卡与思考卡 —— 两级折叠,单张卡再点开才看入参/输出;
+- 展开状态 `remember(groupKey)`,key 取**段内首条成员**的 key,所以段落边跑边增长时 key 不变:流式追加不会把已展开的段合并回去(真机验证过:展开着的一段落从 6 次长到 8 次,展开态与滚动位置都稳)。
+
+**实现上的两个要点**:
+
+1. **块存下标,不存快照**。`AgentBlock.ToolGroup(indices)` / `Single(index)` 只记 items 下标,渲染时 `items[index]` 读实时值 —— 工具输出是原地替换(`applyToolResult` 的 `items[idx] = cur.copy(...)`),存快照会渲染出过期内容。
+2. **`remember(items.size, compact)` 缓存是有意的**。items 只会 append,原地更新全是**同类替换**(见 `appendText` / `applyToolResult` / `upsertToolCall`),所以「下标 → 类型」的映射只在条数变化时才变。渲染侧再兜一层 `getOrNull` + `filterIsInstance`,任何情况下都不会把正文画进工具段。
+3. **自动滚动的 key 也从「条数」换成「块数」**:段落继续吞新工具时块数不变(视口不用动),新开一段才把视口拉回底部。
+
 ## 强制开发规则
 
 
@@ -755,12 +783,15 @@ opencc-web 仓库在 `/Users/ethan/code/opencc-web/`,详见 `opencc-web/AGENTS.m
 
 ## 版本 / 发布
 
-- 当前: **0.14.2** (versionCode 51) — `feat(nav): 底栏常驻(详情页也显示)+ 切栏恢复原状态`
+- 当前: **0.15.2** (versionCode 54) — `feat(agent): 会话精简模式 —— 工具调用 + 思考聚合为一条,点开看全部`
+- 上一版: **0.15.1** (versionCode 53) — 会话信息面板「上下文 current / max」三路 SSE 取值(`runtime.started` / `runtime.done` / `session/projection`)
+- 上一版: **0.15.0** (versionCode 52) — `feat(tasks): 任务栏默认落点为原生 Agent 工作区 + 会话切换面板支持实例切换`
+- 上一版: **0.14.2** (versionCode 51) — `feat(nav): 底栏常驻(详情页也显示)+ 切栏恢复原状态`
 - 上一版: **0.14.1** (versionCode 50) — `style(icons): 全 App 图标统一 Icons.Rounded,底栏选中态改同形配色`
 - 上上版: **0.14.0** (versionCode 49) — `feat(nav): WorkBuddy 式底部五栏(任务/实例/SSH/服务/设置)+ 远程服务栏 + 主题切换`
 - 上一版: **0.13.0** (versionCode 48) — `feat(ssh): 交互式 PTY 终端(xterm.js)+ 快捷命令全局列表`
 - 再上一版: **0.12.1** (versionCode 47) — `feat(voice): 录音全屏动效 —— 绿浪涌起 + 实时音量波形`
 - 不发 release,只本地 debug APK
 - 每次改完手动 bump `versionCode` + `versionName`(`app/build.gradle.kts`),否则手机装上后版本号不变看不出是新版
-- 历史里程碑:`0.1.1` (WebView 基础) → `0.1.2/0.1.3/0.1.4` (WebView 边距/icon) → `0.6.0` (多实例管理 + 后台保活 + 文件上传) → `0.6.2` (portrait 锁定) → `0.7.0` (SSH 启动 zai) → `0.7.1` (`--runtime` 选项) → `0.7.2`(`kernel` → `runtimeCore` 重命名) → `0.7.3`(`runtimeCore` 加 `repl` 枚举值) → `0.8.0`(实例类型 `app` profile:标准 / 任务工厂 `task-factory`,对齐 opencc-web `InstanceDefinition.app`) → `0.8.1`(`InstanceAppProfile` 加 `Weixin` 防止反序列化崩溃 + 卡片 `WeixinTag`) → `0.9.0`(**原生 Agent 会话**:会话列表 + 会话详情,直连 `/api/agent/sessions` + `/api/event` SSE,支持发消息/中断/队列 steer/权限确认/问询/文档审核;实例卡加「会话」动作,动作行改可横滚) → `0.9.1`(修 `updatedAt` 浮点导致会话列表整页报错打不开;建 JVM 单测基建 `app/src/test/`) → `0.9.2`(**输入条对齐 WorkBuddy**:单胶囊三态(语音/文本/发送·停止·`+`)、系统 `SpeechRecognizer` 语音转文字、图片附件(Photo Picker → 重编码 JPEG → `contentBlocks`)、顶栏瘦身(刷新/分享收进副标题面板)、空态改大图标+文案) → `0.10.0`–`0.12.1`(WorkBuddy 视觉体系 / Markdown 渲染 / 原生 Agent 会话打磨 / ASR 语音输入两段式 + 录音动效) → `0.13.0`(**SSH 交互式终端**:xterm.js PTY 终端 + 命令/交互双模式 + 全局快捷命令列表) → `0.14.0`(**底部五栏导航**:任务(卡片入口 + 跨实例「进行中」聚合)/ 实例 / SSH / 服务(远程服务清单 + 探活)/ 设置(主题切换),`AppNavHost` 改 `tab/` 前缀路由) → `0.14.1`(全 App 图标统一 `Icons.Rounded`;底栏弃用"实心/描边"双图标,选中态改同形配色) → `0.14.2`(底栏常驻,详情页也显示并高亮所属栏;当前 tab 改显式状态,切栏靠 saveState/restoreState 原样恢复)
+- 历史里程碑:`0.1.1` (WebView 基础) → `0.1.2/0.1.3/0.1.4` (WebView 边距/icon) → `0.6.0` (多实例管理 + 后台保活 + 文件上传) → `0.6.2` (portrait 锁定) → `0.7.0` (SSH 启动 zai) → `0.7.1` (`--runtime` 选项) → `0.7.2`(`kernel` → `runtimeCore` 重命名) → `0.7.3`(`runtimeCore` 加 `repl` 枚举值) → `0.8.0`(实例类型 `app` profile:标准 / 任务工厂 `task-factory`,对齐 opencc-web `InstanceDefinition.app`) → `0.8.1`(`InstanceAppProfile` 加 `Weixin` 防止反序列化崩溃 + 卡片 `WeixinTag`) → `0.9.0`(**原生 Agent 会话**:会话列表 + 会话详情,直连 `/api/agent/sessions` + `/api/event` SSE,支持发消息/中断/队列 steer/权限确认/问询/文档审核;实例卡加「会话」动作,动作行改可横滚) → `0.9.1`(修 `updatedAt` 浮点导致会话列表整页报错打不开;建 JVM 单测基建 `app/src/test/`) → `0.9.2`(**输入条对齐 WorkBuddy**:单胶囊三态(语音/文本/发送·停止·`+`)、系统 `SpeechRecognizer` 语音转文字、图片附件(Photo Picker → 重编码 JPEG → `contentBlocks`)、顶栏瘦身(刷新/分享收进副标题面板)、空态改大图标+文案) → `0.10.0`–`0.12.1`(WorkBuddy 视觉体系 / Markdown 渲染 / 原生 Agent 会话打磨 / ASR 语音输入两段式 + 录音动效) → `0.13.0`(**SSH 交互式终端**:xterm.js PTY 终端 + 命令/交互双模式 + 全局快捷命令列表) → `0.14.0`(**底部五栏导航**:任务(卡片入口 + 跨实例「进行中」聚合)/ 实例 / SSH / 服务(远程服务清单 + 探活)/ 设置(主题切换),`AppNavHost` 改 `tab/` 前缀路由) → `0.14.1`(全 App 图标统一 `Icons.Rounded`;底栏弃用"实心/描边"双图标,选中态改同形配色) → `0.14.2`(底栏常驻,详情页也显示并高亮所属栏;当前 tab 改显式状态,切栏靠 saveState/restoreState 原样恢复) → `0.15.0`(任务栏 = 原生 Agent 工作区 + 「选择实例」弹层) → `0.15.1`(会话信息面板的「上下文 current / max」) → `0.15.2`(**会话精简模式**:工具调用 + 期间思考折叠成一条「工具调用 · N 次」,点整行展开;设置栏可关)
 - 详细开发产物见 `docs/superpowers/specs/2026-08-24-lan-agent-android-app-design.md`(原 v0.1 spec)+ `docs/superpowers/plans/2026-08-24-lan-agent-android-app.md`(10-task 实现 plan)+ `docs/superpowers/specs/2026-09-14-workbuddy-api-token-applicability.md`(WorkBuddy accessToken 适用面调研,含真机探测矩阵)。**注意**:spec/plan 在 0.6.0 / 0.7.x 大幅扩展后已过期,但作为初始设计参考仍可读;后续新增功能没再写独立 spec/plan,只有 0.10.x 的 ASR 路线在 2026-09-14 这份调研里留下了 WorkBuddy 鉴权与端点适用面的最新事实底座。

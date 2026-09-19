@@ -14,6 +14,7 @@
 package io.github.hotmanxp.lanagent.ui
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -34,6 +35,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -57,8 +59,10 @@ import io.github.hotmanxp.lanagent.BuildConfig
 import io.github.hotmanxp.lanagent.R
 import io.github.hotmanxp.lanagent.data.ThemeMode
 import io.github.hotmanxp.lanagent.data.cardsFlow
+import io.github.hotmanxp.lanagent.data.compactToolsFlow
 import io.github.hotmanxp.lanagent.data.remoteServicesFlow
 import io.github.hotmanxp.lanagent.data.resetCards
+import io.github.hotmanxp.lanagent.data.saveCompactTools
 import io.github.hotmanxp.lanagent.data.saveThemeMode
 import io.github.hotmanxp.lanagent.data.sshHostsFlow
 import io.github.hotmanxp.lanagent.data.themeModeFlow
@@ -75,6 +79,7 @@ fun SettingsScreen(
     val scope = rememberCoroutineScope()
 
     val themeMode by context.themeModeFlow().collectAsState(initial = ThemeMode.System)
+    val compactTools by context.compactToolsFlow().collectAsState(initial = true)
     val cards by context.cardsFlow().collectAsState(initial = null)
     val hosts by context.sshHostsFlow().collectAsState(initial = emptyList())
     val services by context.remoteServicesFlow().collectAsState(initial = null)
@@ -103,6 +108,19 @@ fun SettingsScreen(
                             onSelect = { scope.launch { context.saveThemeMode(mode) } },
                         )
                     }
+                }
+            }
+
+            // 会话(0.15.2)—— 目前只有「工具调用精简模式」一项。放外观后面:
+            // 两者都是「改了立刻见效」的显示偏好。
+            item("session") {
+                SettingsCard(title = stringResource(R.string.settings_section_session)) {
+                    SettingsSwitchRow(
+                        title = stringResource(R.string.settings_compact_tools),
+                        subtitle = stringResource(R.string.settings_compact_tools_sub),
+                        checked = compactTools,
+                        onCheckedChange = { on -> scope.launch { context.saveCompactTools(on) } },
+                    )
                 }
             }
 
@@ -256,6 +274,39 @@ private fun ThemeModeRow(
             color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.padding(start = 4.dp),
         )
+    }
+}
+
+/** 一行「标题 + 说明 + 右侧 Switch」。整行可点(不用精确命中 Switch)。 */
+@Composable
+private fun SettingsSwitchRow(
+    title: String,
+    subtitle: String?,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onCheckedChange(!checked) }
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+            Text(
+                text = title,
+                fontSize = 14.sp,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            if (subtitle != null) {
+                Text(
+                    text = subtitle,
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
 

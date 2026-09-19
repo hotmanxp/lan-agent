@@ -238,6 +238,11 @@
     <string name="agent_session_info_messages">消息</string>
     <string name="agent_session_info_session_id">会话 ID</string>
     <string name="agent_session_info_endpoint">实例</string>
+    <!-- 0.15.1:对齐 opencc-web ConversationInfoCard 的「上下文」行,
+         格式 "current / max"(两边都未知时显示 "— / —")。current 来自
+         SSE(runtime.started / runtime.done / session/projection),
+         max 来自当前模型的 capabilities.contextWindow。 -->
+    <string name="agent_session_info_context">上下文</string>
     <!-- 输入条(0.9.2 改成 WorkBuddy 单胶囊结构:左语音 / 中文本 / 右动作) -->
     <string name="agent_input_voice">语音输入</string>
     <string name="agent_input_more">添加图片或粘贴</string>
@@ -287,6 +292,11 @@
     <string name="settings_theme_system">跟随系统</string>
     <string name="settings_theme_light">浅色</string>
     <string name="settings_theme_dark">深色</string>
+    <!-- 会话精简模式(0.15.2):连续工具调用聚合为一条,点开看全部。
+         默认开 —— 关掉退回逐条工具卡。 -->
+    <string name="settings_section_session">会话</string>
+    <string name="settings_compact_tools">工具调用精简模式</string>
+    <string name="settings_compact_tools_sub">连续的工具调用聚合成一条,点开才展开全部;关掉退回逐条工具卡</string>
     <string name="settings_section_data">数据</string>
     <string name="settings_count_cards">入口卡片</string>
     <string name="settings_count_hosts">SSH 主机</string>

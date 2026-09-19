@@ -108,6 +108,78 @@ sealed interface AgentItem {
     ) : AgentItem
 }
 
+/**
+ * **渲染块** —— 精简模式下把「一段连续的工作」折成一个 [ToolGroup]。
+ *
+ * 为什么不直接把分组塞进 [AgentItem]:分组是**渲染粒度**,不是数据。
+ * store 依旧逐条持有 AgentItem(工具输出回流要按 `toolUseId` 原地更新),
+ * 折叠只发生在列表这一层,所以关掉精简模式不需要重建任何数据。
+ */
+sealed interface AgentBlock {
+    /** LazyColumn 的 key —— 必须稳定,否则流式追加时整表重建、滚动位置会跳。 */
+    val key: String
+
+    /** 单条渲染单元,下标指向 [AgentSessionStore.items]。 */
+    data class Single(val index: Int, override val key: String) : AgentBlock
+
+    /**
+     * 一段工作的聚合(工具调用 + 其间的思考过程)。`indices` 指向 items 的
+     * **下标而不是快照** —— 工具输出是原地替换(`applyToolResult`),存快照
+     * 会渲染出过期内容。key 取首条成员的 key,所以段落继续增长时 key 不变,
+     * 展开状态与滚动位置都稳。
+     */
+    data class ToolGroup(val indices: List<Int>, override val key: String) : AgentBlock
+}
+
+/**
+ * items → 渲染块。**纯函数**(不 import 任何 Compose 类型),便于推理与复用。
+ *
+ * 规则:
+ *   - `compact = true` 时,一段**连续的工作**(工具调用 + 夹在中间的思考过程)
+ *     里只要有 **>= 2** 次工具调用,整段合成一个 [ToolGroup];
+ *   - **思考过程不打断段落**(0.15.2 定稿):编码会话里最常见的形态是
+ *     「Bash → 思考 → Bash → 思考」,若按严格连续分组,整屏还是单张工具卡,
+ *     聚合形同没做。展开后思考卡按原顺序排在工具卡之间,内容一点没少;
+ *   - 只有一条工具调用时保持 [Single] —— 它本来就是一张卡,再套一层聚合行
+ *     只是让用户多点一次(要治的是截图里那种 7 连击);
+ *   - `compact = false` 时全部 [Single],即改动前的逐条渲染;
+ *   - 正文 / 用户消息 / 提示条会断开段落 —— 段落是「这一轮的一段工作」,
+ *     助手开始说话或用户插话就该断。
+ *
+ * 调用方用 `remember(items.size, compact)` 缓存:items 只会 append,原地更新
+ * 全是**同类替换**(见 `appendText` / `applyToolResult` / `upsertToolCall`),
+ * 所以「下标 → 类型」的映射只在 size 变化时才会变。渲染侧再兜一层类型检查,
+ * 任何情况下都不会把正文画进工具段。
+ */
+internal fun buildAgentBlocks(items: List<AgentItem>, compact: Boolean): List<AgentBlock> {
+    val out = ArrayList<AgentBlock>(items.size)
+    var i = 0
+    while (i < items.size) {
+        if (!items[i].isWork) {
+            out.add(AgentBlock.Single(i, items[i].key))
+            i++
+            continue
+        }
+        var j = i
+        var tools = 0
+        while (j < items.size && items[j].isWork) {
+            if (items[j] is AgentItem.ToolCall) tools++
+            j++
+        }
+        if (compact && tools >= 2) {
+            out.add(AgentBlock.ToolGroup((i until j).toList(), "tgroup-${items[i].key}"))
+        } else {
+            for (k in i until j) out.add(AgentBlock.Single(k, items[k].key))
+        }
+        i = j
+    }
+    return out
+}
+
+/** 段落成员:工具调用,以及夹在它们之间的思考过程。 */
+private val AgentItem.isWork: Boolean
+    get() = this is AgentItem.ToolCall || this is AgentItem.Thinking
+
 class AgentSessionStore(val sessionId: String) {
 
     val items = mutableStateListOf<AgentItem>()
@@ -127,6 +199,18 @@ class AgentSessionStore(val sessionId: String) {
     var hydrated by mutableStateOf(false)
         private set
     var hydrateError by mutableStateOf<String?>(null)
+        private set
+    /**
+     * 「当前上下文 token 数」(0.15.1 引入,对应 opencc-web 会话信息面板的
+     * 「上下文 / current」一行)。来自 SSE 三路:
+     *   - `runtime.started.contextTokens`  — 每次 LLM 调用起点推一次
+     *   - `runtime.done.contextTokens`     — 整轮 prompt 跑完推一次
+     *   - `session/projection` key="context.tokens" — 新通路(host 算完的派生值)
+     *
+     * 三路等价,谁先到用谁。null = 还没推过(transcript 重放 / 早期 query),
+     * UI 渲染为 "—"。
+     */
+    var contextTokens by mutableStateOf<Long?>(null)
         private set
 
     val v2Tasks = mutableStateListOf<V2Task>()
@@ -159,6 +243,10 @@ class AgentSessionStore(val sessionId: String) {
         // 归零后有两条自愈路径:replay 尾部的 runtime.done → Idle;
         // 或者下一帧 runtime.delta → noteStreaming() → Streaming。
         status = AgentRunStatus.Idle
+        // 0.15.1:contextTokens 也是同一份「直播态」语义,hydrate 时归零
+        // —— transcript 落盘不带这个数字,等 runtime.started 或
+        // session/projection 重新推上来。
+        contextTokens = null
 
         for (entry in transcript.messages) {
             // `isMeta=true` 是给 LLM 看的旁路内容(展开后的 slash 指令、inbox
@@ -289,6 +377,10 @@ class AgentSessionStore(val sessionId: String) {
                     curTextIdx = -1
                     curThinkIdx = -1
                 }
+                // 0.15.1:服务端在每次 LLM 调用起点带 contextTokens(见
+                // opencc-web routes/agent.ts:425-431 的注释),顺手记下来给
+                // 「上下文」行用。null 时不覆盖(避免 0 误清)。
+                ev.long("contextTokens")?.let { contextTokens = it }
             }
 
             "runtime.delta" -> ev.str("delta")
@@ -325,7 +417,12 @@ class AgentSessionStore(val sessionId: String) {
 
             "runtime.retrying" -> status = AgentRunStatus.Retrying
 
-            "runtime.done" -> if (queue.isEmpty()) status = AgentRunStatus.Idle
+            "runtime.done" -> {
+                // 0.15.1:整轮 prompt 跑完时服务端会推最新的 contextTokens,
+                // 覆盖之前的值(数字单调上升,直接覆盖没问题)。
+                ev.long("contextTokens")?.let { contextTokens = it }
+                if (queue.isEmpty()) status = AgentRunStatus.Idle
+            }
 
             "runtime.aborted" ->
                 status = if (queue.isEmpty()) AgentRunStatus.Aborted else AgentRunStatus.Streaming
@@ -361,6 +458,19 @@ class AgentSessionStore(val sessionId: String) {
             "session.renamed" -> ev.str("title")?.let { title = it }
 
             "v2_task.changed" -> upsertV2Task(ev)
+
+            // 0.15.1:服务端「投影」通路 — host 算完的派生值快照,目前
+            // 试点迁移了 title / context.tokens 两个 key(见 opencc-web
+            // routes/agent.ts:1725-1738)。重连后 host 会整体重发,
+            // 客户端只做 higher-seq-wins。我们这边 per-session store,
+            // 简单覆盖即可。value 是 unknown(JsonObject 透传),长整型直接
+            // 取 number;不是数字就丢掉。
+            "session/projection" -> {
+                when (ev.str("key")) {
+                    "context.tokens" -> ev.long("value")?.let { contextTokens = it }
+                    else -> Unit
+                }
+            }
 
             "prompt.ask" -> pending = PendingInteraction(
                 kind = "ask",

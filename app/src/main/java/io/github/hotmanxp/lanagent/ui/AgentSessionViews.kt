@@ -475,6 +475,116 @@ internal fun ToolCallCard(item: AgentItem.ToolCall) {
     }
 }
 
+/**
+ * 精简模式下的**聚合工具卡**(0.15.2)。
+ *
+ * 一整段工作(截图里那种 `mcp__cua-driver__click` × 7,以及编码会话里更常见的
+ * 「Bash → 思考 → Bash → 思考」)先压成**一行**:图标 + 「工具调用 · N 次」+
+ * 名字汇总 + 状态 + 箭头。点整行才铺开成一张张 [ToolCallCard] 与 [ThinkingBubble],
+ * 每张再各自点开才看入参/输出 —— 两级折叠,默认只看得到「这段时间干了 N 件事」。
+ *
+ * **成员是混合的**:思考过程不打断段落(理由见 `buildAgentBlocks`),所以展开后
+ * 思考卡按原顺序排在工具卡之间,内容一点没少。
+ *
+ * 为什么整行可点而不是下拉手势:会话流本身就是可滚列表,下拉手势要跟
+ * LazyColumn 抢纵向手势,还不好发现;整行点击无歧义、单手也好点。
+ *
+ * 展开状态用 `remember(groupKey)`:段落继续增长时 key 不变(取首条成员的 key),
+ * 所以流式追加不会把已展开的段落合回去。滚动出屏幕被回收时状态丢失 ——
+ * 与 [ToolCallCard] 的既有行为一致(都是普通 `remember`,不做持久化)。
+ */
+@Composable
+internal fun ToolGroupCard(members: List<AgentItem>, groupKey: String) {
+    var expanded by remember(groupKey) { mutableStateOf(false) }
+    val tools = members.filterIsInstance<AgentItem.ToolCall>()
+    val running = tools.any { it.running }
+    val failed = tools.count { it.isError }
+    // 配色与 ToolCallCard 同源:error 红 > 运行中暖橙 > 中性灰。
+    val accent = when {
+        failed > 0 -> MaterialTheme.colorScheme.error
+        running -> MaterialTheme.colorScheme.tertiary
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            shape = RoundedCornerShape(12.dp),
+            border = androidx.compose.foundation.BorderStroke(
+                1.dp,
+                MaterialTheme.colorScheme.outlineVariant,
+            ),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded }
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Build,
+                    contentDescription = null,
+                    tint = accent,
+                    modifier = Modifier.size(16.dp),
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "工具调用 · ${tools.size} 次",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                    )
+                    Text(
+                        text = summarizeToolNames(tools),
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                if (running) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(12.dp),
+                        strokeWidth = 1.5.dp,
+                        color = accent,
+                    )
+                } else {
+                    StatusChip(
+                        text = if (failed > 0) "$failed 失败" else "完成",
+                        color = accent,
+                    )
+                }
+                Icon(
+                    imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
+        }
+        if (expanded) {
+            // 按 transcript 原顺序铺开 —— 工具卡与思考卡交错,跟不聚合时的顺序一致。
+            members.forEach { AgentItemView(it) }
+        }
+    }
+}
+
+/** `Bash ×3 · Read ×1` —— 按首次出现顺序合并同名工具,只给出现多次的加 `×N`。 */
+private fun summarizeToolNames(tools: List<AgentItem.ToolCall>): String {
+    val counts = LinkedHashMap<String, Int>()
+    tools.forEach { counts[it.name] = (counts[it.name] ?: 0) + 1 }
+    return counts.entries.joinToString(" · ") { (name, n) ->
+        if (n > 1) "$name ×$n" else name
+    }
+}
+
 @Composable
 private fun SectionLabel(text: String) {
     Text(

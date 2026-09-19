@@ -119,4 +119,27 @@ class AgentModelsTest {
         val bare = wireJson.parseToJsonElement("\"plain\"")
         assertEquals("plain", bare.toolResultText())
     }
+
+    /**
+     * 0.15.1:`GET /api/agent/settings` 返回的 ModelEntry 必须能把
+     * `capabilities.contextWindow` 解析出来 —— 这是「上下文 current / max」
+     * 面板那行的 max 来源。ProviderProfile 写了 capabilities 时才能用,
+     * 没写时 capabilities 整个字段是 null(用户看不到 max,显示 "—")。
+     */
+    @Test
+    fun `model entry decodes capabilities contextWindow`() {
+        val raw = """{"models":[
+            {"model":"MiniMax-M3","alias":"M3","label":"M3 旗舰",
+             "providerId":"openai-platform",
+             "capabilities":{"contextWindow":200000,"supportsVision":true}},
+            {"model":"unknown-llm","alias":"X"}
+        ]}""".trimIndent()
+        val res = wireJson.decodeFromString<AgentSettingsResponse>(raw)
+
+        assertEquals(2, res.models.size)
+        assertEquals(200000, res.models[0].capabilities?.contextWindow)
+        assertEquals(true, res.models[0].capabilities?.supportsVision)
+        // 缺 capabilities 字段 = null(而不是抛错)
+        assertNull(res.models[1].capabilities)
+    }
 }

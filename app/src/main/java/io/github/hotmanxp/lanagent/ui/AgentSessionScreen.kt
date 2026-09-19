@@ -88,6 +88,7 @@ import androidx.compose.material3.rememberDrawerState
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -112,6 +113,7 @@ import io.github.hotmanxp.lanagent.data.AgentApi
 import io.github.hotmanxp.lanagent.data.AgentInstance
 import io.github.hotmanxp.lanagent.data.AgentSessionMeta
 import io.github.hotmanxp.lanagent.data.AttachedImage
+import io.github.hotmanxp.lanagent.data.compactToolsFlow
 import io.github.hotmanxp.lanagent.data.ImageAttachments
 import io.github.hotmanxp.lanagent.data.ModelEntry
 import io.github.hotmanxp.lanagent.data.PatchSessionRequest
@@ -207,6 +209,11 @@ fun AgentSessionPane(
     val instanceBaseUrl = active?.baseUrl
     val api = remember(instanceBaseUrl) { instanceBaseUrl?.let { AgentApi(it) } }
     val store = remember(currentSid) { AgentSessionStore(currentSid.orEmpty()) }
+
+    // 会话「精简模式」(设置栏开关,默认开)。只影响**渲染粒度** ——
+    // store 里依旧是逐条 AgentItem,关掉开关立刻退回逐条工具卡,不需要重新
+    // hydrate。默认值和设置栏读的是同一个 DataStore key(见 UiPrefsRepository)。
+    val compactTools by context.compactToolsFlow().collectAsState(initial = true)
 
     var input by remember { mutableStateOf("") }
     var attachments by remember { mutableStateOf<List<AttachedImage>>(emptyList()) }
@@ -322,11 +329,20 @@ fun AgentSessionPane(
             ?: ModelEntry(model = storedModel)
     }
 
-    val itemCount = store.items.size
+    // 渲染块:精简模式下把连续工具调用折成一「段」。用 `items.size` 当 key 是
+    // 有意的 —— items 只 append,原地更新都是同类替换(见 buildAgentBlocks 注释),
+    // 所以「下标 → 类型」的映射只在条数变化时才会变。渲染时按下标读**实时**值,
+    // 工具输出回流因此照常刷新。
+    val blocks = remember(store.items.size, compactTools) {
+        buildAgentBlocks(store.items, compactTools)
+    }
+
     // reverseLayout=true 时 index 0 在**底部**,所以「贴底」等价于
     // firstVisibleItemIndex 很小。用户往上翻超过 3 屏就不再抢滚动位置。
-    LaunchedEffect(itemCount) {
-        if (itemCount > 0 && listState.firstVisibleItemIndex <= 3) {
+    // 用**块数**而不是条数:聚合段落继续吞新工具时块数不变(视口不用动),
+    // 新开一段才需要把视口拉回底部。
+    LaunchedEffect(blocks.size) {
+        if (blocks.isNotEmpty() && listState.firstVisibleItemIndex <= 3) {
             runCatching { listState.animateScrollToItem(0) }
         }
     }
@@ -706,10 +722,10 @@ fun AgentSessionPane(
                                 verticalArrangement = Arrangement.spacedBy(10.dp),
                             ) {
                                 items(
-                                    count = store.items.size,
-                                    key = { i -> store.items[store.items.size - 1 - i].key },
+                                    count = blocks.size,
+                                    key = { i -> blocks[blocks.size - 1 - i].key },
                                 ) { i ->
-                                    AgentItemView(store.items[store.items.size - 1 - i])
+                                    AgentBlockView(blocks[blocks.size - 1 - i], store.items)
                                 }
                             }
                         }
@@ -908,6 +924,13 @@ fun AgentSessionPane(
                 sessionId = currentSid.orEmpty(),
                 baseUrl = instanceBaseUrl.orEmpty(),
                 store = store,
+                // 0.15.1:上下文 current / max。current = 直播态 token 数
+                // (SSE 推);max = 当前模型 capabilities.contextWindow
+                // (从 availableModels 按 model 字段查,first-match,跟
+                // web 端 `findAliasForModel` 的「找不到 providerId 时的
+                // fallback」一致 — 我们这边模型解析也只按 model 字段)。
+                contextTokens = store.contextTokens,
+                contextWindow = currentModel?.capabilities?.contextWindow?.toLong(),
                 onCopy = { toast("已复制会话 ID") },
                 onRefresh = {
                     refreshTick++
@@ -1070,12 +1093,23 @@ private fun NoSessionState(
 /**
  * 副标题点开的会话信息面板。刷新 / 在浏览器打开这两个动作原本挂在顶栏
  * actions 上，收进这里是为了让顶栏跟 WorkBuddy 一样只剩「返回 + 标题 + 副标题」。
+ *
+ * 0.15.1 起新增「上下文: current / max」行:
+ *   - `current` 来自 SSE 推上来的 [AgentSessionStore.contextTokens](SSE
+ *     三路:runtime.started / runtime.done / session/projection key='context.tokens'),
+ *     null 时按 "—" 显示。
+ *   - `max` 来自当前模型的 `ModelEntry.capabilities.contextWindow`(服务端
+ *     `GET /api/agent/settings` 响应里),null 时按 "—" 显示。
+ *   - 两边都未知 → "— / —",与 opencc-web `ConversationInfoCard` 的
+ *     `fmtTokens` 对齐(< 1000 保留原文,>= 1000 → `${Math.round(n/1000)}K`)。
  */
 @Composable
 private fun SessionInfoSheet(
     sessionId: String,
     baseUrl: String,
     store: AgentSessionStore,
+    contextTokens: Long?,
+    contextWindow: Long?,
     onCopy: () -> Unit,
     onRefresh: () -> Unit,
     onOpenWeb: () -> Unit,
@@ -1103,6 +1137,13 @@ private fun SessionInfoSheet(
         InfoRow(
             stringResource(R.string.agent_session_info_messages),
             store.items.size.toString(),
+        )
+        // 0.15.1:上下文 current / max。等宽数字避免「12K」/「200K」跳,
+        // 跟 web 端的 tabular-nums 等价。
+        InfoRow(
+            stringResource(R.string.agent_session_info_context),
+            "${formatTokenCount(contextTokens)} / ${formatTokenCount(contextWindow)}",
+            mono = true,
         )
         InfoRow(
             label = stringResource(R.string.agent_session_info_session_id),
@@ -1133,6 +1174,18 @@ private fun SessionInfoSheet(
             onClick = onOpenWeb,
         )
     }
+}
+
+/**
+ * 把 token 数按 K 收口显示。< 1000 保留原文(避免「0K」歧义),>= 1000 →
+ * `${Math.round(n / 1000)}K`(1,000,000 → "1000K",按 web 端 `fmtTokens`
+ * 的口径,即 million 级别也走 K 不切 M)。null → "—",跟 web 端
+ * ConversationInfoCard 一致。
+ */
+internal fun formatTokenCount(n: Long?): String {
+    if (n == null) return "—"
+    if (n < 1_000L) return n.toString()
+    return "${Math.round(n / 1_000.0)}K"
 }
 
 @Composable
@@ -1207,12 +1260,33 @@ private fun statusLabel(status: AgentRunStatus): String = when (status) {
 }
 
 @Composable
-private fun AgentItemView(item: AgentItem) {
+internal fun AgentItemView(item: AgentItem) {
     when (item) {
         is AgentItem.UserText -> UserBubble(item)
         is AgentItem.AssistantText -> AssistantBubble(item)
         is AgentItem.Thinking -> ThinkingBubble(item)
         is AgentItem.ToolCall -> ToolCallCard(item)
         is AgentItem.Note -> NoteRow(item)
+    }
+}
+
+/**
+ * 渲染块 → 组件。块里存的是**下标**,这里按实时 items 取值 —— 所以工具输出
+ * 回流(`applyToolResult` 原地替换)能立刻反映到已渲染的段落里。
+ *
+ * `mapNotNull { items.getOrNull(it) }`:下标由 `buildAgentBlocks` 与 items
+ * 同步产生,理论上取不到 null;兜一下是为了「按下标取值」这种弱引用本身
+ * 不出意外(真缺一条也只是少渲染一张卡,不会崩)。
+ */
+@Composable
+private fun AgentBlockView(block: AgentBlock, items: List<AgentItem>) {
+    when (block) {
+        is AgentBlock.Single ->
+            items.getOrNull(block.index)?.let { AgentItemView(it) }
+
+        is AgentBlock.ToolGroup -> ToolGroupCard(
+            members = block.indices.mapNotNull { items.getOrNull(it) },
+            groupKey = block.key,
+        )
     }
 }

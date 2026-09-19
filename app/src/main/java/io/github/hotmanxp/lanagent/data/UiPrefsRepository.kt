@@ -1,9 +1,11 @@
-// data/UiPrefsRepository.kt — UI 偏好持久化(刷新按钮拖动位置 + 主题模式)。
-// 单独的 DataStore(不与 cards 混)是为了卡片 schema 演进时不会拖累 UI 偏好。
+// data/UiPrefsRepository.kt — UI 偏好持久化(刷新按钮拖动位置 + 主题模式 +
+// 会话精简模式)。单独的 DataStore(不与 cards 混)是为了卡片 schema 演进时
+// 不会拖累 UI 偏好。
 package io.github.hotmanxp.lanagent.data
 
 import android.content.Context
 import androidx.compose.ui.geometry.Offset
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -16,6 +18,7 @@ private val Context.uiPrefsDataStore by preferencesDataStore(name = "lan_agent_u
 private val REFRESH_BTN_X = floatPreferencesKey("refresh_btn_x")
 private val REFRESH_BTN_Y = floatPreferencesKey("refresh_btn_y")
 private val THEME_MODE = stringPreferencesKey("theme_mode")
+private val COMPACT_TOOLS = booleanPreferencesKey("compact_tools")
 
 /**
  * 主题模式。落盘用 [storageKey] 字符串 —— 枚举名重排/改序都不会让老配置失真,
@@ -64,4 +67,19 @@ fun Context.themeModeFlow(): Flow<ThemeMode> = uiPrefsDataStore.data.map { prefs
 /** 写入主题模式。 */
 suspend fun Context.saveThemeMode(mode: ThemeMode) {
     uiPrefsDataStore.edit { prefs -> prefs[THEME_MODE] = mode.storageKey }
+}
+
+/**
+ * 会话「精简模式」开关(0.15.2)。未设置过 = **开** —— 用户装上新版打开会话
+ * 就是聚合后的样子,不需要先进设置里找开关。
+ *
+ * 关掉后会话页退回逐条工具卡(改动前的形态)。
+ */
+fun Context.compactToolsFlow(): Flow<Boolean> = uiPrefsDataStore.data.map { prefs ->
+    prefs[COMPACT_TOOLS] ?: true
+}
+
+/** 写入会话精简模式开关。 */
+suspend fun Context.saveCompactTools(enabled: Boolean) {
+    uiPrefsDataStore.edit { prefs -> prefs[COMPACT_TOOLS] = enabled }
 }

@@ -500,7 +500,14 @@ fun AgentSessionPane(
         rememberHoldToTalk(
             asrUrlProvider = asrProvider,
             engine = VoiceAsrConfig.engine,
-            onResult = { input = it },
+            onResult = { result ->
+                // 0.16.5：语音识别完成自动发送 —— 用户说完了直接落地,不需要再
+                // 点发送钮。setInput 与 send() 都在主线程同步执行(Compose state
+                // 的读沿用上一帧的快照),所以 send() 读到的 input.trim() 就是
+                // 本次识别结果。
+                input = result
+                send()
+            },
             onError = { toast(it) },
             onHint = { toast(it) },
         )

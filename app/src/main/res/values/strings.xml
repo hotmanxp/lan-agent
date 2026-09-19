@@ -245,6 +245,8 @@
     <string name="agent_session_info_context">上下文</string>
     <!-- 输入条(0.9.2 改成 WorkBuddy 单胶囊结构:左语音 / 中文本 / 右动作) -->
     <string name="agent_input_voice">语音输入</string>
+    <!-- 0.16.5:语音模式激活后,左下角换成键盘图标,点它切回打字模式 -->
+    <string name="agent_input_keyboard">切回打字</string>
     <string name="agent_input_more">添加图片或粘贴</string>
     <string name="agent_input_add_image">添加图片</string>
     <string name="agent_input_add_image_sub">从相册选，压缩后作为附件发送</string>

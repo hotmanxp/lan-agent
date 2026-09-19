@@ -59,8 +59,8 @@ android {
         applicationId = "io.github.hotmanxp.lanagent"
         minSdk = 26
         targetSdk = 34
-        versionCode = 64
-        versionName = "0.16.4"
+        versionCode = 65
+        versionName = "0.16.5"
 
         // 语音识别凭据 / 开关。见文件头注释；空值 = 未配置，走系统 SpeechRecognizer。
         buildConfigField("String", "ASR_APP_ID", asrLiteral(asrAppId))

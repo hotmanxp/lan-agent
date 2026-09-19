@@ -64,6 +64,7 @@ import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Html
+import androidx.compose.material.icons.rounded.Keyboard
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Photo
 import androidx.compose.material.icons.rounded.Psychology
@@ -1454,22 +1455,11 @@ internal fun AgentInputBar(
     var showMoreMenu by remember { mutableStateOf(false) }
     var showModelPicker by remember { mutableStateOf(false) }
     // 语音模式两段式：点语音图标 → 输入框区域变成「按住 说话」大胶囊（WorkBuddy
-    // 同款）；识别完成回填文本后自动收回，也可以点胶囊左侧的键盘按钮手动收回。
+    // 同款）；识别完成由 `holdToTalk.onResult` 直接 send() 自动发出，胶囊不自动
+    // 收回 —— 用户可以接着按,也可以点左下角键盘图标手动切回打字模式。
     var voiceMode by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState()
     val modelSheetState = rememberModalBottomSheetState()
-
-    // 识别完成自动退出语音模式：phase 从 Recording/Recognizing 回到 Idle 时，
-    // onResult 已经把 final 文本写进 value —— 这时收回胶囊让用户看到/编辑文本。
-    // 上一帧 phase 用 remember 记，避免 Idle→Idle 的无关重组误触发。
-    var prevPhase by remember { mutableStateOf(HoldPhase.Idle) }
-    LaunchedEffect(holdToTalk?.phase) {
-        val now = holdToTalk?.phase ?: HoldPhase.Idle
-        if (prevPhase != HoldPhase.Idle && now == HoldPhase.Idle) {
-            voiceMode = false
-        }
-        prevPhase = now
-    }
 
     // 有内容才让发送钮「亮」起来。注意:圆钮**始终渲染**,只是禁用态换颜色 ——
     // WorkBuddy 就是这么做的,空输入时按钮不消失,布局因此不跳。
@@ -1532,7 +1522,6 @@ internal fun AgentInputBar(
                         HoldToTalkCapsule(
                             state = holdToTalk,
                             baseText = value,
-                            onCollapse = { voiceMode = false },
                             modifier = Modifier.padding(end = 10.dp, bottom = 10.dp),
                         )
                     } else {
@@ -1570,27 +1559,37 @@ internal fun AgentInputBar(
                     }
                     } // else:非语音模式的文本域
 
-                    // ---- 第二行:工具条(左:语音/模型/附件;右:发送) ----
+                    // ---- 第二行:工具条(左:语音/键盘/模型/附件;右:发送) ----
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
-                        // 云 ASR:点语音图标进入语音模式(输入框变「按住 说话」大胶囊),
-                        // 不依赖系统识别服务,国行无 Google 服务的 ROM 上也照常能用。
-                        if (holdToTalk != null) {
+                        // 左下角图标三态:
+                        //   - voiceMode=true:键盘图标(切回打字模式),主色高亮
+                        //   - voiceMode=false + holdToTalk:语音图标(进入语音模式)
+                        //   - voiceMode=false + 系统 SpeechRecognizer:语音图标
+                        //     (直接 toggle 录音,识别结果回填输入框,需手动点发送)
+                        // 语音模式下识别完成会自动 send(),胶囊不收回 —— 用户
+                        // 既可以接着按说话,也可以点这个键盘图标切回打字。
+                        if (voiceMode) {
+                            InputBarIcon(
+                                icon = Icons.Rounded.Keyboard,
+                                contentDescription = stringResource(R.string.agent_input_keyboard),
+                                tint = MaterialTheme.colorScheme.primary,
+                                onClick = { voiceMode = false },
+                            )
+                        } else if (holdToTalk != null) {
+                            // 云 ASR:点语音图标进入语音模式(输入框变「按住 说话」大胶囊),
+                            // 不依赖系统识别服务,国行无 Google 服务的 ROM 上也照常能用。
                             InputBarIcon(
                                 icon = Icons.Rounded.GraphicEq,
                                 contentDescription = stringResource(R.string.agent_input_voice),
-                                tint = if (voiceMode) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.onSurface
-                                },
-                                modifier = Modifier.alpha(if (voiceMode) voiceAlpha else 1f),
+                                tint = MaterialTheme.colorScheme.onSurface,
                                 onClick = { voiceMode = true },
                             )
                         } else if (voice.available) {
+                            // 系统 SpeechRecognizer 兜底:点按切换录音,识别结果回填输入框。
                             InputBarIcon(
                                 icon = Icons.Rounded.GraphicEq,
                                 contentDescription = stringResource(R.string.agent_input_voice),

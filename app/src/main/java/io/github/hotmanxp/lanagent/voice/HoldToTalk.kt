@@ -71,14 +71,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import kotlin.math.sqrt
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.rounded.Keyboard
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 
@@ -441,8 +437,12 @@ fun HoldToTalkButton(
  *
  * 交互：点击工具条的语音图标后，输入框区域切换成这个全宽胶囊；按住录音、
  * 松手识别、上滑取消，全部复用 [HoldToTalkState]，与 [HoldToTalkButton] 唯一的
- * 差别是皮。左侧小键盘按钮退出语音模式（[onCollapse]），识别完成（final 回填后）
- * 由调用方观察 phase 自动收回 —— 见 AgentInputBar 的 LaunchedEffect。
+ * 差别是皮。0.16.5 起退出语音模式的入口挪到了输入卡工具条左下角的键盘图标
+ * （[AgentInputBar] 里），胶囊本体只管录音这一件事 —— 整张卡看上去就是
+ * 「按住 说话」一行字 + 工具条，跟 WorkBuddy 的对话页一致。
+ *
+ * 识别完成时 [HoldToTalkState.onResult] 由调用方直接 send()，胶囊不收回；
+ * 想接着按就接着按，想打字就点工具条左下的键盘。
  *
  * 手势块与 [HoldToTalkButton] 相同，两个坑位同样适用（pointerInput key 与
  * phase 无关；非 Idle 分支必须吸干事件，见文件头坑位 1/5）。
@@ -451,7 +451,6 @@ fun HoldToTalkButton(
 fun HoldToTalkCapsule(
     state: HoldToTalkState,
     baseText: String,
-    onCollapse: () -> Unit,
     modifier: Modifier = Modifier,
     cancelThresholdDp: Int = 64,
 ) {
@@ -484,80 +483,54 @@ fun HoldToTalkCapsule(
         else -> "按住 说话"
     }
 
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        // 退出语音模式的小键盘按钮（WorkBuddy 同位置）。
-        Box(
-            modifier = Modifier
-                .size(44.dp)
-                .background(
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    shape = CircleShape,
-                )
-                .clickable(onClick = onCollapse),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.Keyboard,
-                contentDescription = "键盘输入",
-                tint = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.size(21.dp),
-            )
-        }
-
-        // 大胶囊本体。
-        Surface(
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            shape = RoundedCornerShape(28.dp),
-            modifier = Modifier
-                .weight(1f)
-                .height(56.dp)
-                .scale(scale)
-                .pointerInput(cancelPx) {
-                    awaitEachGesture {
-                        val down = awaitFirstDown(requireUnconsumed = false)
-                        if (!state.isIdle) {
-                            // 坑位 5：吸干再退出，绝不裸 return（awaitEachGesture 空转 → ANR）。
-                            while (awaitPointerEvent().changes.any { it.pressed }) {
-                                // Recognizing 期间的事件全部丢弃
-                            }
-                            return@awaitEachGesture
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        shape = RoundedCornerShape(28.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .height(56.dp)
+            .scale(scale)
+            .pointerInput(cancelPx) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    if (!state.isIdle) {
+                        // 坑位 5：吸干再退出，绝不裸 return（awaitEachGesture 空转 → ANR）。
+                        while (awaitPointerEvent().changes.any { it.pressed }) {
+                            // Recognizing 期间的事件全部丢弃
                         }
-                        state.press(latestBase)
+                        return@awaitEachGesture
+                    }
+                    state.press(latestBase)
 
-                        var slidingOff = false
-                        while (true) {
-                            val event = awaitPointerEvent()
-                            val change = event.changes.firstOrNull { it.id == down.id }
-                            if (change == null || !change.pressed) {
-                                state.endGesture(slidingOff)
-                                break
-                            }
-                            val now = (change.position.y - down.position.y) < -cancelPx
-                            if (now != slidingOff) {
-                                slidingOff = now
-                                state.willCancel = now
-                                change.consume()
-                            }
+                    var slidingOff = false
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == down.id }
+                        if (change == null || !change.pressed) {
+                            state.endGesture(slidingOff)
+                            break
+                        }
+                        val now = (change.position.y - down.position.y) < -cancelPx
+                        if (now != slidingOff) {
+                            slidingOff = now
+                            state.willCancel = now
+                            change.consume()
                         }
                     }
-                },
+                }
+            },
+    ) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center,
         ) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = label,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = accent.copy(alpha = alpha),
-                    maxLines = 1,
-                )
-            }
+            Text(
+                text = label,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Medium,
+                color = accent.copy(alpha = alpha),
+                maxLines = 1,
+            )
         }
     }
 }

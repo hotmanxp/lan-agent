@@ -904,12 +904,8 @@ fun AgentSessionPane(
                                             )
                                         }
                                             .onSuccess {
-                                                toast(
-                                                    context.getString(
-                                                        R.string.agent_input_model_switched,
-                                                        picked.alias,
-                                                    )
-                                                )
+                                                // 切换成功后不再弹 toast —— chip 已经是新模型,
+                                                // 用户能在原地直接看到反馈,再 toast 一次是噪声。
                                             }
                                             .onFailure { err ->
                                                 currentModel = previous

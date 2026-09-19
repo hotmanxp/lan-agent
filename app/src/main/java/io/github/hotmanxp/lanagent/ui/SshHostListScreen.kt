@@ -1,6 +1,7 @@
 // ui/SshHostListScreen.kt — SSH 主机列表 + 启动/停止 zai 半屏 sheet
 package io.github.hotmanxp.lanagent.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -8,6 +9,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -18,6 +20,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -45,6 +48,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import io.github.hotmanxp.lanagent.R
 import io.github.hotmanxp.lanagent.data.saveSshHosts
 import io.github.hotmanxp.lanagent.data.sshHostsFlow
@@ -83,6 +87,7 @@ private sealed class SshSheet {
 fun SshHostListScreen(
     onBack: () -> Unit,
     onOpenWebview: (String) -> Unit,
+    onOpenTerminal: (SshHost) -> Unit,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
@@ -139,6 +144,7 @@ fun SshHostListScreen(
                 items(items = hosts, key = { it.id }) { host ->
                     SshHostRow(
                         host = host,
+                        onOpen = { onOpenTerminal(host) },
                         onStart = { sheet = SshSheet.StartRunning(host) },
                         onStop = { sheet = SshSheet.StopRunning(host) },
                         onEdit = { editing = host },
@@ -216,18 +222,40 @@ fun SshHostListScreen(
 @Composable
 private fun SshHostRow(
     host: SshHost,
+    onOpen: () -> Unit,
     onStart: () -> Unit,
     onStop: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen),
+    ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = host.name,
-                style = MaterialTheme.typography.titleMedium,
-                maxLines = 1,
-            )
+            androidx.compose.foundation.layout.Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = host.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f),
+                )
+                // 整卡可点(进终端)的可见提示 —— 只靠"能点"没人会去点。
+                Icon(
+                    imageVector = Icons.Default.Terminal,
+                    contentDescription = stringResource(R.string.ssh_terminal_cd_open),
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp),
+                )
+                Text(
+                    text = stringResource(R.string.ssh_terminal_cd_open),
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(start = 4.dp),
+                )
+            }
             Text(
                 text = "${host.user}@${host.host}:${host.port}",
                 style = MaterialTheme.typography.bodySmall,

@@ -518,6 +518,36 @@ WorkBuddy 手机端采样结果：气泡底 **`#E2E4E3`**（中性灰）、正�
 启动图标 → 覆盖 `mipmap-*` 各密度 PNG + `drawable-nodpi/ic_launcher_foreground.png`
 （`values/colors.xml` 的 `ic_launcher_background` 是底色）。
 
+### 16. SSH 终端 + 快捷命令(0.13.0)
+
+**入口**:SSH 主机列表点整张卡片 → `SshTerminalScreen`(路由 `ssh-terminal/{hostId}`,hostId 经 `Uri.encode`,**密码不进导航参数**)。
+
+**两种模式**(顶部 Terminal 图标切换),共用同一个 `SshSession`(只认证一次):
+
+- **命令模式**(默认):每条命令走独立 `exec` 通道(`SshSession.exec`)。输出干净、带 exit code + 耗时、可停止 / 重跑。适合 `git pull` / `docker ps` 这类一次性命令。
+- **交互模式**:`ChannelShell` + `setPty(true)`(`SshShell`),WebView 里跑 xterm.js 的真终端。能跑 `top` / `vim` / `sudo`。代价是回显 + ANSI 噪声。
+
+退出交互模式只关 pty 通道(`shell.close()`),`exec` 继续可用 —— 所以切回命令模式不用重连。
+
+**快捷命令**:`model/QuickCommand.kt` 的 `QuickCommand(id, label, command, confirm)`,**全局共用一份**(DataStore `lan_agent_quick_commands`,不是 per-host)。`confirm = true` 的先弹二次确认。交互模式下快捷命令是**写进 pty**(`command + "\n"`),所以 `cd` / `alias` 之后的相对路径跟真终端一致;命令模式下才走 `exec`。
+
+**为什么是 WebView + xterm.js**:任何「Compose 终端」要么不支持 VT 转义(`top` 花屏),要么就是包一层 WebView。assets 里打包 `xterm.js` 5.5.0 + `addon-fit` 0.10.0,页面**无网络访问**,SSH 全在 Kotlin 侧。
+
+**`SshShell` 的线程模型**:reader / writer 两条 daemon 线程,读写分离 —— reader 阻塞在 `inputStream`(shell 静默时本来就在等),writer 从 `LinkedBlockingQueue` 取字节。UI 线程只入队,绝不碰 socket(socket 写会在 pty 窗口满时阻塞,比如远端正卡在 `top`)。UTF-8 用**状态化** `CharsetDecoder`(`Utf8Stream`)流式解码 —— 一个 3 字节 CJK 字符跨两次 8KB 读,用 `String(bytes, UTF_8)` 会被切成两个 U+FFFD,而终端输出里 `╭─` 和 CJK 遍地都是。
+
+`close()` 幂等且任意线程可调:主线程只入队 `disconnectMarker`,真正的 `channel.disconnect()` 交给 writer 线程。
+
+**JS ↔ Kotlin 桥**(`TerminalJsBridge`,页面里的 `window.AndroidTerm`):`ready` / `send` / `resize` / `copy` / `hideIme` / `diag`。双向一律 base64(控制字符走字符串容易被中间转义层改写)。桥方法跑在 JavaBridge 线程,碰 Compose 状态(`ready`)或 View(`hideIme`)的要 `post` 回主线程。
+
+**排障入口**:终端页出问题时屏幕上往往只有一片黑。`WebChromeClient.onConsoleMessage` + 页面里的 `__diag/__fatal/__metrics` 把内部状态打成一行文本送到 logcat —— `adb logcat -s LanAgentTerm` 一把捞全(终端页和 `SshShell` 共用这个 tag)。
+
+**测试基建**(在 `/tmp`,不进仓库):
+
+- `fake-sshd.py` —— paramiko 起的最小 sshd(端口 2222,`test/test`),exec + PTY shell 都有。造了几种真机不好造的输出:`utf8`(多字节字符**故意 1 字节一片**发,验流式解码)、`bigout`(2000 行)、`slow`(带 0.4s 间隔,验边跑边出)、`fail`(exit 3)、`sleep 60`(验停止)、`cols`(验 window-change 真同步到远端)、`echo X`。控制字节额外回一份 hex,方便验收脚本看清收到了什么。
+  - ⚠️ 它**没有终端行规程**:Enter 的 `\r` 不会被 ICRNL 折成 `\n`,所以分行逻辑要同时认 `\r` 和 `\n`(不然用 `adb` 敲回车会发现命令不执行 —— 那是脚本的锅,不是 App 的)。
+- `ui.py` —— adb UI driver(`dump` / `tap` / `tapxy` / `text` / `key` / `shot` / `wait` / `exists` / `alltext`)。
+- **隔离排障法**:`jsch-0.1.55.jar` 就在 gradle 缓存里,写一个纯 JVM 单文件复现(`java -cp jsch.jar Probe.java`)能把 Android / Compose / WebView / IME 全部排除掉,直接观测 JSch 行为(甚至用反射 dump channel 的 `rwsize` 等内部字段)。0.13.0 这次就是靠它把范围从「Android WebView 输入链路」缩到「JSch 三个字节的缓冲」。
+
 ## 强制开发规则
 
 
@@ -559,6 +589,7 @@ adb shell pm clear io.github.hotmanxp.lanagent
 2. **APP 内添加实例** — 首屏右上 `Storage` 进 InstancesScreen → 右下 `+` 浮动按钮 → 选手动表单 / 目录选择 / QR 扫码。**新加的是服务端实例定义,不是首页 Card**;首页 Card 列表独立于实例管理。
 3. **QR 扫码进入** — 首屏右上 QR 图标 → 扫 zai 分享的 URL → 直接跳 WebView。**不进实例管理,也不写 DataStore**。
 4. **SSH 一键启动 zai** — 首屏右上 `Memory` 图标 → SshHostListScreen → 加一条 SSH host(name/IP/22/Mac 用户名/密码/`zaiPort` 9201) → 点「启动 zai」→ 全局 `nohup zai --lan --port <zaiPort>` 远程拉起,端口可达后自动跳 InstancesScreen WebView。
+   - **点整张卡片**(而不是「启动 zai」按钮)进的是 **SSH 终端**(见 §16),与「启动 zai」是同一屏的两条路。快捷命令在终端页的「管理」里增删改排序,全局共用。
 5. **改 seed 卡片** — 编辑 [`app/src/main/java/io/github/hotmanxp/lanagent/data/Cards.kt`](app/src/main/java/io/github/hotmanxp/lanagent/data/Cards.kt) 里的 `defaultCards` 列表,改完 `./gradlew :app:installDebug` 重装即可。**只影响卸载重装后的首次启动**(已有数据从 DataStore 读)。
 
 如目标 IP 不在白名单,还要编辑
@@ -600,6 +631,10 @@ adb shell pm clear io.github.hotmanxp.lanagent
 | 工具卡之后的助手文本跑到工具卡前面 | 消息顺序错乱 | 工具卡 upsert 时清掉流式气泡游标(`curTextIdx` / `curThinkIdx`) |
 | 权限/审批卡点不掉 | 点批准弹 404 后卡片还在 | `respondPending` 必须**无论成败**都 `clearPending()`,服务端对过期请求回 404 |
 | 打开大会话卡顿/OOM | 详情页转圈很久或崩溃 | transcript 是整份 JSON 一次读入;实测有 13MB / ~1300 条消息的会话。工具输出已按 20k 字符截断入库,再大只能靠服务端侧分页(未做) |
+| **JSch 写 pty 远端收不到数据** | `write`/`flush` 都正常返回、无异常无阻塞,但远端**一个字节都收不到**(静默丢包) | `Channel.getOutputStream()` **不是幂等的** —— 每次调用都 `new` 一个带缓冲的包装器(`com.jcraft.jsch.Channel$1`,内部有 `dataLen`/`buffer`/`packet`)。`write()` 只把字节攒进**自己**的 buffer;真正组装并发送 `SSH_MSG_CHANNEL_DATA` 的是**同一个实例**的 `flush()`,而它第一行是 `if (dataLen == 0) return`。所以 `channel.outputStream.write(x); channel.outputStream.flush()` 是「写进实例 A、flush 了全新实例 B」→ 数据永远留在 A 里。**必须 `val out = channel.outputStream` 取一次复用**(见 `SshShell` writer 线程) |
+| 交互模式软键盘弹出瞬间终端整片变白 | 收起键盘又恢复,内容其实没丢 | `imePadding()` 在 WebView 和输入行上**各加了一次** → ime 高度被扣两次,WebView 被压到接近 0 高,xterm 的 paint 树塌掉。**只留输入行那一处**,WebView 靠 Column 的 `weight(1f)` 被动收缩(收缩正是 pty `window-change` 的来源,不能没有) |
+| WebView 在 Compose 里全黑(只有背景色) | xterm 起不来、页面像 0 高 | `factory` 里 `loadUrl` 时 WebView 还没测量,尺寸 0x0 → `html{height:100%}` 解析成 0、paint 树被裁成 0 高。必须 `doOnLayout { if (height > 0) loadUrl }`,并每次 `addOnLayoutChangeListener` 把物理尺寸推给页面(`wbTerm.setViewport`),页面据此**显式写死** `html/body/#root` 高度再 refit |
+| 注入 keyevent 到 xterm 看不到回显 | 日志显示 keydown 到了 `.xterm-helper-textarea`,于是判断「xterm 不吐 data」 | 误判:xterm 完全正常,`term.onData` 照常触发。是上面那条 JSch 静默丢包让远端没有回显。**先确认数据真的出了 socket**(看 `fake-sshd` 的 `recv` 日志),再看上层 |
 
 ## 配套:opencc-web 端
 
@@ -618,10 +653,10 @@ opencc-web 仓库在 `/Users/ethan/code/opencc-web/`,详见 `opencc-web/AGENTS.m
 
 ## 版本 / 发布
 
-- 当前: **0.10.3** (versionCode 41) — `style(ui): 运行态徽标左对齐 + 三点波浪动画 + 灰底`
-- 上一版: **0.10.2** (versionCode 40) — `style(theme): 亮色主题品牌色改回平安橙 #ff6600(深色不变)`
-- 再上一版: **0.10.1** (versionCode 39) — `style(ui): 用户气泡改中性浅灰 + 输入条改 WorkBuddy 双行白卡`
+- 当前: **0.13.0** (versionCode 48) — `feat(ssh): 交互式 PTY 终端(xterm.js)+ 快捷命令全局列表`
+- 上一版: **0.12.1** (versionCode 47) — `feat(voice): 录音全屏动效 —— 绿浪涌起 + 实时音量波形`
+- 再上一版: **0.12.0** (versionCode 46) — `feat(voice): 语音输入两段式交互 + token 改由服务端 getASRToken 下发`
 - 不发 release,只本地 debug APK
 - 每次改完手动 bump `versionCode` + `versionName`(`app/build.gradle.kts`),否则手机装上后版本号不变看不出是新版
-- 历史里程碑:`0.1.1` (WebView 基础) → `0.1.2/0.1.3/0.1.4` (WebView 边距/icon) → `0.6.0` (多实例管理 + 后台保活 + 文件上传) → `0.6.2` (portrait 锁定) → `0.7.0` (SSH 启动 zai) → `0.7.1` (`--runtime` 选项) → `0.7.2`(`kernel` → `runtimeCore` 重命名) → `0.7.3`(`runtimeCore` 加 `repl` 枚举值) → `0.8.0`(实例类型 `app` profile:标准 / 任务工厂 `task-factory`,对齐 opencc-web `InstanceDefinition.app`) → `0.8.1`(`InstanceAppProfile` 加 `Weixin` 防止反序列化崩溃 + 卡片 `WeixinTag`) → `0.9.0`(**原生 Agent 会话**:会话列表 + 会话详情,直连 `/api/agent/sessions` + `/api/event` SSE,支持发消息/中断/队列 steer/权限确认/问询/文档审核;实例卡加「会话」动作,动作行改可横滚) → `0.9.1`(修 `updatedAt` 浮点导致会话列表整页报错打不开;建 JVM 单测基建 `app/src/test/`) → `0.9.2`(**输入条对齐 WorkBuddy**:单胶囊三态(语音/文本/发送·停止·`+`)、系统 `SpeechRecognizer` 语音转文字、图片附件(Photo Picker → 重编码 JPEG → `contentBlocks`)、顶栏瘦身(刷新/分享收进副标题面板)、空态改大图标+文案)
+- 历史里程碑:`0.1.1` (WebView 基础) → `0.1.2/0.1.3/0.1.4` (WebView 边距/icon) → `0.6.0` (多实例管理 + 后台保活 + 文件上传) → `0.6.2` (portrait 锁定) → `0.7.0` (SSH 启动 zai) → `0.7.1` (`--runtime` 选项) → `0.7.2`(`kernel` → `runtimeCore` 重命名) → `0.7.3`(`runtimeCore` 加 `repl` 枚举值) → `0.8.0`(实例类型 `app` profile:标准 / 任务工厂 `task-factory`,对齐 opencc-web `InstanceDefinition.app`) → `0.8.1`(`InstanceAppProfile` 加 `Weixin` 防止反序列化崩溃 + 卡片 `WeixinTag`) → `0.9.0`(**原生 Agent 会话**:会话列表 + 会话详情,直连 `/api/agent/sessions` + `/api/event` SSE,支持发消息/中断/队列 steer/权限确认/问询/文档审核;实例卡加「会话」动作,动作行改可横滚) → `0.9.1`(修 `updatedAt` 浮点导致会话列表整页报错打不开;建 JVM 单测基建 `app/src/test/`) → `0.9.2`(**输入条对齐 WorkBuddy**:单胶囊三态(语音/文本/发送·停止·`+`)、系统 `SpeechRecognizer` 语音转文字、图片附件(Photo Picker → 重编码 JPEG → `contentBlocks`)、顶栏瘦身(刷新/分享收进副标题面板)、空态改大图标+文案) → `0.10.0`–`0.12.1`(WorkBuddy 视觉体系 / Markdown 渲染 / 原生 Agent 会话打磨 / ASR 语音输入两段式 + 录音动效) → `0.13.0`(**SSH 交互式终端**:xterm.js PTY 终端 + 命令/交互双模式 + 全局快捷命令列表)
 - 详细开发产物见 `docs/superpowers/specs/2026-08-24-lan-agent-android-app-design.md`(原 v0.1 spec)+ `docs/superpowers/plans/2026-08-24-lan-agent-android-app.md`(10-task 实现 plan)+ `docs/superpowers/specs/2026-09-14-workbuddy-api-token-applicability.md`(WorkBuddy accessToken 适用面调研,含真机探测矩阵)。**注意**:spec/plan 在 0.6.0 / 0.7.x 大幅扩展后已过期,但作为初始设计参考仍可读;后续新增功能没再写独立 spec/plan,只有 0.10.x 的 ASR 路线在 2026-09-14 这份调研里留下了 WorkBuddy 鉴权与端点适用面的最新事实底座。

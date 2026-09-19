@@ -10,12 +10,19 @@ import com.jcraft.jsch.Session
  * returns when `setInputStream(null)` is used (JSch multiplexes both onto
  * the channel input stream). `exitCode` is `-1` if the channel closed
  * without reporting (very rare — usually means timeout / disconnect).
+ *
+ * `timedOut` is set by [SshSession.exec] when the command outlived its
+ * deadline. It is NOT an error: `output` holds everything received so far
+ * and `exitCode` is whatever JSch had (-1 if the server never told us).
+ * [JschClient.exec] never sets it — it has no deadline — so the default
+ * keeps every existing call site source-compatible.
  */
 data class ExecResult(
     val command: String,
     val output: String,
     val exitCode: Int,
     val durationMs: Long,
+    val timedOut: Boolean = false,
 )
 
 /**

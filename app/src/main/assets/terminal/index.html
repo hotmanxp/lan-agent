@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<!--
+  assets/terminal/index.html — SSH 交互终端的 WebView 载体
+
+  为什么是 WebView + xterm.js 而不是 Compose 自绘：
+  一个「能用」的终端必须做 VT 转义序列解释（光标定位、清屏、SGR 颜色、
+  alternate screen …）。自己写就是半个终端模拟器，`top` / `vim` / `less`
+  这些每天要用的全屏程序全部会花屏。xterm.js 是现成的、久经考验的实现，
+  这里只负责把它和 Kotlin 侧的 SSH 通道接起来。
+
+  数据流（两个方向都不做任何转换，只有 base64 编解码）：
+    Kotlin  shell 通道读到的字节 → Utf8 → base64 → wbTerm.write(b64) → term.write
+    用户按键/粘贴 → term.onData → strToB64 → AndroidTerm.send(b64) → shell.write
+
+  为什么 base64：evaluateJavascript 的实参是「一段 JS 源码字符串」，
+  直接把终端输出塞进去会被引号/换行/反斜杠/控制字符炸掉。
+  base64 字母表对 JS 字符串是安全的，UTF-8 的分包问题由 TextDecoder /
+  TextEncoder 处理。
+
+  顶部按键条不是装饰：手机软键盘没有 Esc / Ctrl / Tab / 方向键，
+  而这三样是命令行刚需（`ESC` 退出 vim 插入模式、`Ctrl+C` 中断、
+  `Tab` 补全）。Ctrl 做成粘滞键 —— 点一次，下一个字符被转成控制码。
+-->
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="color-scheme" content="dark">
+  <title>SSH</title>
+  <link rel="stylesheet" href="xterm.css">
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      background: #0F1115;
+      overflow: hidden;
+      /* 关掉长按选择菜单 / 点击高亮,否则终端里选字全是系统菜单 */
+      -webkit-touch-callout: none;
+      -webkit-tap-highlight-color: transparent;
+      -webkit-text-size-adjust: none;
+      font-family: -apple-system, "PingFang SC", "Helvetica Neue", sans-serif;
+    }
+
+    /* 纵向 flex:按键条贴顶(软键盘弹出时它在可视区最上方,不会被挡),
+       终端吃掉剩余高度,ResizeObserver 看到尺寸变化后重新 fit。 */
+    #root {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      width: 100%;
+    }
+    #keybar {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 8px;
+      background: #16181D;
+      border-bottom: 1px solid #22252B;
+      overflow-x: auto;
+      overflow-y: hidden;
+      white-space: nowrap;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+    }
+    #keybar::-webkit-scrollbar { display: none; }
+
+    .key {
+      flex: 0 0 auto;
+      min-width: 34px;
+      height: 30px;
+      padding: 0 9px;
+      border-radius: 8px;
+      border: 1px solid #2C3038;
+      background: #1F2124;
+      color: #D5D8DD;
+      font-size: 12px;
+      line-height: 28px;
+      text-align: center;
+      user-select: none;
+    }
+    .key:active { background: #2A2D33; }
+    /* 粘滞 Ctrl / 已激活态 */
+    .key.on {
+      background: #35D6B6;
+      border-color: #35D6B6;
+      color: #0B1512;
+      font-weight: 600;
+    }
+    .sep {
+      flex: 0 0 auto;
+      width: 1px;
+      height: 18px;
+      background: #2C3038;
+      margin: 0 2px;
+    }
+
+    #term {
+      flex: 1 1 auto;
+      min-height: 0;
+      /* xterm 自己是 absolute 布局,给个定位上下文 */
+      position: relative;
+      overflow: hidden;
+    }
+    #term .xterm { padding: 6px 4px 2px 8px; }
+    .xterm-viewport { background: #0F1115 !important; }
+
+    /* 页面级错误兜底:脚本起不来时这里会顶出来一段可读的说明。
+       终端页一挂就是「一片黑」,不把原因写在屏幕上等于无法排障。 */
+    #fatal {
+      display: none;
+      padding: 14px;
+      color: #F16C6C;
+      font-family: Menlo, monospace;
+      font-size: 12px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+  </style>
+</head>
+<body>
+<div id="root">
+  <div id="keybar"></div>
+  <div id="term"></div>
+  <div id="fatal"></div>
+</div>
+
+<script>
+  // 最早的一道兜底:任何未捕获错误都写到页面上(而不是只留在 logcat)。
+  window.__diag = function (text) {
+    try {
+      if (window.AndroidTerm && window.AndroidTerm.diag) {
+        // 与 send 同口径:base64,免得中文/控制字符在半路被改写
+        var bytes = new TextEncoder().encode(String(text));
+        var bin = '';
+        for (var i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+        window.AndroidTerm.diag(btoa(bin));
+      }
+    } catch (e) { /* ignore */ }
+  };
+  window.__fatal = function (what, detail) {
+    try {
+      window.__diag('FATAL ' + what + ' :: ' + detail);
+      var el = document.getElementById('fatal');
+      el.style.display = 'block';
+      el.textContent = '[终端页故障] ' + what + '\n' + detail;
+      document.getElementById('term').style.display = 'none';
+      document.getElementById('keybar').style.display = 'none';
+    } catch (e) { /* ignore */ }
+  };
+  window.onerror = function (msg, src, line, col) {
+    window.__fatal('JS 异常', msg + '\n' + (src || '') + ':' + line + ':' + col);
+  };
+  window.__diag('boot');
+  window.__metrics = function (tag) {
+    var vv = window.visualViewport;
+    return tag +
+      ' inner=' + window.innerWidth + 'x' + window.innerHeight +
+      ' docEl=' + document.documentElement.clientWidth + 'x' + document.documentElement.clientHeight +
+      ' body=' + document.body.clientWidth + 'x' + document.body.clientHeight +
+      ' vv=' + (vv ? Math.round(vv.width) + 'x' + Math.round(vv.height) : 'n/a') +
+      ' screen=' + screen.width + 'x' + screen.height +
+      ' dpr=' + (window.devicePixelRatio || 1) +
+      ' mode=' + document.compatMode;
+  };
+</script>
+<script src="xterm.js"></script>
+<script src="addon-fit.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  if (typeof Terminal === 'undefined') {
+    window.__fatal('xterm.js 未加载', 'assets/terminal/xterm.js 没被解析出全局 Terminal');
+    return;
+  }
+  if (typeof FitAddon === 'undefined' || !FitAddon.FitAddon) {
+    window.__fatal('addon-fit.js 未加载', 'assets/terminal/addon-fit.js 没被解析出全局 FitAddon');
+    return;
+  }
+
+  // ---------------------------------------------------------------- 编码工具
+
+  function b64ToBytes(b64) {
+    var bin = atob(b64);
+    var out = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+
+  var decoder = new TextDecoder('utf-8');
+  function b64ToStr(b64) {
+    return decoder.decode(b64ToBytes(b64));
+  }
+
+  function strToB64(str) {
+    var bytes = new TextEncoder().encode(str);
+    var bin = '';
+    for (var i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    return btoa(bin);
+  }
+
+  // ---------------------------------------------------------------- 终端实例
+
+  var term = new Terminal({
+    // 关掉 convertEol:服务端（Linux/macOS）本来就是 CRLF,自己再补一个
+    // 换行会让 vim / less 的每一行都多空一行。
+    convertEol: false,
+    cursorBlink: true,
+    cursorStyle: 'bar',
+    fontFamily: 'Menlo, "DejaVu Sans Mono", "Roboto Mono", monospace',
+    fontSize: 13,
+    lineHeight: 1.15,
+    scrollback: 5000,
+    allowTransparency: false,
+    // 关掉 xterm 自己的「右键/长按粘贴」以外的浏览器手势,手机上会误触
+    macOptionIsMeta: false,
+    theme: {
+      background: '#0F1115',
+      foreground: '#E6E8EB',
+      cursor: '#35D6B6',
+      cursorAccent: '#0F1115',
+      selectionBackground: 'rgba(53,214,182,0.30)',
+      black: '#1F2124',
+      red: '#F16C6C',
+      green: '#3FD1B4',
+      yellow: '#E2932F',
+      blue: '#6CB6FF',
+      magenta: '#C88BFF',
+      cyan: '#59D5E0',
+      white: '#ECEDEF',
+      brightBlack: '#8C939C',
+      brightRed: '#FF8A8A',
+      brightGreen: '#59E3C7',
+      brightYellow: '#F0B160',
+      brightBlue: '#93C9FF',
+      brightMagenta: '#D9A6FF',
+      brightCyan: '#7FE3EC',
+      brightWhite: '#FFFFFF'
+    }
+  });
+
+  var fit = new FitAddon.FitAddon();
+  term.loadAddon(fit);
+  term.open(document.getElementById('term'));
+
+  var bridge = window.AndroidTerm || null;
+
+  // -------------------------------------------------------------- 尺寸同步
+
+  // 只有行列数变化时才回调,避免拖动键盘/滚动时把 window-change 打满。
+  var lastCols = 0, lastRows = 0;
+  var pendingResize = null;
+
+  /**
+   * Kotlin 侧在每次 layout 变化时调这里,参数是 WebView 的**物理像素**尺寸。
+   *
+   * 为什么不靠 CSS 的 height:100%:WebView 在 Compose 里创建时尺寸是 0x0,
+   * 若那时就完成首次布局,页面视口高度就是 0 —— height:100% 解析成 0,
+   * paint 树被裁成 0 高,屏幕上一片黑(Kotlin 侧现在已经推迟到 layout 之后
+   * 才 loadUrl,但 viewport 仍不是可以盲信的东西)。显式写死高度最稳,
+   * 顺带把软键盘开合也算进来。
+   */
+  function applyViewport(pxW, pxH) {
+    var dpr = window.devicePixelRatio || 1;
+    var h = Math.max(1, Math.round(pxH / dpr));
+    var w = Math.max(1, Math.round(pxW / dpr));
+    document.documentElement.style.height = h + 'px';
+    document.body.style.height = h + 'px';
+    document.body.style.width = w + 'px';
+    document.getElementById('root').style.height = h + 'px';
+    scheduleFit(0);
+  }
+
+  function doFit() {
+    var host = document.getElementById('term');
+    if (!host.clientWidth || !host.clientHeight) return;   // 布局未就绪
+    try { fit.fit(); } catch (e) { return; }
+    if (term.cols === lastCols && term.rows === lastRows) return;
+    lastCols = term.cols;
+    lastRows = term.rows;
+    if (bridge && bridge.resize) {
+      try { bridge.resize(term.cols, term.rows); } catch (e) { /* 通道还没开 */ }
+    }
+  }
+
+  function scheduleFit(delay) {
+    if (pendingResize) clearTimeout(pendingResize);
+    pendingResize = setTimeout(function () {
+      pendingResize = null;
+      doFit();
+    }, delay || 30);
+  }
+
+  if (window.ResizeObserver) {
+    new ResizeObserver(function () { scheduleFit(30); })
+      .observe(document.getElementById('term'));
+  }
+  window.addEventListener('resize', function () { scheduleFit(120); });
+  window.addEventListener('orientationchange', function () { scheduleFit(240); });
+
+  // ---------------------------------------------------------------- 按键上行
+
+  var ctrlSticky = false;
+
+  function setCtrlSticky(on) {
+    ctrlSticky = on;
+    var el = document.getElementById('key-ctrl');
+    if (el) el.classList.toggle('on', on);
+  }
+
+  /** 单字符 → 控制码(a→\x01 … z→\x1a,?→\x7f),非单字符原样发。 */
+  function ctrlify(data) {
+    if (data.length !== 1) return data;
+    var code = data.toUpperCase().charCodeAt(0);
+    if (code >= 64 && code <= 95) return String.fromCharCode(code & 0x1f);
+    if (code === 63) return String.fromCharCode(0x7f);   // Ctrl+?
+    return data;
+  }
+
+  function sendStr(str) {
+    if (!bridge || !bridge.send) return;
+    try { bridge.send(strToB64(str)); } catch (e) { /* ignore */ }
+  }
+
+  term.onData(function (data) {
+    if (ctrlSticky) {
+      setCtrlSticky(false);
+      sendStr(ctrlify(data));
+    } else {
+      sendStr(data);
+    }
+  });
+
+  // ---------------------------------------------------------------- 按键条
+
+  var KEYS = [
+    { label: 'esc', seq: '\x1b' },
+    { label: 'tab', seq: '\t' },
+    { id: 'ctrl', label: 'ctrl', sticky: true },
+    { label: '^C', seq: '\x03' },
+    { label: '^D', seq: '\x04' },
+    { label: '^Z', seq: '\x1a' },
+    { sep: true },
+    { label: '↑', seq: '\x1b[A' },
+    { label: '↓', seq: '\x1b[B' },
+    { label: '→', seq: '\x1b[C' },
+    { label: '←', seq: '\x1b[D' },
+    { sep: true },
+    { label: 'home', seq: '\x1b[H' },
+    { label: 'end', seq: '\x1b[F' },
+    { label: 'pgup', seq: '\x1b[5~' },
+    { label: 'pgdn', seq: '\x1b[6~' },
+    { sep: true },
+    { label: '|', seq: '|' },
+    { label: '-', seq: '-' },
+    { label: '/', seq: '/' },
+    { label: '~', seq: '~' },
+    { sep: true },
+    // 抄输出。xterm 的选择是给鼠标做的,手机上没有长按选择 —— 这个按钮
+    // 是唯一的出口,少了它终端里刷出来的东西就只能靠手抄。
+    { label: '复制', action: function () { if (window.wbTerm) window.wbTerm.copyAll(); } },
+    // 收起键盘:按住终端看不到输出时最需要的一键
+    { label: '⌄ 键盘', action: function () {
+        if (bridge && bridge.hideIme) bridge.hideIme();
+        document.activeElement && document.activeElement.blur();
+      } }
+  ];
+
+  var keybar = document.getElementById('keybar');
+  KEYS.forEach(function (k) {
+    var el = document.createElement('div');
+    if (k.sep) {
+      el.className = 'sep';
+      keybar.appendChild(el);
+      return;
+    }
+    el.className = 'key';
+    el.textContent = k.label;
+    if (k.id) el.id = 'key-' + k.id;
+    // 用 touchstart 而不是 click:软键盘弹出时 click 有 ~300ms 延迟,
+    // 连按方向键的手感差别很明显。
+    el.addEventListener('touchstart', function (ev) {
+      ev.preventDefault();
+      if (k.sticky) setCtrlSticky(!ctrlSticky);
+      else if (k.seq !== undefined) sendStr(k.seq);
+      else if (k.action) k.action();
+    }, { passive: false });
+    el.addEventListener('click', function (ev) {
+      ev.preventDefault();
+      // 桌面 WebView / 调试环境没有 touch 事件
+      if (k.sticky) setCtrlSticky(!ctrlSticky);
+      else if (k.seq !== undefined) sendStr(k.seq);
+      else if (k.action) k.action();
+    });
+    keybar.appendChild(el);
+  });
+
+  // 点终端任意处聚焦(拉起软键盘)
+  document.getElementById('term').addEventListener('touchstart', function () {
+    term.focus();
+    scheduleFit(180);
+  }, { passive: true });
+
+  // ------------------------------------------------------- 供 Kotlin 调用的 API
+
+  window.wbTerm = {
+    /** 写终端输出。b64 = UTF-8 字节的 base64。 */
+    write: function (b64) {
+      try { term.write(b64ToStr(b64)); } catch (e) { /* ignore */ }
+    },
+    /**
+     * 连接状态横幅:直接写进终端流(不额外占行),青色 + 前后换行。
+     * b64 = UTF-8 字节的 base64 —— 主机名/错误信息里可能有引号,
+     * 走 base64 就不用操心 JS 字符串转义。
+     */
+    banner: function (b64) {
+      try {
+        term.write('\r\n\x1b[38;2;53;214;182m' + b64ToStr(b64) + '\x1b[0m\r\n');
+      } catch (e) { /* ignore */ }
+    },
+    /** 清屏(banner 之后重连用)。 */
+    reset: function () {
+      try { term.reset(); } catch (e) { /* ignore */ }
+    },
+    fit: function () { scheduleFit(0); },
+    setViewport: function (pxW, pxH) { applyViewport(pxW, pxH); },
+    focus: function () { term.focus(); },
+    /** 终端内容全选 → 系统剪贴板,给用户一个「抄输出」的出口。 */
+    copyAll: function () {
+      try {
+        term.selectAll();
+        var text = term.getSelection();
+        term.clearSelection();
+        // 与 send 同一套口径:走 base64,免得换行/控制字符在半路被改写
+        if (text && bridge && bridge.copy) bridge.copy(strToB64(text));
+      } catch (e) { /* ignore */ }
+    },
+    dims: function () { return term.cols + 'x' + term.rows; }
+  };
+
+  // 页面就绪 → 通知 Kotlin 可以开始灌输了(此前 Kotlin 侧必须缓冲)
+  doFit();
+  window.__diag(window.__metrics('ready'));
+  if (bridge && bridge.ready) {
+    bridge.ready();
+  } else {
+    term.write('\x1b[38;2;241;108;108m[Bug] AndroidTerm bridge 不可用\x1b[0m\r\n');
+  }
+})();
+</script>
+</body>
+</html>

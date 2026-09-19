@@ -1,7 +1,8 @@
 // ui/AppNavHost.kt — NavHost("home" → HomeScreen, "webview/{url}" → WebViewScreen,
 // "instances/{baseUrl}" → 原生 InstancesScreen,
 // "agent-sessions/{baseUrl}/{instanceName}" → 原生会话列表,
-// "agent-session/{baseUrl}/{instanceName}/{sid}" → 原生会话详情)
+// "agent-session/{baseUrl}/{instanceName}/{sid}" → 原生会话详情,
+// "ssh-hosts" → SSH 主机列表, "ssh-terminal/{hostId}" → SSH 终端 + 快捷命令)
 package io.github.hotmanxp.lanagent.ui
 
 import android.net.Uri
@@ -135,6 +136,21 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
                     navController.popBackStack()
                     navController.navigate("webview/${Uri.encode(url)}")
                 },
+                onOpenTerminal = { host ->
+                    navController.navigate("ssh-terminal/${Uri.encode(host.id)}")
+                },
+            )
+        }
+        // SSH 终端 + 快捷命令(0.13.0)。只传 hostId,主机凭证由屏内从
+        // DataStore 现取 —— 密码不能进导航参数(会进 back stack 状态)。
+        composable(
+            route = "ssh-terminal/{hostId}",
+            arguments = listOf(navArgument("hostId") { type = NavType.StringType })
+        ) { entry ->
+            val hostId = Uri.decode(entry.arguments?.getString("hostId").orEmpty())
+            SshTerminalScreen(
+                hostId = hostId,
+                onBack = { navController.popBackStack() },
             )
         }
         composable(

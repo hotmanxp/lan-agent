@@ -144,6 +144,53 @@
     <string name="ssh_sheet_start_fail">启动失败,请查看日志</string>
     <string name="ssh_log_title">/tmp/zai.log 末尾</string>
     <string name="ssh_no_host_hint">请先在 SSH 主机列表添加主机</string>
+    <!-- SSH 终端 + 快捷命令(0.13.0 新增)
+         两种形态:命令模式(每条命令一个 exec 通道,输出干净)与交互模式
+         (PTY + xterm.js,能跑 top/vim/sudo)。快捷命令列表全局共用一份。 -->
+    <string name="ssh_terminal_cd_open">打开终端</string>
+    <string name="ssh_terminal_cd_to_interactive">切到交互模式</string>
+    <string name="ssh_terminal_cd_to_command">切回命令模式</string>
+    <string name="ssh_terminal_cd_clear">清屏</string>
+    <string name="ssh_terminal_host_missing_title">主机不存在</string>
+    <string name="ssh_terminal_host_missing_body">这台 SSH 主机可能已被删除,返回列表重新添加。</string>
+    <string name="ssh_terminal_status_idle">未连接</string>
+    <string name="ssh_terminal_status_connecting">连接中…</string>
+    <string name="ssh_terminal_status_connected">已连接</string>
+    <string name="ssh_terminal_status_failed">连接失败</string>
+    <string name="ssh_terminal_status_closed">已断开</string>
+    <string name="ssh_terminal_reconnect">重连</string>
+    <string name="ssh_shell_opening">交互通道打开中…</string>
+    <string name="ssh_shell_open">交互模式</string>
+    <string name="ssh_shell_closed">交互会话已结束</string>
+    <string name="ssh_shell_failed">交互通道失败</string>
+    <string name="ssh_terminal_empty">输入命令执行,或点下方快捷命令\n(上方 Terminal 图标可切到完整终端)</string>
+    <string name="ssh_terminal_running">运行中…</string>
+    <string name="ssh_terminal_timed_out">已超时,远端可能仍在运行</string>
+    <string name="ssh_terminal_cancelled">已停止</string>
+    <string name="ssh_terminal_rerun">重跑</string>
+    <string name="ssh_terminal_input_hint">输入远程命令…</string>
+    <string name="ssh_terminal_input_hint_shell">输入命令并回车(直接送进终端)…</string>
+    <string name="ssh_terminal_send_line">发送到终端</string>
+    <string name="ssh_terminal_run">执行</string>
+    <string name="ssh_terminal_stop">停止</string>
+    <string name="ssh_quick_manage_title">快捷命令</string>
+    <string name="ssh_quick_manage_subtitle">所有主机共用一份;点条目右侧 ▶ 直接执行</string>
+    <string name="ssh_quick_manage">管理</string>
+    <string name="ssh_quick_add">新增快捷命令</string>
+    <string name="ssh_quick_empty_hint">还没有快捷命令。把常跑的命令存下来,以后一点就执行。</string>
+    <string name="ssh_quick_run">执行</string>
+    <string name="ssh_quick_cd_confirm">执行前会二次确认</string>
+    <string name="ssh_quick_confirm_badge">需确认</string>
+    <string name="ssh_quick_confirm_title">确认执行?</string>
+    <string name="ssh_quick_delete_title">删除这条快捷命令?</string>
+    <string name="ssh_quick_move_up">上移</string>
+    <string name="ssh_quick_move_down">下移</string>
+    <string name="ssh_quick_dialog_add_title">新增快捷命令</string>
+    <string name="ssh_quick_dialog_edit_title">编辑快捷命令</string>
+    <string name="ssh_quick_field_label">名称(显示在按钮上)</string>
+    <string name="ssh_quick_field_command">命令</string>
+    <string name="ssh_quick_field_confirm">执行前二次确认</string>
+    <string name="ssh_quick_field_confirm_hint">给 rm / reboot 这类命令用</string>
     <!-- 原生 Agent 会话(0.9.0 新增)
          会话列表 + 会话详情两屏,数据直连 zai 的 /api/agent/sessions + /api/event,
          不走 WebView。视觉参考 WorkBuddy 手机端对话页。 -->

@@ -92,9 +92,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEvent
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -119,7 +127,10 @@ import io.github.hotmanxp.lanagent.data.ModelEntry
 import io.github.hotmanxp.lanagent.data.PendingInteraction
 import io.github.hotmanxp.lanagent.data.pretty
 import io.github.hotmanxp.lanagent.data.QueuedPrompt
+import io.github.hotmanxp.lanagent.data.SlashItem
 import io.github.hotmanxp.lanagent.data.V2Task
+import io.github.hotmanxp.lanagent.data.filterSlashItems
+import io.github.hotmanxp.lanagent.data.parseSlashInput
 import io.github.hotmanxp.lanagent.data.tupleKey
 import io.github.hotmanxp.lanagent.voice.HoldPhase
 import io.github.hotmanxp.lanagent.voice.HoldToTalkCapsule
@@ -1424,6 +1435,24 @@ private fun ActionButton(
  *   2. 没配 → 回落到系统 SpeechRecognizer(见 [VoiceInputController]),点按切换;
  *      设备不支持时**不渲染**而不是画个灰图标占位。
  */
+/**
+ * 取「还在打命令名」阶段的关键字:输入以 `/` 开头、且首 token 还没出现空白时,
+ * 返回 `/` 之后的内容(空串 = 刚敲下斜杠);否则 null = 面板该收起。
+ *
+ * **面板开关由这个函数推导**,不另存 boolean:补全成 `/name ` 之后多出一个
+ * 空格,条件自然不成立,面板自己收 —— 不必在每个改 value 的地方记得手动关。
+ *
+ * 排除多行:粘进来一整段以 `/` 开头的文本不该被当成命令输入。
+ */
+private fun slashQueryOf(value: String): String? {
+    val trimmed = value.trimStart()
+    if (!trimmed.startsWith("/")) return null
+    val body = trimmed.substring(1)
+    if (body.contains('\n')) return null
+    if (body.any { it == ' ' || it == '\t' }) return null
+    return body
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun AgentInputBar(
@@ -1451,6 +1480,23 @@ internal fun AgentInputBar(
     currentModel: ModelEntry?,
     availableModels: List<ModelEntry>,
     onModelChange: (ModelEntry) -> Unit,
+    /**
+     * 命令候选(来自 `GET /api/slash`,模型见 data/SlashCommands.kt)。
+     *
+     * **空列表 = 不启用命令面板**:离线 / 服务端太老 / 拉取失败都会走到这里,
+     * 此时敲 `/` 就是普通字符,行为与加这个功能之前完全一致 —— 命令面板是
+     * 增强,不能成为发不出消息的新故障点。
+     */
+    slashItems: List<SlashItem>,
+    /** 清单还在路上。只影响面板空态文案(「正在加载」vs「没有匹配」)。 */
+    slashLoading: Boolean,
+    /**
+     * 用户选定了一条候选(点整行,或回车时输入已**精确命中**该命令名)。
+     *
+     * 输入条只做「面板交互 + 补全」;真正执行(打 `/api/agent/command`、
+     * 按返回类型分流)在 AgentSessionScreen —— 那里才有 API 实例和 sessionId。
+     */
+    onRunSlash: (SlashItem) -> Unit,
 ) {
     var showMoreMenu by remember { mutableStateOf(false) }
     var showModelPicker by remember { mutableStateOf(false) }
@@ -1460,6 +1506,94 @@ internal fun AgentInputBar(
     var voiceMode by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState()
     val modelSheetState = rememberModalBottomSheetState()
+
+    // ---- 命令面板 ----
+    // 面板开关**完全由输入推导**(见 [slashQueryOf]):补全成 `/name ` 后多了
+    // 一个空格,条件自然不成立,面板自己收起 —— 不用在每个改 value 的地方
+    // 记得手动关。唯一的例外是 Esc,所以单独记「这个内容被手动关过」。
+    var slashDismissedFor by remember { mutableStateOf<String?>(null) }
+    var slashIndex by remember { mutableStateOf(0) }
+    val focusRequester = remember { FocusRequester() }
+
+    val slashQuery = slashQueryOf(value)
+    val slashMatches = remember(slashItems, slashQuery) {
+        if (slashQuery == null) emptyList() else filterSlashItems(slashItems, slashQuery)
+    }
+    val showSlash = slashQuery != null && slashItems.isNotEmpty() && slashDismissedFor != value
+
+    // 过滤条件一变,高亮回到第一条 —— 否则接着敲字符时高亮会停在中间某个
+    // 已经不相关的位置上(选中项必须跟着候选集合收敛)。
+    LaunchedEffect(slashQuery) { slashIndex = 0 }
+
+    /** 环形上下移动。候选为空时不动。 */
+    fun slashMove(delta: Int) {
+        if (slashMatches.isEmpty()) return
+        slashIndex = ((slashIndex + delta) % slashMatches.size + slashMatches.size) % slashMatches.size
+    }
+
+    /** 只补全不执行:`/name ` + 光标留在末尾,等用户敲参数。 */
+    fun slashComplete(item: SlashItem) {
+        onValueChange("/${item.name} ")
+        slashIndex = 0
+        // 点击候选行可能让输入框丢焦点(软键盘收起),补回来。
+        runCatching { focusRequester.requestFocus() }
+    }
+
+    /**
+     * 选中一条候选:执行,还是只补全?**按 web 端 `selectSlashItem` 的分支**:
+     *
+     *   - `type == "local"` 的命令(`/clear` `/compact` `/status`)→ **选中即执行**
+     *     (web 走的也是这条路,参数传空;`/compact` 虽然挂着 `[--force]` 提示,
+     *     但它是 local,web 同样立刻执行 —— 别用「有没有 argumentHint」当判据);
+     *   - 其余(prompt 命令 / skill)→ 只补全成 `/name `,让用户补上参数
+     *     (skill 的 `$ARGUMENTS`)再自己发。误触一行就触发一次模型调用,
+     *     比多按一次发送键贵得多。
+     */
+    fun slashRun(item: SlashItem) {
+        if (!item.isSkill && item.isLocal) onRunSlash(item) else slashComplete(item)
+    }
+
+    /**
+     * 回车在面板打开时的语义:**能精确命中才执行,否则先补全**。
+     *
+     * fuzzy 排序的第一条未必是用户想要的(`/comm` 的头名可能不是 commit),
+     * 而误执行一条命令的代价(比如 `/clear`)远大于多按一次回车。所以只有
+     * `parseSlashInput` 出来的名字与某条候选**完全相等**才直接跑,其余情况
+     * 把高亮那条补全成 `/name ` 交给用户。
+     */
+    fun slashSubmitKeyboard() {
+        val typed = parseSlashInput(value)?.name
+        val exact = slashMatches.firstOrNull { it.name == typed }
+        if (exact != null) slashRun(exact) else slashMatches.getOrNull(slashIndex)?.let { slashComplete(it) }
+    }
+
+    /**
+     * 物理键盘导航,返回 true = 事件已消费。
+     *
+     * 只认 KeyDown(KeyUp 会再来一次,不管的话一次按键走两步);面板没开时
+     * 一律不消费 —— 把按键让回正常路径(比如 Enter 该触发 keyboardActions)。
+     */
+    fun slashKey(ev: KeyEvent): Boolean {
+        if (!showSlash || ev.type != KeyEventType.KeyDown) return false
+        when (ev.key) {
+            Key.DirectionDown -> {
+                slashMove(1); return true
+            }
+            Key.DirectionUp -> {
+                slashMove(-1); return true
+            }
+            Key.Tab -> {
+                slashMatches.getOrNull(slashIndex)?.let { slashComplete(it) }; return true
+            }
+            Key.Enter, Key.NumPadEnter -> {
+                slashSubmitKeyboard(); return true
+            }
+            Key.Escape -> {
+                slashDismissedFor = value; return true
+            }
+        }
+        return false
+    }
 
     // 有内容才让发送钮「亮」起来。注意:圆钮**始终渲染**,只是禁用态换颜色 ——
     // WorkBuddy 就是这么做的,空输入时按钮不消失,布局因此不跳。
@@ -1501,6 +1635,28 @@ internal fun AgentInputBar(
                         AttachmentChip(image = img, onRemove = { onRemoveAttachment(img) })
                     }
                 }
+            }
+
+            // 命令面板:只在「还在打命令名」阶段出现,挂在输入卡**上方**(与附件
+            // 条同一层)。不做跟光标的 popup —— 手机上没那个空间,内联还能保证
+            // 它不被软键盘遮住。
+            //
+            // `weight(1f, fill = false)` 是这个面板**必须**有的:输入条的 Column
+            // 高度被软键盘 inset 压过,面板(6 行 ≈ 324dp)+ 输入卡一旦超过剩余
+            // 空间,Column 会直接把排在后面的输入卡挤出可视区 —— 表现就是「敲了
+            // 个 `/`,面板弹出来,输入框没了」,用户看不到自己打的命令名。
+            // weight 让面板只能吃掉「输入卡量完之后剩下的那点高度」,fill=false
+            // 保证空间够时它仍然按内容收缩(不撑满)。
+            if (showSlash) {
+                SlashCommandPanel(
+                    items = slashMatches,
+                    selectedIndex = slashIndex,
+                    loading = slashLoading,
+                    onPick = { slashRun(it) },
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .padding(bottom = 8.dp),
+                )
             }
 
             // 输入白卡。WorkBuddy 的输入区观感 = 「浮在浅灰页面上的一张白色圆角卡」:
@@ -1551,10 +1707,22 @@ internal fun AgentInputBar(
                             cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                             maxLines = 6,
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                            keyboardActions = KeyboardActions(onSend = { if (reallyCanSend) onSend() }),
+                            // 软键盘的「发送」键在面板打开时改变语义:先补全(只有
+                            // 精确命中命令名才真执行),而不是把半截命令名当消息发出去。
+                            keyboardActions = KeyboardActions(
+                                onSend = {
+                                    if (showSlash) slashSubmitKeyboard()
+                                    else if (reallyCanSend) onSend()
+                                }
+                            ),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .heightIn(min = 24.dp, max = 150.dp),
+                                .heightIn(min = 24.dp, max = 150.dp)
+                                .focusRequester(focusRequester)
+                                // 物理键盘(外接 / 平板 / 掌机)的导航键。手机的软键盘
+                                // 没有方向键,所以 ↑↓ / Tab 是「有则更好」;真正兜住
+                                // 手机交互的是候选行点击 + 上面的发送键分支。
+                                .onPreviewKeyEvent { ev -> slashKey(ev) },
                         )
                     }
                     } // else:非语音模式的文本域

@@ -334,4 +334,16 @@
     <!-- 设置栏的「入口卡片」区块(0.15.0 从任务栏搬来) -->
     <string name="settings_card_section">入口卡片</string>
     <string name="settings_card_edit_hint">长按拖动排序,点垃圾桶删除</string>
+    <!-- 命令面板(/ 触发;命令 = 服务端注册表,技能 = SKILL.md) -->
+    <string name="agent_slash_loading">正在加载命令…</string>
+    <string name="agent_slash_empty">没有匹配的命令</string>
+    <string name="agent_slash_badge_builtin">内置</string>
+    <string name="agent_slash_badge_command">命令</string>
+    <string name="agent_slash_badge_skill">技能</string>
+    <string name="agent_slash_badge_command_plugin">%1$s · 命令</string>
+    <string name="agent_slash_badge_skill_plugin">%1$s · 技能</string>
+    <string name="agent_cmd_cleared">已清空当前对话</string>
+    <string name="agent_cmd_compacted">已压缩 %1$d 条消息</string>
+    <string name="agent_cmd_unknown">未找到命令 %1$s</string>
+    <string name="agent_cmd_failed">命令执行失败:%1$s</string>
 </resources>

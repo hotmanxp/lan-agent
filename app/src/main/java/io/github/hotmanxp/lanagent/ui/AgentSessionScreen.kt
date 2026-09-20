@@ -53,6 +53,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -114,7 +115,22 @@ import io.github.hotmanxp.lanagent.data.AgentApi
 import io.github.hotmanxp.lanagent.data.AgentInstance
 import io.github.hotmanxp.lanagent.data.AgentSessionMeta
 import io.github.hotmanxp.lanagent.data.AttachedImage
+import io.github.hotmanxp.lanagent.data.CMD_TYPE_CLEARED
+import io.github.hotmanxp.lanagent.data.CMD_TYPE_COMPACTED
+import io.github.hotmanxp.lanagent.data.CMD_TYPE_ERROR
+import io.github.hotmanxp.lanagent.data.CMD_TYPE_MESSAGE
+import io.github.hotmanxp.lanagent.data.CMD_TYPE_PROMPT
+import io.github.hotmanxp.lanagent.data.CMD_TYPE_STATUS
+import io.github.hotmanxp.lanagent.data.CMD_TYPE_UNKNOWN
+import io.github.hotmanxp.lanagent.data.compactedInfo
 import io.github.hotmanxp.lanagent.data.DisplayFile
+import io.github.hotmanxp.lanagent.data.errorText
+import io.github.hotmanxp.lanagent.data.messageText
+import io.github.hotmanxp.lanagent.data.parseSlashInput
+import io.github.hotmanxp.lanagent.data.renderedPrompt
+import io.github.hotmanxp.lanagent.data.SlashItem
+import io.github.hotmanxp.lanagent.data.statusText
+import io.github.hotmanxp.lanagent.data.unknownInput
 import io.github.hotmanxp.lanagent.data.compactToolsFlow
 import io.github.hotmanxp.lanagent.data.ImageAttachments
 import io.github.hotmanxp.lanagent.data.ModelEntry
@@ -243,6 +259,21 @@ fun AgentSessionPane(
     var availableModels by remember { mutableStateOf<List<ModelEntry>>(emptyList()) }
     var currentModel by remember { mutableStateOf<ModelEntry?>(null) }
 
+    // ---- 命令面板(/命令 + Skill,见 data/SlashCommands.kt)----
+    // 清单按**实例**缓存(`remember(api)`):同一实例的 `/api/slash` 基本是静态的
+    // (内置命令 + 磁盘上的 skill),没必要每次切会话都重拉,切实例才重拉。
+    //
+    // 拉失败会降级成空列表 → 输入条自动不启用面板(见 AgentInputBar 的
+    // slashItems 注释)。**不弹错**:命令面板是增强,它坏了不该影响发消息。
+    var slashItems by remember(api) { mutableStateOf<List<SlashItem>>(emptyList()) }
+    var slashLoading by remember(api) { mutableStateOf(false) }
+    LaunchedEffect(api) {
+        val a = api ?: return@LaunchedEffect
+        slashLoading = true
+        slashItems = a.listSlashCommands()
+        slashLoading = false
+    }
+
     /**
      * 实例解析(只在首帧 / 手动重试时跑一次):
      *   1. 拉目录(`/api/instances` 优先,管理器不可达则回落卡片探活)
@@ -366,11 +397,97 @@ fun AgentSessionPane(
         scope.launch { snackbarHostState.showSnackbar(msg) }
     }
 
+    /**
+     * 执行一条命令。**模板展开在服务端**(见 data/SlashCommands.kt 文件头),
+     * 本端只按返回的 type 分流 —— 对齐 web 端 `AgentInputBox.handleSend`:
+     *   - `prompt`:把服务端渲染好的文本当**普通消息**发出去,但本地展示的是
+     *     用户敲的原文(`/commit fix: xxx`),否则消息流里会冒出一段用户从没
+     *     写过的长文;
+     *   - 其余(local):本地消费,不产生模型调用 —— `cleared` 清屏、`status` /
+     *     `message` 落提示条、`error` / `unknown` 报错。
+     *
+     * @param name 命令名(不含 `/`;插件项是带前缀的全名,服务端按全名解析)。
+     */
+    fun runCommand(name: String, rawText: String) {
+        val a = api ?: return
+        val sid = currentSid ?: return
+        val args = parseSlashInput(rawText)?.args.orEmpty()
+        // 先清输入框:命令已经在飞了,留着那段文字只会让人以为没发出去。
+        input = ""
+        scope.launch {
+            runCatching { a.runCommand(sid, name, args) }.fold(
+                onSuccess = { res ->
+                    when (res.type) {
+                        CMD_TYPE_PROMPT -> {
+                            val rendered = res.renderedPrompt().orEmpty()
+                            if (rendered.isBlank()) {
+                                toast(context.getString(R.string.agent_cmd_failed, "空 prompt"))
+                                return@fold
+                            }
+                            store.appendLocalUser(rawText)
+                            runCatching { a.sendPrompt(sid, rendered) }
+                                .onFailure {
+                                    toast(context.getString(R.string.agent_cmd_failed, it.message ?: "$it"))
+                                }
+                        }
+
+                        CMD_TYPE_CLEARED -> {
+                            // 服务端已清 transcript,本地列表必须一起清(store.clearAll)
+                            store.clearAll()
+                            toast(context.getString(R.string.agent_cmd_cleared))
+                        }
+
+                        CMD_TYPE_COMPACTED -> {
+                            val info = res.compactedInfo()
+                            toast(context.getString(R.string.agent_cmd_compacted, info?.first ?: 0))
+                            info?.second?.takeIf { it.isNotBlank() }?.let { store.appendNote(it) }
+                        }
+
+                        CMD_TYPE_STATUS -> store.appendNote(
+                            res.statusText().orEmpty().ifBlank { "/status 没有可显示的内容" }
+                        )
+
+                        CMD_TYPE_MESSAGE -> store.appendNote(
+                            res.messageText().orEmpty().ifBlank { "/$name 没有返回内容" }
+                        )
+
+                        CMD_TYPE_ERROR -> store.appendNote(
+                            res.errorText().orEmpty().ifBlank { "命令执行失败" },
+                            isError = true,
+                        )
+
+                        CMD_TYPE_UNKNOWN -> toast(
+                            context.getString(
+                                R.string.agent_cmd_unknown,
+                                res.unknownInput() ?: "/$name",
+                            )
+                        )
+
+                        // 服务端将来加新 type 时不要静默吞掉:原样落一条提示条,
+                        // 至少看得见「服务端回了点本端还不认识的东西」。
+                        else -> store.appendNote("/$name → ${res.type}")
+                    }
+                },
+                onFailure = {
+                    toast(context.getString(R.string.agent_cmd_failed, it.message ?: "$it"))
+                },
+            )
+        }
+    }
+
     fun send() {
         val a = api ?: return
         val sid = currentSid ?: return
         val text = input.trim()
         if (text.isEmpty() && attachments.isEmpty()) return
+        // 命令优先:**不以「命中本地清单」为准,只以语法为准**(对齐 web 端
+        // `handleSend` 的 `^[A-Za-z0-9:_-]+$` 闸)—— 清单只喂面板,执行交给
+        // 服务端判:服务端不认识的命令会回 `unknown`,由本端报「未知命令」,
+        // 比「清单请求失败就把 /clear 当普通消息发给模型」安全得多。
+        parseSlashInput(text)?.let { parsed ->
+            runCommand(parsed.name, text)
+            return
+        }
         val images = attachments
         input = ""
         attachments = emptyList()
@@ -709,7 +826,12 @@ fun AgentSessionPane(
                         },
                     )
                 },
-                snackbarHost = { SnackbarHost(snackbarHostState) },
+                // imePadding **必须加**:本页是 edge-to-edge(见 MainActivity 的
+                // setDecorFitsSystemWindows(false))+ adjustResize,窗口不会为键盘
+                // 缩高,而 SnackbarHost 默认贴在**窗口底部** —— 也就是键盘后面。
+                // 表现是「命令执行失败 / 未知命令」这类提示静默消失,只有把键盘
+                // 收起来才看得见。抬手/收键盘时 inset 为 0,不影响原布局。
+                snackbarHost = { SnackbarHost(snackbarHostState, modifier = Modifier.imePadding()) },
             ) { padding ->
                 // 录音动效层（HoldToTalkOverlay）盖在整个内容区上：无 pointerInput，
                 // 不吃触摸，按住手势仍在胶囊上。
@@ -925,6 +1047,11 @@ fun AgentSessionPane(
                                             }
                                     }
                                 },
+                                // 命令面板:/api/slash 拿到的候选 + 「选定后怎么执行」。
+                                // 输入条负责面板交互与补全,执行(打接口 + 分流)在这里。
+                                slashItems = slashItems,
+                                slashLoading = slashLoading,
+                                onRunSlash = { item -> runCommand(item.name, input) },
                             )
                         }
                     }

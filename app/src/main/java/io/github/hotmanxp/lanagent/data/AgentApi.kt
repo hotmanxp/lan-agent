@@ -18,6 +18,8 @@
 //   GET  /api/fs/preview?path=                   fs.ts:1020  文件预览(DisplayFiles)
 //   POST /api/fs/reveal                          fs.ts:1125  在 Mac 上打开所在目录
 //   GET  /api/event?sid=<sid>                    routes/event.ts:44  SSE
+//   GET  /api/slash                              slash.ts:7   命令 + skill 清单
+//   POST /api/agent/command                      command.ts:36 执行/展开一条命令
 //
 // **不需要 token**:服务端 /api/* 没有鉴权中间件(web 端带的 X-Zai-Token
 // 服务端根本不读)。LAN 直连直接打即可。
@@ -190,6 +192,43 @@ class AgentApi(
     suspend fun listAvailableModels(): List<ModelEntry> = runCatching {
         execute<AgentSettingsResponse>(request("/api/agent/settings").getJson()).models
     }.getOrDefault(emptyList())
+
+    // ===== 命令面板(/命令 + Skill) =====
+
+    /**
+     * `GET /api/slash` —— 命令 + skill 合并清单(`routes/slash.ts`)。无参数、
+     * 无鉴权。
+     *
+     * 失败降级成**空列表**而不是抛:拿不到清单只意味着「敲 `/` 不弹面板」,
+     * 不该把整个会话页拉崩(跟 [listAvailableModels] 一个态度)。
+     */
+    suspend fun listSlashCommands(): List<SlashItem> = runCatching {
+        execute<SlashListResponse>(request("/api/slash").getJson()).items
+    }.getOrDefault(emptyList())
+
+    /**
+     * `POST /api/agent/command` —— 执行 / 展开一条命令(`routes/command.ts:36`)。
+     *
+     * 两个约定:
+     *   - `sessionId` 走 **body**(不读 `X-Session-Id`)。服务端缺省会回落到
+     *     `getCurrentSessionId()`,多实例场景别赌这个回落,一律显式带;
+     *   - `args` 不在这里预截断 —— 服务端上限 1024 字符、超出自己截断并在
+     *     `command.run` 事件里标 `argsTruncated`,截断责任只留一处。
+     */
+    suspend fun runCommand(
+        sessionId: String,
+        name: String,
+        args: String = "",
+    ): CommandRunResponse =
+        execute(
+            request("/api/agent/command").postJson(
+                buildJsonObject {
+                    put("name", name)
+                    if (args.isNotEmpty()) put("args", args)
+                    put("sessionId", sessionId)
+                }
+            )
+        )
 
     // ===== 对话 =====
     /**

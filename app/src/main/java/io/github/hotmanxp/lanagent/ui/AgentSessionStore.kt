@@ -537,15 +537,44 @@ class AgentSessionStore(val sessionId: String) {
     }
 
     /**
-     * 本地乐观追加一条用户消息。
+     * `/clear` 的本地落地。
      *
-     * **必要**,不是优化:服务端的 SSE 事件面里没有「用户发了消息」这一类
-     * (`runtime.*` 全是助手侧),用户消息只在 assistant 回复落盘时间接写进
-     * transcript。所以如果不本地追加,自己刚发的消息要等下一次 re-hydrate
-     * 才会出现(web 端也是这么做的)。
+     * 服务端那一侧已经把 transcript 的消息删掉(`builtin/clear.ts`,保留
+     * sessionId),我们这边必须把渲染列表一起清 —— 否则屏幕上还挂着
+     * 服务端已经不存在的消息,下一轮回复会接在一堆「幽灵上下文」后面,
+     * 用户会以为 clear 没生效。
      *
-     * 同时把流式气泡游标清掉 —— 回复必须开在用户消息**之后**。
+     * **只清 items**:会话本身还在(sid / 标题 / cwd / 模型都不动),pending
+     * 与 status 也不是「上下文」,清掉只会让 UI 状态和真实运行态脱节。
+     * 游标重置成与 [hydrate] 相同的初始值,让后续流式回复重新开气泡。
      */
+    fun clearAll() {
+        items.clear()
+        curTextIdx = -1
+        curThinkIdx = -1
+        turnIndex = -1
+        segCounter = 0
+    }
+
+    /**
+     * 本地追加一条提示条 —— 命令的本地结果(`/status` 的状态块、`/compact`
+     * 的压缩回执、命令报错)落在这里。
+     *
+     * 用 [AgentItem.Note] 而不是 Snackbar / toast:这些内容有信息量(状态、
+     * 摘要),值得留在会话流里回看,而 Snackbar 几秒就没了。key 里带时间戳
+     * 与下标 —— 同一条命令连敲两次必须是两条独立的条。
+     */
+    fun appendNote(text: String, isError: Boolean = false) {
+        items.add(
+            AgentItem.Note(
+                key = "local-note-${System.currentTimeMillis()}-${items.size}",
+                text = text,
+                timestamp = System.currentTimeMillis(),
+                isError = isError,
+            )
+        )
+    }
+
     /**
      * 本地乐观追加一条用户消息。
      *

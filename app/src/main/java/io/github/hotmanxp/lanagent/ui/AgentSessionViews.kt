@@ -1960,8 +1960,14 @@ private fun ModelPickerSheetContent(
         Spacer(Modifier.height(12.dp))
         groups.forEach { (providerId, entries) ->
             if (groups.size > 1 && providerId.isNotBlank() && providerId != "default") {
+                // provider header:用本组第一条非空 description 作为人读名
+                // (服务端把 provider 显示名塞进 ModelEntry.description);
+                // 没 description 才回落原始 providerId,避免显示
+                // `provider_1789379862098` 这种 hash。
+                val headerLabel = entries.firstNotNullOfOrNull { it.description?.takeIf { d -> d.isNotBlank() } }
+                    ?: providerId
                 Text(
-                    text = providerId,
+                    text = headerLabel,
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 8.dp, bottom = 2.dp),
@@ -1988,25 +1994,17 @@ private fun ModelPickerSheetContent(
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(20.dp),
                     )
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = entry.label ?: entry.alias,
-                            fontSize = 15.sp,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        if (!entry.description.isNullOrBlank()) {
-                            Text(
-                                text = entry.description,
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    }
+                    // 单行布局:description 已上提到 provider header,行内
+                    // 不再展示,只剩 [Icon] [Name(weight=1)] [✓]。
+                    Text(
+                        text = entry.label ?: entry.alias,
+                        fontSize = 15.sp,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
                     if (isCurrent) {
                         Icon(
                             imageVector = Icons.Rounded.Check,

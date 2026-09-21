@@ -2,7 +2,7 @@
 
 > **lan-agent** — Android App,把局域网内多个 opencc-web 实例入口收成卡片列表 + **原生**展示实例管理 API + **原生** Agent 会话(直连 `/api/agent/sessions` + `/api/event` SSE)+ SSH 一键启动 zai。配套工程 `/Users/ethan/code/opencc-web`,zai 需 `pnpm --filter @zn-ai/zai dev -- --lan` 启动。
 >
-> **关键里程碑**: 0.10.0 视觉对齐 WorkBuddy + 自研 Markdown;0.14.0 改底部五栏;0.15.0 任务栏直接是原生 Agent 工作区;0.16.0 DisplayFiles 文件卡片;0.16.1 文件预览改面板内 overlay(不占路由)。**当前 HEAD**: HEAD on `main` · **versionCode 56** · **versionName 0.16.1**。
+> **关键里程碑**: 0.10.0 视觉对齐 WorkBuddy + 自研 Markdown;0.14.0 改底部五栏;0.15.0 任务栏直接是原生 Agent 工作区;0.16.0 DisplayFiles 文件卡片;0.16.1 文件预览改面板内 overlay(不占路由);0.17.0 `/` 命令面板 + Skill 候选;0.17.4 语音 401 自愈。**当前 HEAD**: HEAD on `main` · **versionCode 70** · **versionName 0.17.4**。
 >
 > **独立顶级目录、独立 git 仓库**,不在 opencc-web monorepo 内。spec / plan 在 `docs/superpowers/{specs,plans}/`(0.6.0 之后已过期,仅作历史参考)。
 
@@ -159,6 +159,21 @@
 - 改前看 `data/DisplayFilesTest` + `ui/AgentSessionStoreDisplayFilesTest`(后者守"重开会话",直播正常、只有离开再回来才坏)
 - 见 `data/DisplayFiles.kt` / `ui/AgentSessionViews.kt` 的 `DisplayFilesBody` / `ui/FileViewerOverlay.kt`
 
+### 20. 「按住说话」鉴权路径(4 条,`VoiceAsrConfig.providerOrNull` 按序命中)
+
+| # | 条件 | provider | 凭据从哪来 |
+|---|------|----------|-----------|
+| 1 | `asrSignViaBackend=true` + 有实例 baseUrl | `AsrUrlProvider.Remote` | 实例 `/api/voice/asr-token` 返回**拼好的**握手地址 |
+| 2 | `asrUseWorkBuddy=true` + 有实例 baseUrl | `AsrUrlProvider.WorkBuddyApi` | 实例 `/api/voice/getASRToken` 现读桌面端 auth 文件 |
+| 3 | `asrUseWorkBuddy=true`(无实例) | `AsrUrlProvider.WorkBuddy` | `local.properties` 里的内置 `asrWbAccessToken` |
+| 4 | `asrAppId`+`asrSecretId`+`asrSecretKey` | `AsrUrlProvider.Local` | 端上 HMAC 自签腾讯云 |
+
+- **红线:客户端永不调 WorkBuddy 的 `/v2/plugin/auth/token/refresh`**。refreshToken 一次性轮换,客户端刷一次就把 macOS 桌面端踢下线。要新 token 只能让实例现读桌面端 auth 文件(路径 2)。
+- **路径 2 的 401 自愈**:`WorkBuddyApi` 按响应里的 `expiresAt`(epoch ms)缓存 token,到期前 5 分钟重取;`TencentRealtimeAsr.onFailure` 拿到握手响应码 401/403 时 `invalidateAuth()` 清缓存 → 重连一次(仅一次,`authRetried` 守卫)→ 用户无感,`pending` 里的音频不丢。**服务端 `getASRToken` 自己从不返回 401**(读不到文件是 503),所以 401 一定来自 `copilot.tencent.com` 拒签旧 token,重取必得新的。
+- 路径 2 的 GET 用 `httpGetBody`(非 2xx 也把 body 交给 `parseResponse`)—— 否则服务端那句「请确认本机 WorkBuddy 桌面端已登录」会被换成干巴巴的 HTTP 503。
+- main 源文件: `voice/VoiceAsrConfig.kt`(选路) / `voice/TencentAsrSignature.kt`(4 个 provider) / `voice/TencentRealtimeAsr.kt`(WS + 401 重连) / `voice/WorkBuddyAsrAuth.kt`(路径 3 的本地续期)
+- 单测: `voice/WorkBuddyApiTest.kt`(缓存命中/过期/skew/invalidate/无 expiresAt 不缓存) + `voice/AsrUrlProviderTest.kt` + `voice/TencentAsrSignatureTest.kt`
+
 ## 常用命令 + 强制开发规则(合并)
 
 ```bash
@@ -193,4 +208,4 @@ adb shell pm clear io.github.hotmanxp.lanagent
 
 ## 版本 / 发布
 
-**当前**: 0.16.1 (56) — 文件预览 overlay。0.16.0 (55) DisplayFiles;0.15.2 (54) 会话精简模式;0.15.0 (52) 任务栏 = 原生 Agent 工作区;0.14.0 (49) 底部五栏。不发 release;详细历史见 git log。
+**当前**: 0.17.4 (70) — WorkBuddy 语音 401 自愈:改走实例 `/api/voice/getASRToken`(服务端现读桌面端 auth 文件)+ 按 `expiresAt` 内存缓存,握手 401 清缓存重连一次。0.17.2 模型选择器 provider 显示名;0.17.0 (67) `/` 命令面板 + Skill 候选;0.16.1 (56) 文件预览 overlay;0.16.0 (55) DisplayFiles;0.15.2 (54) 会话精简模式;0.15.0 (52) 任务栏 = 原生 Agent 工作区;0.14.0 (49) 底部五栏。不发 release;详细历史见 git log。

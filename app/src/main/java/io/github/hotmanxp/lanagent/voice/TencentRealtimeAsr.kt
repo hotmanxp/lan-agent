@@ -5,7 +5,7 @@
 //   · WorkBuddy —— Bearer header + 空二进制结束帧 + **全量 text 覆盖**
 // 其余（裸 PCM 二进制帧上行、握手期缓冲、收尾兜底）两家完全一致。
 //
-// 四个必须处理的边界：
+// 五个必须处理的边界：
 //   1. **握手期缓冲**。start() 到 onOpen 之间通常有 100–500ms，用户这时已经在说话了。
 //      直接 ws.send 会失败，丢掉就是「按住后第一个字听不见」。这里用 pending 队列补发。
 //   2. **收尾不能被抢跑**。若松手时握手还没完成，立刻发 `{"type":"end"}` 会排到
@@ -16,6 +16,12 @@
 //   4. **签名不能在主线程做**。AsrUrlProvider.Local 是一次 HMAC（快），
 //      但 .Remote 是一次 HTTP 请求 —— 在主线程直接 NetworkOnMainThreadException。
 //      所以建连整体扔到单线程 io 上。
+//   5. **401 要能自愈，但只能重试一次**。WorkBuddy 的 token 是登录态，桌面端
+//      重新登录 / 换账号后旧的那份就废了，而客户端缓存里可能还留着。这时
+//      onFailure 拿得到握手响应码 —— invalidateAuth() 让下一次 provide()
+//      重新要一份，然后原地重连。pending 里的音频不清，用户只是多等半秒。
+//      敢在 onFailure 里重连是因为 io 是单线程且此刻空闲（WebSocket 建连是异步的，
+//      原 connect() 早就返回了）；重连走的是同一条 io，不会并发。
 package io.github.hotmanxp.lanagent.voice
 
 import android.os.Handler
@@ -101,6 +107,12 @@ class TencentRealtimeAsr(
     /** 松手时握手尚未完成 —— 等 onOpen 补发完缓冲音频再发 end。 */
     private var endRequested = false
 
+    /**
+     * 已经为「凭据过期」重连过一次。只给一次机会：第二次还 401 说明服务端那边
+     * 真没有可用登录态了，再重连只是无限打服务端。
+     */
+    private var authRetried = false
+
     private val committed = StringBuilder()
     private var partial: String = ""
 
@@ -115,49 +127,92 @@ class TencentRealtimeAsr(
 
     /** 建连。返回后还要等 [Listener.onConnected] 才能确认通道可用。 */
     fun start() {
-        io.execute {
-            val signed = runCatching { urlProvider.provide(engine) }.getOrElse { e ->
-                finishWithError(0, "获取识别地址失败：${e.message ?: e}")
-                return@execute
-            }
-            if (closed) return@execute
+        io.execute { connect() }
+    }
 
-            dialect = signed.dialect
-
-            // WorkBuddy 走 Bearer，鉴权在 header 上；腾讯云走 URL 签名，这里为空。
-            val request = Request.Builder()
-                .url(signed.url)
-                .apply { signed.headers.forEach { (name, value) -> addHeader(name, value) } }
-                .build()
-            socket = client.newWebSocket(request, object : WebSocketListener() {
-
-                override fun onOpen(webSocket: WebSocket, response: Response) {
-                    // 服务端还会回一条 {code:0,...} 的握手确认，但通道此时已可用，
-                    // 直接把缓冲音频补发出去能省掉一轮 RTT。
-                    connected = true
-                    drainPending(webSocket)
-                    if (endRequested) {
-                        endRequested = false
-                        sendEndFrame(webSocket)
-                    }
-                    post { listener.onConnected(signed.voiceId) }
-                }
-
-                override fun onMessage(webSocket: WebSocket, text: String) {
-                    handleMessage(webSocket, text)
-                }
-
-                override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                    finishWithError(0, "连接失败：${t.message ?: t}")
-                }
-
-                override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                    if (closed) return
-                    // 服务端在 final 之后会主动断开，属于正常收尾。
-                    if (finalWaiter == null) finishWithError(code, "连接被关闭：$code $reason")
-                }
-            })
+    /**
+     * 建一次连：要握手地址 → 开 WebSocket。失败路径见 [onFailure]（可能重入一次）。
+     *
+     * 重入时**不清 pending** —— 用户已经说出去的那几片音频还躺在缓冲里，重连成功
+     * 后由 onOpen 补发，听感上只是多等了半秒，不会丢字。
+     */
+    private fun connect() {
+        if (closed) return
+        val signed = runCatching { urlProvider.provide(engine) }.getOrElse { e ->
+            finishWithError(0, "获取识别地址失败：${e.message ?: e}")
+            return
         }
+        if (closed) return
+
+        dialect = signed.dialect
+
+        // WorkBuddy 走 Bearer，鉴权在 header 上；腾讯云走 URL 签名，这里为空。
+        val request = Request.Builder()
+            .url(signed.url)
+            .apply { signed.headers.forEach { (name, value) -> addHeader(name, value) } }
+            .build()
+        socket = client.newWebSocket(request, object : WebSocketListener() {
+
+            override fun onOpen(webSocket: WebSocket, response: Response) {
+                // 服务端还会回一条 {code:0,...} 的握手确认，但通道此时已可用，
+                // 直接把缓冲音频补发出去能省掉一轮 RTT。
+                connected = true
+                drainPending(webSocket)
+                if (endRequested) {
+                    endRequested = false
+                    sendEndFrame(webSocket)
+                }
+                post { listener.onConnected(signed.voiceId) }
+            }
+
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                handleMessage(webSocket, text)
+            }
+
+            /**
+             * 握手被 401/403 拒了 = 手上的 token 服务端不认（桌面端重新登录过、
+             * 或缓存的那份已经作废）。丢掉缓存重连一次 —— [AsrUrlProvider.invalidateAuth]
+             * 会让下一次 `provide()` 重新去服务端要一份新的。
+             *
+             * 注意 `response` 只在握手阶段失败时非空（OkHttp 的约定），
+             * 连接建立之后再断，`response` 是 null、code 记 0，不会误判。
+             */
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                // 自己 cancel 掉的旧连接也会回调到这里 —— 不是当前 socket 就忽略，
+                // 否则会把正在重连的那次也一并收尾掉。
+                if (webSocket !== socket) return
+
+                val code = response?.code ?: 0
+                val authRejected = code == 401 || code == 403
+
+                if (authRejected && !authRetried) {
+                    authRetried = true
+                    urlProvider.invalidateAuth()
+                    socket = null
+                    connected = false // 让 feed() 重新走缓冲，别往死连接上写
+                    runCatching { webSocket.cancel() }
+                    io.execute { connect() }
+                    return
+                }
+
+                // 重试过还是被拒 = 换一份新 token 也一样，服务端那边真没可用登录态了。
+                // 这时给一句能照做的提示，比抛 OkHttp 的 "Expected HTTP 101" 有用得多。
+                val message = if (authRejected) {
+                    "WorkBuddy 登录态已失效（HTTP $code），请在本机重新登录 WorkBuddy 桌面端"
+                } else {
+                    "连接失败：${t.message ?: t}"
+                }
+                finishWithError(0, message)
+            }
+
+            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                if (closed) return
+                // 同 onFailure：被我们主动换掉的旧连接的回调不算数。
+                if (webSocket !== socket) return
+                // 服务端在 final 之后会主动断开，属于正常收尾。
+                if (finalWaiter == null) finishWithError(code, "连接被关闭：$code $reason")
+            }
+        })
     }
 
     /**

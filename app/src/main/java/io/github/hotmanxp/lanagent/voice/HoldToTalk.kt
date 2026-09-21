@@ -485,10 +485,10 @@ fun HoldToTalkCapsule(
 
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        shape = RoundedCornerShape(28.dp),
+        shape = RoundedCornerShape(24.dp),
         modifier = modifier
             .fillMaxWidth()
-            .height(56.dp)
+            .height(48.dp)
             .scale(scale)
             .pointerInput(cancelPx) {
                 awaitEachGesture {

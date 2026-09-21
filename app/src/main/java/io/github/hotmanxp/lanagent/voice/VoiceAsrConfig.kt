@@ -9,11 +9,15 @@
 //      腾讯云形态可省掉后两个字段。实例 baseUrl 由调用方从实例快照（host+port）带进来。
 //
 //   2. **后端下发 WorkBuddy 登录态**（opencc-web 的 getASRToken，凭据不进安装包）
-//      实例 baseUrl 非空即启用。App 每次按住打
+//      开了 `asrUseWorkBuddy=true` **且**当前实例 baseUrl 非空即启用，**优先于第 3 条**：
+//      链路里的 token 一定比内置那份新鲜。App 打
 //      `GET <实例 baseUrl>/api/voice/getASRToken`，服务端现读桌面端落盘的
 //      auth 文件返回 `{"ok":true,"endpoint":…,"accessToken":…,"uid":…,"expiresAt":…}`。
 //      客户端**只拿不刷** —— refreshToken 一次性轮换，客户端刷一次就把桌面端
-//      踢下线；token 新鲜度由桌面端自己的续期保证。见 AsrUrlProvider.WorkBuddyApi。
+//      踢下线；token 新鲜度由桌面端自己的续期保证。
+//      拿到后按 expiresAt 缓存在内存里（到期前 5 分钟重取）；被
+//      `copilot.tencent.com` 以 401 拒签时清缓存重取并重连一次。
+//      见 AsrUrlProvider.WorkBuddyApi 的类注释 + TencentRealtimeAsr.onFailure。
 //
 //   3. **直连 WorkBuddy 自己的 ASR**（兜底：服务端没起但本地灌过凭据）
 //      `local.properties` 里 `asrUseWorkBuddy=true` + `asrWbAccessToken=<JWT>`，
@@ -68,11 +72,36 @@ object VoiceAsrConfig {
         get() = BuildConfig.ASR_USE_WORKBUDDY && BuildConfig.ASR_WB_ACCESS_TOKEN.isNotBlank()
 
     /**
-     * WorkBuddy 凭据的持有者。**缓存单例** —— 续期发生在它内部，
+     * WorkBuddy 凭据的持有者（路径 3 专用）。**缓存单例** —— 续期发生在它内部，
      * 每次按住重建会把刚刷到的新 token 丢掉，下一轮又拿旧的去撞 401。
      */
     @Volatile
     private var workBuddyAuth: WorkBuddyAsrAuth? = null
+
+    /**
+     * 路径 2 的 provider（每个实例一份）。**必须缓存** —— token 缓存就住在它内部，
+     * 每次 `providerOrNull` 新建一个实例等于缓存永远打不中。
+     */
+    @Volatile
+    private var workBuddyApi: AsrUrlProvider.WorkBuddyApi? = null
+
+    /** [workBuddyApi] 对应的实例 baseUrl（已 trim 尾斜杠）。 */
+    @Volatile
+    private var workBuddyApiKey: String? = null
+
+    /** 按实例取路径 2 的 provider。切实例就换一份（token 本来也不通用）。 */
+    private fun workBuddyApiFor(baseUrl: String): AsrUrlProvider.WorkBuddyApi {
+        val key = baseUrl.trimEnd('/')
+        workBuddyApi?.takeIf { workBuddyApiKey == key }?.let { return it }
+        return synchronized(this) {
+            workBuddyApi?.takeIf { workBuddyApiKey == key }
+                ?: AsrUrlProvider.WorkBuddyApi(baseUrl = key, httpGet = ::httpGetBody)
+                    .also {
+                        workBuddyApi = it
+                        workBuddyApiKey = key
+                    }
+        }
+    }
 
     /** 返回 null = 没开或没配。线程安全。 */
     fun workBuddyAuthOrNull(): WorkBuddyAsrAuth? {
@@ -105,12 +134,20 @@ object VoiceAsrConfig {
      *                        [TencentRealtimeAsr.start] 的 io 线程上，不会卡主线程。
      */
     fun providerOrNull(instanceBaseUrl: String? = null): AsrUrlProvider? = when {
+        // 1. 后端签发：一次 HTTP 换一条拼好的握手地址
         useBackendSigning && !instanceBaseUrl.isNullOrBlank() ->
             AsrUrlProvider.Remote(
                 endpoint = instanceBaseUrl.trimEnd('/') + TOKEN_PATH,
                 httpGet = ::httpGet,
             )
 
+        // 2. 开了 WorkBuddy 且当前有实例 → 让实例现读桌面端 auth 文件给一份新的。
+        //    比第 3 条那枚内置 token 新鲜，且 401 能自愈（见 TencentRealtimeAsr），
+        //    所以要和第 3 条分开判、**排在它前面**。
+        hasWorkBuddyCredentials && !instanceBaseUrl.isNullOrBlank() ->
+            workBuddyApiFor(instanceBaseUrl)
+
+        // 3. 直连 WorkBuddy（内置凭据；没有实例可问时的兜底）
         hasWorkBuddyCredentials -> workBuddyAuthOrNull()?.let { auth ->
             AsrUrlProvider.WorkBuddy(
                 endpoint = BuildConfig.ASR_WB_ENDPOINT.ifBlank { WorkBuddyAsrAuth.DEFAULT_ENDPOINT },
@@ -146,6 +183,24 @@ object VoiceAsrConfig {
             }
             return resp.body?.string()?.takeIf { it.isNotBlank() }
                 ?: throw IOException("签发识别地址失败：响应为空")
+        }
+    }
+
+    /**
+     * 路径 2 的 GET：**非 2xx 也把响应体交出去**。
+     *
+     * 服务端把失败原因写在 body 里 —— `503 {"ok":false,"error":"WorkBuddy 登录态
+     * 文件不可读（ENOENT）。请确认本机 WorkBuddy 桌面端已登录"}`。见到状态码就先
+     * 抛的话，这句能照做的提示会被换成干巴巴的「HTTP 503」，用户根本不知道要干嘛。
+     * 所以这里只在**连体都没有**（没到业务层就挂了）时才按状态码报错。
+     */
+    private fun httpGetBody(url: String): String {
+        http.newCall(Request.Builder().url(url).build()).execute().use { resp ->
+            val body = resp.body?.string().orEmpty()
+            if (!resp.isSuccessful && body.isBlank()) {
+                throw IOException("获取 WorkBuddy 登录态失败：HTTP ${resp.code}")
+            }
+            return body
         }
     }
 }

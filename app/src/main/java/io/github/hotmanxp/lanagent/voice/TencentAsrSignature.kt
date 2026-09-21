@@ -58,6 +58,17 @@ sealed interface AsrUrlProvider {
     fun provide(engine: String): SignedAsrUrl
 
     /**
+     * 服务端以 401/403 拒了这份凭据时调用 —— 丢弃本地缓存的 token，下一次
+     * [provide] 重新去要一份。默认空实现：只有带缓存的 [WorkBuddyApi] 有东西要清。
+     *
+     * ⚠️ **不要在这里去调 WorkBuddy 自己的续期接口**（`/v2/plugin/auth/token/refresh`）——
+     * refreshToken 是一次性轮换的，客户端刷一次就把桌面端踢下线，见
+     * [WorkBuddyAsrAuth] 文件头的红线。要新 token 就通过实例后端现读桌面端
+     * 落盘的 auth 文件（`GET <baseUrl>/api/voice/getASRToken`）。
+     */
+    fun invalidateAuth() = Unit
+
+    /**
      * 调试/自用：客户端本地签名（腾讯云）。
      * ⚠️ secretKey 会出现在 APK 里，只适合内网自用或本地联调。
      */
@@ -136,8 +147,23 @@ sealed interface AsrUrlProvider {
      *   "refreshToken":…,"uid":…,"expiresAt":<epoch ms>}`。
      *
      * 关键取舍：**客户端只拿不刷**。refreshToken 一次性轮换，客户端刷一次就把
-     * 桌面端踢下线 —— 这里每次按住都现要一份（服务端现读文件），token 的新鲜度
-     * 由桌面端自己的续期保证。客户端无状态，也不用 WorkBuddyAsrAuth。
+     * 桌面端踢下线 —— token 的新鲜度由桌面端自己的续期保证，客户端不做任何
+     * `/v2/plugin/auth/token/refresh`，也不用 WorkBuddyAsrAuth。
+     *
+     * ── 缓存 ────────────────────────────────────────────────────────────
+     * 每次按住都打一次 GET 是白费 —— token 默认 3 天，桌面端续期后新 token 与
+     * 旧 token 同时有效（Keycloak 不会因为换发就把旧的作废）。所以拿到
+     * `expiresAt` 后缓存在内存里，到期前 [REFRESH_SKEW_MS] 才重新取：
+     *
+     *   · 服务端没给 `expiresAt`（连 JWT 的 exp 都解不出来）→ **不缓存**，
+     *     每次现取。宁可比正常多一次 GET，也不要押一个不知道何时失效的 token。
+     *   · 服务端以 401/403 拒了 WS 握手 → 上层调 [invalidateAuth] 清缓存，
+     *     下一次 provide 会重新走一遍 GET（见 TencentRealtimeAsr.onFailure）。
+     *
+     * ⚠️ 服务端 `/api/voice/getASRToken` 自己**从不返回 401** —— 它读不到
+     * 桌面端 auth 文件时回 503 `{ok:false,error}`。所以 401 一定来自
+     * `copilot.tencent.com` 对**旧 token** 的拒签（桌面端重新登录 / 换账号），
+     * 这时重新 GET 一定拿到新的。真·没登录态会以 503 的形式出现，原样上抛。
      *
      * 请求失败（服务端没起 / 没登录 / 文件加密）直接抛 —— 上层 onError 会 toast，
      * 下次按住再试。不做静默回落（用户需要知道云识别为什么不可用）。
@@ -147,28 +173,56 @@ sealed interface AsrUrlProvider {
         private val httpGet: (String) -> String,
         /** 请求路径。与服务端 routes/voice.ts 的挂载点保持一致。 */
         private val tokenPath: String = "/api/voice/getASRToken",
+        /** 时钟。单测注入假时钟，生产用系统时间。 */
+        private val nowMs: () -> Long = System::currentTimeMillis,
     ) : AsrUrlProvider {
+
+        /** 缓存下来的凭据。null = 没有可用缓存，下次 provide 必须发 GET。 */
+        @Volatile
+        private var cached: ParsedResponse? = null
+
         override fun provide(engine: String): SignedAsrUrl {
-            val body = httpGet(baseUrl.trimEnd('/') + tokenPath)
-            val parsed = parseResponse(body)
+            val cred = freshOrFetch()
             return WorkBuddy(
-                endpoint = parsed.endpoint.ifBlank { WorkBuddyAsrAuth.DEFAULT_ENDPOINT },
+                endpoint = cred.endpoint.ifBlank { WorkBuddyAsrAuth.DEFAULT_ENDPOINT },
                 // 同一次 provide 内复用，不二次请求
-                tokenProvider = { parsed.accessToken },
-                uid = parsed.uid,
+                tokenProvider = { cred.accessToken },
+                uid = cred.uid,
             ).provide(engine)
         }
 
+        /** 见 [AsrUrlProvider.invalidateAuth]。清掉缓存，下一次 provide 会重新问服务端。 */
+        override fun invalidateAuth() {
+            cached = null
+        }
+
+        private fun freshOrFetch(): ParsedResponse {
+            cached?.takeIf { isFresh(it) }?.let { return it }
+            val fetched = parseResponse(httpGet(baseUrl.trimEnd('/') + tokenPath))
+            // 过期时间拿不到就不缓存 —— 见类注释里的取舍。
+            if (fetched.expiresAtMs > 0L) cached = fetched
+            return fetched
+        }
+
+        /** 距过期不足 [REFRESH_SKEW_MS] 就当作已过期，避免建连时正好卡在边界上。 */
+        private fun isFresh(c: ParsedResponse): Boolean =
+            c.expiresAtMs > 0L && nowMs() < c.expiresAtMs - REFRESH_SKEW_MS
+
         companion object {
+            /** 提前 5 分钟重新取 —— 与 WorkBuddyAsrAuth.REFRESH_AHEAD_MS 同口径。 */
+            private const val REFRESH_SKEW_MS = 5 * 60_000L
+
             /**
              * 服务端响应解析后的结构。[endpoint] 缺省时由调用方回落
              * [WorkBuddyAsrAuth.DEFAULT_ENDPOINT]；[uid] 缺省 / 空白 = 不带
-             * `X-User-Id`。
+             * `X-User-Id`；[expiresAtMs] 为 0 = 服务端也不知道何时过期，
+             * 调用方据此决定不缓存。
              */
             internal data class ParsedResponse(
                 val endpoint: String,
                 val accessToken: String,
                 val uid: String?,
+                val expiresAtMs: Long,
             )
 
             /**
@@ -178,6 +232,10 @@ sealed interface AsrUrlProvider {
              * 错误语义与生产一致：
              *   - `{ok: false, error: "..."}` → IllegalStateException
              *   - `accessToken` 缺失 / 空白 → IllegalArgumentException
+             *
+             * `expiresAt` 是 **epoch 毫秒**（服务端从 auth 文件的 `expiresAt` 或
+             * JWT 的 `exp` 折算，见 opencc-web `routes/voice.ts`）。给的是 null /
+             * 非正数就落成 0，语义是「不知道过期时间」。
              */
             internal fun parseResponse(body: String): ParsedResponse {
                 val json = org.json.JSONObject(body)
@@ -192,6 +250,7 @@ sealed interface AsrUrlProvider {
                     endpoint = json.optString("endpoint"),
                     accessToken = accessToken,
                     uid = json.optString("uid").takeIf { it.isNotBlank() },
+                    expiresAtMs = json.optLong("expiresAt", 0L).takeIf { it > 0L } ?: 0L,
                 )
             }
         }

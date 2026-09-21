@@ -54,6 +54,7 @@ import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AddPhotoAlternate
 import androidx.compose.material.icons.rounded.ArrowUpward
+import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.Build
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
@@ -68,7 +69,9 @@ import androidx.compose.material.icons.rounded.Keyboard
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Photo
 import androidx.compose.material.icons.rounded.Psychology
+import androidx.compose.material.icons.rounded.SmartToy
 import androidx.compose.material.icons.rounded.Stop
+import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -108,17 +111,23 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.hotmanxp.lanagent.R
 import io.github.hotmanxp.lanagent.data.AgentApi
 import io.github.hotmanxp.lanagent.data.AskQuestion
 import io.github.hotmanxp.lanagent.data.AttachedImage
+import io.github.hotmanxp.lanagent.data.BG_RECENT_TTL_MS
+import io.github.hotmanxp.lanagent.data.BgAgentTask
+import io.github.hotmanxp.lanagent.data.BgBashTask
 import io.github.hotmanxp.lanagent.data.DisplayFile
 import io.github.hotmanxp.lanagent.data.FileKind
 import io.github.hotmanxp.lanagent.data.HttpException
@@ -129,6 +138,12 @@ import io.github.hotmanxp.lanagent.data.pretty
 import io.github.hotmanxp.lanagent.data.QueuedPrompt
 import io.github.hotmanxp.lanagent.data.SlashItem
 import io.github.hotmanxp.lanagent.data.V2Task
+import io.github.hotmanxp.lanagent.data.bgDurationLabel
+import io.github.hotmanxp.lanagent.data.bgRunning
+import io.github.hotmanxp.lanagent.data.bgStatusLabel
+import io.github.hotmanxp.lanagent.data.bgTerminal
+import io.github.hotmanxp.lanagent.data.displayDetail
+import io.github.hotmanxp.lanagent.data.displayName
 import io.github.hotmanxp.lanagent.data.filterSlashItems
 import io.github.hotmanxp.lanagent.data.parseSlashInput
 import io.github.hotmanxp.lanagent.data.tupleKey
@@ -965,24 +980,59 @@ private fun MetaLine(text: String, align: Alignment.Horizontal) {
     }
 }
 
-// ===== V2 任务条 =====
+// ===== 底部任务栏(任务清单 + 后台任务)=====
+
+/** 后台任务区最多铺几行 —— 底部固定区是挤压出来的,不允许被任务列表吃掉。 */
+private const val BG_RUNNING_ROWS = 5
+private const val BG_RECENT_ROWS = 3
+
+/** 「最近结束」窗口判定:终态任务超过 [BG_RECENT_TTL_MS] 就不再占位。 */
+private fun bgStale(ts: Long, now: Long): Boolean = now - ts > BG_RECENT_TTL_MS
 
 /**
- * 任务清单卡。**0.10.5 起 header inline 渲染运行态**(Streaming / Retrying
- * 三点动画 + Aborted / Error 文字),调用方不需要再在 strip 下方单起一行
- * StatusBadge —— 否则 strip header 一行 + status 行 + 输入卡挤一起,视觉很噪。
+ * 底部任务栏。**一张卡两段**:后台任务(agent 子代理 + 后台 bash)与任务清单。
  *
- * 调用方决定:没任务清单时仍按老路径单独渲染 StatusBadge 行(见
- * `AgentSessionScreen.kt` 的运行态提示条)。
+ * 为什么合成一张卡而不是各起一张:底部固定区是**垂直空间最贵**的地方 ——
+ * 两张卡各带一行 header,就是两行纯装饰。合起来之后 header 一行同时承载
+ * 运行态、后台任务数、任务清单进度,展开后按段落铺行,不展开时只占一行。
+ *
+ * header 里的东西按「有什么显示什么」拼:
+ *   - 主 agent 运行态([StatusBadge],Streaming / Retrying / Aborted / Error)
+ *   - 后台任务 chip(`◗ N 运行中`)—— 只在**有后台任务在跑**时出现,它是
+ *     「主 agent 看起来闲着,其实子代理还在干活」的唯一信号
+ *   - 任务清单进度(`任务清单 3/7`)—— 只有任务清单时才出现
+ * 两者都没有时整块 return(调用方也会先看 `store.hasDockContent`)。
+ *
+ * [now] 是调用方传进来的时钟(会话屏已有一个 15s tick 的 `clockNow`):
+ * 「最近结束」那一档需要它才会自己过期,否则完成的任务会一直挂在栏上。
  */
 @Composable
-internal fun V2TaskStrip(
-    tasks: List<V2Task>,
+internal fun TaskDockStrip(
+    v2Tasks: List<V2Task>,
+    agentTasks: List<BgAgentTask>,
+    bashTasks: List<BgBashTask>,
     status: AgentRunStatus = AgentRunStatus.Idle,
+    now: Long = System.currentTimeMillis(),
 ) {
-    if (tasks.isEmpty()) return
+    // 先按 TTL 滤掉过期终态(store 侧同档裁剪,两条路径互为兜底 —— 会话安静
+    // 下来之后没有新事件,光靠 store 那条「完成」会一直挂着)。
+    val liveAgents = agentTasks.filter { bgRunning(it.status) || !bgStale(it.finishedAt ?: it.createdAt, now) }
+    val liveBash = bashTasks.filter { bgRunning(it.status) || !bgStale(it.finishedAt ?: it.startedAt, now) }
+
+    // 跑中的排前面(它们才是用户要盯的),终态按结束时间倒序垫在后面。
+    val runningAgents = liveAgents.filter { bgRunning(it.status) }
+        .sortedByDescending { it.startedAt ?: it.createdAt }
+    val recentAgents = liveAgents.filter { bgTerminal(it.status) }
+        .sortedByDescending { it.finishedAt ?: it.createdAt }
+    val runningBash = liveBash.filter { bgRunning(it.status) }.sortedByDescending { it.startedAt }
+    val recentBash = liveBash.filter { bgTerminal(it.status) }.sortedByDescending { it.finishedAt ?: it.startedAt }
+
+    val runningCount = runningAgents.size + runningBash.size
+    val bgCount = liveAgents.size + liveBash.size
+    if (v2Tasks.isEmpty() && bgCount == 0) return
+
     var expanded by remember { mutableStateOf(true) }
-    val done = tasks.count { it.status == "completed" }
+    val done = v2Tasks.count { it.status == "completed" }
 
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -1002,24 +1052,58 @@ internal fun V2TaskStrip(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                // 0.10.5:运行态 inline 到 header 左侧 —— 三点动画贴左边
-                // (跟输入卡上 StatusBadge Row 一致,顶栏原本就是左对齐),
-                // 「任务清单 4/5 ▼」整体靠右。Idle 时整块不渲染,
-                // header 只有右半边「任务清单 | 4/5 | ▼」。
+                // 运行态 inline 到 header 左侧 —— 三点动画贴左边(跟输入卡上
+                // StatusBadge Row 一致),右侧整组靠右。Idle 时整块不渲染。
                 if (status != AgentRunStatus.Idle) {
                     StatusBadge(status)
                 }
                 Spacer(Modifier.weight(1f))
-                Text(
-                    text = "任务清单",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium,
-                )
-                Text(
-                    text = "$done/${tasks.size}",
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                if (v2Tasks.isEmpty()) {
+                    // 只有后台任务 → header 标题就是「后台任务」,否则整行没有
+                    // 任何说明文字,用户不知道这栏是什么。
+                    Icon(
+                        imageVector = Icons.Rounded.Bolt,
+                        contentDescription = null,
+                        tint = if (runningCount > 0) {
+                            MaterialTheme.colorScheme.tertiary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        modifier = Modifier.size(14.dp),
+                    )
+                    Text(text = "后台任务", fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                    Text(
+                        text = if (runningCount > 0) "$runningCount 运行中" else "$bgCount 完成",
+                        fontSize = 11.sp,
+                        color = if (runningCount > 0) {
+                            MaterialTheme.colorScheme.tertiary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
+                } else {
+                    // 有任务清单 → 后台任务退成一个 chip,只在真的有东西在跑时
+                    // 出现(否则「任务清单」旁边的第二组数字只是噪声)。
+                    if (runningCount > 0) {
+                        Icon(
+                            imageVector = Icons.Rounded.Bolt,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.tertiary,
+                            modifier = Modifier.size(14.dp),
+                        )
+                        Text(
+                            text = "$runningCount 运行中",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.tertiary,
+                        )
+                    }
+                    Text(text = "任务清单", fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                    Text(
+                        text = "$done/${v2Tasks.size}",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 Icon(
                     imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
                     contentDescription = null,
@@ -1029,39 +1113,143 @@ internal fun V2TaskStrip(
             }
             if (expanded) {
                 Column(modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 8.dp)) {
-                    tasks.forEach { t ->
-                        val isDone = t.status == "completed"
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(vertical = 2.dp),
-                        ) {
-                            Icon(
-                                imageVector = if (isDone) Icons.Rounded.Check else Icons.AutoMirrored.Rounded.ArrowRight,
-                                contentDescription = null,
-                                tint = if (isDone) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                },
-                                modifier = Modifier.size(13.dp),
+                    // 两段都在时才需要段落标题 —— 只有一段的话 header 已经说清了。
+                    val bothSections = bgCount > 0 && v2Tasks.isNotEmpty()
+                    if (bgCount > 0) {
+                        if (bothSections) SectionLabel("后台任务")
+                        runningAgents.take(BG_RUNNING_ROWS).forEach { t ->
+                            BgTaskRow(
+                                icon = Icons.Rounded.SmartToy,
+                                title = t.displayName,
+                                detail = t.displayDetail,
+                                status = t.status,
+                                duration = bgDurationLabel(t.startedAt ?: t.createdAt, t.finishedAt, t.status),
                             )
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                text = t.subject.ifBlank { t.id },
-                                fontSize = 12.sp,
-                                color = if (isDone) {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                } else {
-                                    MaterialTheme.colorScheme.onSurface
-                                },
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
+                        }
+                        runningBash.take(BG_RUNNING_ROWS).forEach { t ->
+                            BgTaskRow(
+                                icon = Icons.Rounded.Terminal,
+                                title = "",
+                                detail = t.displayDetail,
+                                status = t.status,
+                                duration = null,
                             )
+                        }
+                        recentAgents.take(BG_RECENT_ROWS).forEach { t ->
+                            BgTaskRow(
+                                icon = Icons.Rounded.SmartToy,
+                                title = t.displayName,
+                                detail = t.displayDetail,
+                                status = t.status,
+                                duration = bgDurationLabel(t.startedAt ?: t.createdAt, t.finishedAt, t.status),
+                            )
+                        }
+                        recentBash.take(BG_RECENT_ROWS).forEach { t ->
+                            BgTaskRow(
+                                icon = Icons.Rounded.Terminal,
+                                title = "",
+                                detail = t.displayDetail,
+                                status = t.status,
+                                duration = bgDurationLabel(t.startedAt, t.finishedAt, t.status),
+                            )
+                        }
+                    }
+                    if (v2Tasks.isNotEmpty()) {
+                        if (bothSections) SectionLabel("任务清单")
+                        v2Tasks.forEach { t ->
+                            val isDone = t.status == "completed"
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(vertical = 2.dp),
+                            ) {
+                                Icon(
+                                    imageVector = if (isDone) Icons.Rounded.Check else Icons.AutoMirrored.Rounded.ArrowRight,
+                                    contentDescription = null,
+                                    tint = if (isDone) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
+                                    modifier = Modifier.size(13.dp),
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    text = t.subject.ifBlank { t.id },
+                                    fontSize = 12.sp,
+                                    color = if (isDone) {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurface
+                                    },
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
                         }
                     }
                 }
             }
         }
+    }
+}
+
+/**
+ * 后台任务的一行:`[图标] 名字 描述 ……… 状态 · 耗时`。
+ *
+ * 名字/描述挤在**同一个 Text** 里(用 AnnotatedString 分段加样式)而不是两个
+ * Text —— 两个 Text 各自 ellipsize 会让「名字很长」时描述被整体挤没,合成一个
+ * 就只有一个省略点,窄屏上表现稳定。[title] 为空时(后台 bash 没有名字)
+ * 只渲染描述。
+ */
+@Composable
+private fun BgTaskRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    detail: String,
+    status: String,
+    duration: String?,
+) {
+    val running = bgRunning(status)
+    val failed = status == "failed" || status == "killed"
+    val tint = when {
+        failed -> MaterialTheme.colorScheme.error
+        running -> MaterialTheme.colorScheme.tertiary
+        status == "completed" -> MaterialTheme.colorScheme.primary
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    val statusColor = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.padding(vertical = 2.dp),
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.size(13.dp),
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+            text = buildAnnotatedString {
+                if (title.isNotBlank()) {
+                    withStyle(SpanStyle(color = MaterialTheme.colorScheme.onSurface)) { append(title) }
+                    if (detail.isNotBlank()) append("  ")
+                }
+                withStyle(SpanStyle(color = MaterialTheme.colorScheme.onSurfaceVariant)) { append(detail) }
+            },
+            fontSize = 12.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+            text = if (duration != null) "${bgStatusLabel(status)} · $duration" else bgStatusLabel(status),
+            fontSize = 11.sp,
+            color = statusColor,
+            maxLines = 1,
+        )
     }
 }
 

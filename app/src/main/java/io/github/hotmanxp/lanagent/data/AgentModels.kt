@@ -229,12 +229,16 @@ data class SessionStateResponse(
     val cwd: SessionCwd? = null,
     val v2Tasks: List<V2Task> = emptyList(),
     /**
-     * bash 后台任务 / 后台 agent 任务。两端都只用来驱动「任务抽屉」,
-     * 会话详情页暂不渲染 — 用 `JsonElement` 原样接住,避免为了不展示的
-     * 字段维护一套完整数据类。后续要做任务面板时再补类型。
+     * bash 后台任务 / 后台 agent 子代理。冷启动快照(服务端已按 sid 过滤),
+     * 用来填 SSE 第一条 `*.changed` 到达前的空窗 —— 见
+     * `routes/sessionState.ts:90-103` 与 `data/BackgroundTasks.kt`。
+     *
+     * **bash 侧尤其重要**:`bash_task.changed` 是纯增量事件,服务端不会在
+     * 新连接上合成重推(agent 侧会),所以打开一个已有后台 bash 的会话时,
+     * 没有这份快照就永远看不到它。
      */
-    val bashTasks: List<JsonElement> = emptyList(),
-    val agentTasks: List<JsonElement> = emptyList(),
+    val bashTasks: List<BgBashTask> = emptyList(),
+    val agentTasks: List<BgAgentTask> = emptyList(),
 )
 
 @Serializable

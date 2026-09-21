@@ -2,7 +2,7 @@
 
 > **lan-agent** — Android App,把局域网内多个 opencc-web 实例入口收成卡片列表 + **原生**展示实例管理 API + **原生** Agent 会话(直连 `/api/agent/sessions` + `/api/event` SSE)+ SSH 一键启动 zai。配套工程 `/Users/ethan/code/opencc-web`,zai 需 `pnpm --filter @zn-ai/zai dev -- --lan` 启动。
 >
-> **关键里程碑**: 0.10.0 视觉对齐 WorkBuddy + 自研 Markdown;0.14.0 改底部五栏;0.15.0 任务栏直接是原生 Agent 工作区;0.16.0 DisplayFiles 文件卡片;0.16.1 文件预览改面板内 overlay(不占路由);0.17.0 `/` 命令面板 + Skill 候选;0.17.4 语音 401 自愈。**当前 HEAD**: HEAD on `main` · **versionCode 70** · **versionName 0.17.4**。
+> **关键里程碑**: 0.10.0 视觉对齐 WorkBuddy + 自研 Markdown;0.14.0 改底部五栏;0.15.0 任务栏直接是原生 Agent 工作区;0.16.0 DisplayFiles 文件卡片;0.16.1 文件预览改面板内 overlay(不占路由);0.17.0 `/` 命令面板 + Skill 候选;0.17.4 语音 401 自愈;0.18.0 底部任务栏显示后台任务 / 后台子代理。**当前 HEAD**: HEAD on `main` · **versionCode 72** · **versionName 0.18.0**。
 >
 > **独立顶级目录、独立 git 仓库**,不在 opencc-web monorepo 内。spec / plan 在 `docs/superpowers/{specs,plans}/`(0.6.0 之后已过期,仅作历史参考)。
 
@@ -174,6 +174,21 @@
 - main 源文件: `voice/VoiceAsrConfig.kt`(选路) / `voice/TencentAsrSignature.kt`(4 个 provider) / `voice/TencentRealtimeAsr.kt`(WS + 401 重连) / `voice/WorkBuddyAsrAuth.kt`(路径 3 的本地续期)
 - 单测: `voice/WorkBuddyApiTest.kt`(缓存命中/过期/skew/invalidate/无 expiresAt 不缓存) + `voice/AsrUrlProviderTest.kt` + `voice/TencentAsrSignatureTest.kt`
 
+### 21. 底部任务栏(任务清单 + 后台任务)
+
+**问题**:后台子代理(Agent / CliAgent 工具派出去的)跑在主会话之外 —— 主 agent 早就把 `Agent` 工具卡标成「完成」了,子代理还在跑,会话里完全看不到它。
+
+- 两条来源,合并进 `AgentSessionStore` 的 `bgAgentTasks` / `bgBashTasks`(对齐 opencc-web `useBackgroundTasks`): ① SSE `agent_task.changed` / `bash_task.changed`,payload 是 `{sessionId, task}` ② `GET /sessions/:id/state` 的 `agentTasks` / `bashTasks` 冷启动快照
+- **agent 侧服务端每次新 SSE 连接会把当前所有任务合成一条重推**(`routes/event.ts:120-135`),所以断线重连不丢;**bash 侧没有**,冷启动只能靠 state 快照 —— 这条是 bash 会不会显示的分水岭
+- 字段名两边**不一样**: agent 是 `task.id` + 5 态(`queued|running|completed|failed|cancelled`),bash 是 `task.taskId` + 4 态(`running|completed|failed|killed`)。写成一个名字会静默解不出东西(列表永远空)
+- **不接** `resultText` / `stdout` / `stderr` / `eventCount` —— 这几条能到 MB 级,列表行渲染不到,白占内存(`ignoreUnknownKeys` 直接吃掉)
+- 终态任务按 `BG_RECENT_TTL_MS`(60s,同 web)过期,`running`/`queued` 永不清。**两处裁剪缺一不可**: store 侧(有事件时)+ 渲染侧(`TaskDockStrip` 的 `now` 参数,会话静下来之后的兜底)—— 后者吃 `AgentSessionScreen` 那个 15s 的 `clockNow`(原 `drawerNow`,抽屉相对时间也用它,所以改了名)
+- 渲染: `TaskDockStrip` **一张卡两段**(任务清单 + 后台任务),不再各起一张卡 —— 底部固定区垂直空间最贵,两张卡各一行 header 就是两行纯装饰。header 按「有什么显示什么」拼: 运行态 + `⚡ N 运行中` chip + `任务清单 d/t`;两段都在时展开体里才加段落标题
+- 后台行 `BgTaskRow`: 名字 + 描述挤在**同一个 Text**(AnnotatedString 分段),两个 Text 各自 ellipsize 会让描述被整体挤没;状态色 = 跑中 tertiary / 完成 primary / 失败·killed error / 其余灰,耗时只给终态(跑中要实时钟,不划算)
+- 调用方判定用 `store.hasDockContent`,运行态提示条也用它反着判 —— 否则任务栏 header 里已经有 status 了,下面再画一条是重复
+- 单测: `data/BackgroundTasksTest.kt`(状态文案 / TTL / 耗时 / 兜底链) + `AgentSessionStoreSseTest.kt`(两路 upsert / 按 id 就地替换 / 过期裁剪 / state 冷启动)
+- 见 `data/BackgroundTasks.kt` / `ui/AgentSessionStore.kt` / `ui/AgentSessionViews.kt` 的 `TaskDockStrip`
+
 ## 常用命令 + 强制开发规则(合并)
 
 ```bash
@@ -208,4 +223,4 @@ adb shell pm clear io.github.hotmanxp.lanagent
 
 ## 版本 / 发布
 
-**当前**: 0.17.4 (70) — WorkBuddy 语音 401 自愈:改走实例 `/api/voice/getASRToken`(服务端现读桌面端 auth 文件)+ 按 `expiresAt` 内存缓存,握手 401 清缓存重连一次。0.17.2 模型选择器 provider 显示名;0.17.0 (67) `/` 命令面板 + Skill 候选;0.16.1 (56) 文件预览 overlay;0.16.0 (55) DisplayFiles;0.15.2 (54) 会话精简模式;0.15.0 (52) 任务栏 = 原生 Agent 工作区;0.14.0 (49) 底部五栏。不发 release;详细历史见 git log。
+**当前**: 0.18.0 (72) — 底部任务栏合并「任务清单 + 后台任务」:后台 agent 子代理与后台 bash 的状态直接显示在会话底栏(见 §21)。0.17.5 (71) 按住说话胶囊瘦身;0.17.4 (70) WorkBuddy 语音 401 自愈;0.17.2 模型选择器 provider 显示名;0.17.0 (67) `/` 命令面板 + Skill 候选;0.16.1 (56) 文件预览 overlay;0.16.0 (55) DisplayFiles;0.15.2 (54) 会话精简模式;0.15.0 (52) 任务栏 = 原生 Agent 工作区;0.14.0 (49) 底部五栏。不发 release;详细历史见 git log。

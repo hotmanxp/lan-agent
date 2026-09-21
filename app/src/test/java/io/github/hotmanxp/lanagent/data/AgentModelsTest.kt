@@ -105,6 +105,59 @@ class AgentModelsTest {
         assertEquals(1789274126879L, s.v2Tasks[0].updatedAt)
     }
 
+    /**
+     * state 快照里的后台任务(冷启动唯一来源)。
+     *
+     * 钉三件事:
+     *   1. 两套字段名**不一样** —— agent 侧是 `id`,bash 侧是 `taskId`
+     *      (写成一个字段名就会静默解不出东西,列表永远空的,真机上极难定位)
+     *   2. `agentTasks[].input` 可能整体缺省,必须是可空类型
+     *   3. bash 的 `stdout` / `exitCode` / `isBackgrounded` 等字段我们**故意
+     *      不接**(可能几 MB),ignoreUnknownKeys 要能直接吃掉
+     */
+    @Test
+    fun `session state decodes background tasks`() {
+        val raw = """
+            {"agentTasks":[
+               {"id":"task_1","status":"running",
+                "input":{"prompt":"调研 SSE","cwd":"/Users/ethan/code"},
+                "createdAt":1789274126878,"startedAt":1789274126900,
+                "parentSessionId":"sess-1","agentType":"Explore","description":"调研"},
+               {"id":"task_2","status":"completed","createdAt":1789274126000,
+                "finishedAt":1789274126000,"resultText":"很长很长的结果","eventCount":42}
+             ],
+             "bashTasks":[
+               {"taskId":"bash_1","sessionId":"sess-1","command":"npm run dev",
+                "description":"起服务","startedAt":1789274126900,"status":"running",
+                "stdout":"listening on 5173","stderr":"","exitCode":0,"signal":null,
+                "isBackgrounded":true,"notified":false}
+             ]}
+        """.trimIndent()
+
+        val s = wireJson.decodeFromString<SessionStateResponse>(raw)
+
+        assertEquals(2, s.agentTasks.size)
+        assertEquals("Explore", s.agentTasks[0].agentType)
+        assertEquals("调研 SSE", s.agentTasks[0].input?.prompt)
+        // input 缺省必须解成 null,而不是让整份 state 解码失败
+        assertNull(s.agentTasks[1].input)
+        assertEquals("completed", s.agentTasks[1].status)
+
+        assertEquals(1, s.bashTasks.size)
+        assertEquals("bash_1", s.bashTasks[0].taskId)
+        assertEquals("npm run dev", s.bashTasks[0].command)
+        assertEquals("running", s.bashTasks[0].status)
+    }
+
+    /** 缺少 bashTasks / agentTasks 字段(老服务端 / 端点降级)时按空列表兜底。 */
+    @Test
+    fun `session state tolerates missing background task lists`() {
+        val s = wireJson.decodeFromString<SessionStateResponse>("""{"cwd":{"cwd":"/tmp"}}""")
+
+        assertTrue(s.agentTasks.isEmpty())
+        assertTrue(s.bashTasks.isEmpty())
+    }
+
     /** 工具返回值三种形态都要能抽成文本(裸字符串 / content 数组 / 对象)。 */
     @Test
     fun `tool result text flattens all server shapes`() {

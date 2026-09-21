@@ -15,6 +15,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class AgentSessionStoreSseTest {
 
@@ -30,6 +31,131 @@ class AgentSessionStoreSseTest {
         type = type,
         payload = payload,
     )
+
+    // ===== 后台任务 =====
+
+    private fun storeWithAgentTask(id: String, status: String, finishedAt: Long?): AgentSessionStore {
+        val store = AgentSessionStore("sess-1")
+        val fin = if (finishedAt != null) ""","finishedAt":$finishedAt""" else ""
+        store.apply(
+            ev(
+                "agent_task.changed",
+                json.parseToJsonElement(
+                    """{"sessionId":"sess-1","seq":7,
+                        "task":{"id":"$id","status":"$status","createdAt":1,
+                                "input":{"prompt":"调研 codegraph"},
+                                "agentType":"Explore"$fin}}"""
+                ) as JsonObject,
+            ),
+        )
+        return store
+    }
+
+    /** `agent_task.changed` 的 payload 是 `{sessionId, task}`,task 是全量快照。 */
+    @Test
+    fun `agent task changed upserts by id`() {
+        val store = storeWithAgentTask("task_1", "running", null)
+
+        assertEquals(1, store.bgAgentTasks.size)
+        val t = store.bgAgentTasks[0]
+        assertEquals("task_1", t.id)
+        assertEquals("running", t.status)
+        assertEquals("Explore", t.agentType)
+        assertEquals("调研 codegraph", t.input?.prompt)
+    }
+
+    /** queued → running → completed 是**同一条**任务推三次,不能变成三行。 */
+    @Test
+    fun `agent task changed replaces in place`() {
+        val store = storeWithAgentTask("task_1", "running", null)
+        store.apply(
+            ev(
+                "agent_task.changed",
+                json.parseToJsonElement(
+                    """{"sessionId":"sess-1","task":{"id":"task_1","status":"completed",
+                        "createdAt":1,"finishedAt":${System.currentTimeMillis()}}}"""
+                ) as JsonObject,
+            ),
+        )
+
+        assertEquals(1, store.bgAgentTasks.size)
+        assertEquals("completed", store.bgAgentTasks[0].status)
+    }
+
+    /** 终态任务超过 TTL 就不再占位(running 永不清)。 */
+    @Test
+    fun `agent task prune drops only stale terminal tasks`() {
+        val now = System.currentTimeMillis()
+        val stale = storeWithAgentTask("old", "completed", now - BG_RECENT_TTL_MS - 1)
+        assertEquals(0, stale.bgAgentTasks.size)
+
+        val fresh = storeWithAgentTask("new", "completed", now)
+        assertEquals(1, fresh.bgAgentTasks.size)
+
+        val running = storeWithAgentTask("live", "running", null)
+        assertEquals(1, running.bgAgentTasks.size)
+    }
+
+    /** bash 侧字段名是 `taskId`(agent 侧是 `id`),按 taskId 去重。 */
+    @Test
+    fun `bash task changed upserts by taskId`() {
+        val store = AgentSessionStore("sess-1")
+        val startedAt = System.currentTimeMillis() - 100
+        fun push(status: String) {
+            val fin = if (status == "running") "" else ""","finishedAt":${System.currentTimeMillis()}"""
+            store.apply(
+                ev(
+                    "bash_task.changed",
+                    json.parseToJsonElement(
+                        """{"sessionId":"sess-1","task":{"taskId":"bash_1","sessionId":"sess-1",
+                            "command":"npm run dev","description":"起服务",
+                            "startedAt":$startedAt,"status":"$status"$fin}}"""
+                    ) as JsonObject,
+                ),
+            )
+        }
+
+        push("running")
+        push("completed")
+
+        assertEquals(1, store.bgBashTasks.size)
+        assertEquals("completed", store.bgBashTasks[0].status)
+        assertEquals("起服务", store.bgBashTasks[0].description)
+    }
+
+    /** 没 id 的条目直接丢掉 —— 没 id 就无法按后续增量去重,留着必然重复。 */
+    @Test
+    fun `background tasks without id are ignored`() {
+        val store = AgentSessionStore("sess-1")
+        store.apply(
+            ev(
+                "agent_task.changed",
+                json.parseToJsonElement("""{"sessionId":"sess-1","task":{"status":"running"}}""") as JsonObject,
+            ),
+        )
+        store.apply(ev("agent_task.changed", json.parseToJsonElement("""{"sessionId":"sess-1"}""") as JsonObject))
+
+        assertEquals(0, store.bgAgentTasks.size)
+    }
+
+    /**
+     * state 快照是 bash 侧冷启动的**唯一**来源(`bash_task.changed` 没有
+     * 服务端合成重推),所以 hydrateState 必须把两份列表都装上。
+     */
+    @Test
+    fun `hydrate state seeds background tasks`() {
+        val store = AgentSessionStore("sess-1")
+        store.hydrateState(
+            SessionStateResponse(
+                agentTasks = listOf(BgAgentTask(id = "task_1", status = "running")),
+                bashTasks = listOf(BgBashTask(taskId = "bash_1", status = "running", command = "ls")),
+            ),
+        )
+
+        assertEquals(1, store.bgAgentTasks.size)
+        assertEquals(1, store.bgBashTasks.size)
+        assertTrue(store.hasDockContent)
+    }
 
     @Test
     fun `runtime started captures contextTokens`() {

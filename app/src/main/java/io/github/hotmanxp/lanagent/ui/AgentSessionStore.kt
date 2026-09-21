@@ -5,8 +5,12 @@
 //      可渲染的 [AgentItem] 列表(对齐 web 端 useAgentStore.loadTranscriptMessages,
 //      见 useAgentStore.ts:435-564)。
 //   2. **apply** — 把 `GET /api/event?sid=` 的 SSE 事件 reduce 成
-//      items / status / queue / v2Tasks / pending(对齐 useAgentStore.ts:1492-1851
-//      的 applyRuntimeEvent)。
+//      items / status / queue / v2Tasks / bgAgentTasks / bgBashTasks / pending
+//      (对齐 useAgentStore.ts:1492-1851 的 applyRuntimeEvent)。
+//
+// 后台任务(agent 子代理 / 后台 bash)单独成列,不混进 [items]:它们由主会话
+// 之外的东西驱动(lifecycle 事件 + state 快照),渲染位置也不同(底部任务栏,
+// 见 `ui/AgentSessionViews.kt` 的 TaskDockStrip)。见 `data/BackgroundTasks.kt`。
 //
 // 为什么不直接渲染原始 transcript:JSONL 一行是 Anthropic 原生信封
 // (`{type, message:{role, content: ContentBlock[]}}`),一条 assistant 消息里
@@ -25,10 +29,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import io.github.hotmanxp.lanagent.data.AgentEvent
 import io.github.hotmanxp.lanagent.data.AskQuestion
+import io.github.hotmanxp.lanagent.data.BG_RECENT_TTL_MS
+import io.github.hotmanxp.lanagent.data.BgAgentTask
+import io.github.hotmanxp.lanagent.data.BgBashTask
 import io.github.hotmanxp.lanagent.data.DISPLAY_FILES_TOOL
 import io.github.hotmanxp.lanagent.data.DisplayFile
 import io.github.hotmanxp.lanagent.data.DisplayFilesCache
 import io.github.hotmanxp.lanagent.data.PendingInteraction
+import io.github.hotmanxp.lanagent.data.bgTerminal
 import io.github.hotmanxp.lanagent.data.mergeDisplayFiles
 import io.github.hotmanxp.lanagent.data.parseDisplayFileMeta
 import io.github.hotmanxp.lanagent.data.parseDisplayFilePaths
@@ -230,6 +238,27 @@ class AgentSessionStore(val sessionId: String) {
 
     val v2Tasks = mutableStateListOf<V2Task>()
 
+    /**
+     * 后台 agent 子代理(Agent / CliAgent / BackgroundAgent 工具派出去的那些)。
+     * 来源两路:`agent_task.changed` SSE + state 冷启动快照。
+     *
+     * 这是**主会话视角**的后台任务 —— 主 agent 早就把工具调用标成「完成」了,
+     * 子代理还在跑,不单独展示的话用户在会话里完全看不到它。
+     */
+    val bgAgentTasks = mutableStateListOf<BgAgentTask>()
+
+    /** 后台 bash 任务(`run_in_background` 那种)。来源同上。 */
+    val bgBashTasks = mutableStateListOf<BgBashTask>()
+
+    /**
+     * 底部任务栏是否有内容(任务清单 或 后台任务)。
+     *
+     * 读的是 Compose 状态列表,组合期读取会被正常订阅 —— 调用方直接写
+     * `if (store.hasDockContent)` 即可。
+     */
+    val hasDockContent: Boolean
+        get() = v2Tasks.isNotEmpty() || bgAgentTasks.isNotEmpty() || bgBashTasks.isNotEmpty()
+
     private val json = Json { ignoreUnknownKeys = true; isLenient = true; explicitNulls = false }
 
     /**
@@ -291,6 +320,14 @@ class AgentSessionStore(val sessionId: String) {
         state.cwd?.cwd?.takeIf { it.isNotBlank() }?.let { cwd = it }
         v2Tasks.clear()
         v2Tasks.addAll(state.v2Tasks)
+        // 后台任务:state 快照是冷启动的唯一来源(bash 侧没有 SSE 合成重推)。
+        // 空 id 的条目丢掉 —— 没有 id 就无法按 SSE 增量去重,留着只会重复。
+        bgAgentTasks.clear()
+        bgAgentTasks.addAll(state.agentTasks.filter { it.id.isNotBlank() })
+        bgBashTasks.clear()
+        bgBashTasks.addAll(state.bashTasks.filter { it.taskId.isNotBlank() })
+        // 快照里带着历史终态任务,照样裁一遍,否则一打开会话就先堆一排「完成」。
+        pruneBgTasks()
     }
 
     private fun ingestUser(content: JsonElement, ts: Long?, uuid: String?) {
@@ -494,6 +531,12 @@ class AgentSessionStore(val sessionId: String) {
 
             "v2_task.changed" -> upsertV2Task(ev)
 
+            // 后台任务。服务端每次新 SSE 连接建立时会把当前所有 agent 任务
+            // 合成一条 `agent_task.changed` 重推(`routes/event.ts:120-135`),
+            // 所以断线重连后 running 的不会丢。
+            "agent_task.changed" -> upsertBgAgentTask(ev)
+            "bash_task.changed" -> upsertBgBashTask(ev)
+
             // 0.15.1:服务端「投影」通路 — host 算完的派生值快照,目前
             // 试点迁移了 title / context.tokens 两个 key(见 opencc-web
             // routes/agent.ts:1725-1738)。重连后 host 会整体重发,
@@ -636,6 +679,47 @@ class AgentSessionStore(val sessionId: String) {
             return
         }
         if (idx >= 0) v2Tasks[idx] = task else v2Tasks.add(task)
+    }
+
+    /**
+     * `agent_task.changed` 的 payload 是 `{sessionId, task}`(见 opencc-web
+     * `shared/events.ts` 的 `AgentTaskChangedEvent`),`task` 即 [BgAgentTask]
+     * 全量快照 —— 所以按 id 覆盖即可,不需要自己拼状态机。
+     *
+     * 就地替换而不是「先删后加」:同一条任务会推很多次(queued → running →
+     * completed),原位替换让它在列表里的位置稳定,不会来回跳。
+     */
+    private fun upsertBgAgentTask(ev: AgentEvent) {
+        val obj = ev.obj("task") ?: return
+        val task = runCatching { json.decodeFromJsonElement<BgAgentTask>(obj) }.getOrNull() ?: return
+        if (task.id.isBlank()) return
+        val idx = bgAgentTasks.indexOfFirst { it.id == task.id }
+        if (idx >= 0) bgAgentTasks[idx] = task else bgAgentTasks.add(task)
+        pruneBgTasks()
+    }
+
+    /** 同 [upsertBgAgentTask],bash 侧的任务字段是 `taskId`。 */
+    private fun upsertBgBashTask(ev: AgentEvent) {
+        val obj = ev.obj("task") ?: return
+        val task = runCatching { json.decodeFromJsonElement<BgBashTask>(obj) }.getOrNull() ?: return
+        if (task.taskId.isBlank()) return
+        val idx = bgBashTasks.indexOfFirst { it.taskId == task.taskId }
+        if (idx >= 0) bgBashTasks[idx] = task else bgBashTasks.add(task)
+        pruneBgTasks()
+    }
+
+    /**
+     * 清掉早已结束的后台任务(内存 + 视觉双重用途):终态任务超过
+     * [BG_RECENT_TTL_MS] 就直接丢掉,running / queued 永不动。
+     *
+     * **两个裁剪点缺一不可**:这里管「有事件来的时候」,渲染层还按同一个 TTL
+     * 再滤一次(见 `TaskDockStrip` 的 now 参数)—— 会话安静下来之后没有新事件,
+     * 光靠这里那条「完成」会一直挂在任务栏上。
+     */
+    private fun pruneBgTasks() {
+        val cutoff = System.currentTimeMillis() - BG_RECENT_TTL_MS
+        bgAgentTasks.removeAll { bgTerminal(it.status) && (it.finishedAt ?: it.createdAt) < cutoff }
+        bgBashTasks.removeAll { bgTerminal(it.status) && (it.finishedAt ?: it.startedAt) < cutoff }
     }
 
     // ===== 流式拼装 =====

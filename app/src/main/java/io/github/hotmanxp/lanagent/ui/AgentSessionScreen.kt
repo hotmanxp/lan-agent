@@ -226,7 +226,13 @@ fun AgentSessionPane(
     var drawerSessions by remember { mutableStateOf<List<AgentSessionMeta>>(emptyList()) }
     var drawerLoading by remember { mutableStateOf(true) }
     var creating by remember { mutableStateOf(false) }
-    var drawerNow by remember { mutableStateOf(System.currentTimeMillis()) }
+    /**
+     * 屏内共享的「现在」时钟,15s 一跳(见下面的 ticker)。两个消费方:
+     *   - 抽屉会话列表的「N 分钟前」相对时间
+     *   - 底部任务栏「最近结束」窗口的过期判定(见 TaskDockStrip 的 now)
+     * 所以叫 clockNow 而不是 drawerNow —— 它已经不是抽屉专用的了。
+     */
+    var clockNow by remember { mutableStateOf(System.currentTimeMillis()) }
     var drawerRefreshTick by remember { mutableStateOf(0) }
 
     val instanceBaseUrl = active?.baseUrl
@@ -338,11 +344,12 @@ fun AgentSessionPane(
             }
         }
     }
-    // 相对时间 tick —— 让抽屉列表的「N 分钟前」不卡在同一数字。
+    // 相对时间 tick —— 让抽屉列表的「N 分钟前」不卡在同一数字,同时驱动底部
+    // 任务栏「最近结束」窗口的过期(见 clockNow 声明处)。
     LaunchedEffect(Unit) {
         while (true) {
             delay(15_000)
-            drawerNow = System.currentTimeMillis()
+            clockNow = System.currentTimeMillis()
         }
     }
 
@@ -731,7 +738,7 @@ fun AgentSessionPane(
                         drawerSessions.forEach { meta ->
                             SessionRow(
                                 meta = meta,
-                                now = drawerNow,
+                                now = clockNow,
                                 onClick = { switchToSession(meta.sessionId) },
                             )
                         }
@@ -889,10 +896,10 @@ fun AgentSessionPane(
                             }
                         }
 
-                        // 底部固定区:任务清单 / 队列 / 待处理交互。整体限高 + 可滚,
-                        // 避免 ask 卡片选项多时把输入条挤出屏幕。
+                        // 底部固定区:任务栏(任务清单 + 后台任务)/ 队列 / 待处理交互。
+                        // 整体限高 + 可滚,避免 ask 卡片选项多时把输入条挤出屏幕。
                         val pending = store.pending
-                        if (store.v2Tasks.isNotEmpty() || store.queue.isNotEmpty() || pending != null) {
+                        if (store.hasDockContent || store.queue.isNotEmpty() || pending != null) {
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -901,7 +908,13 @@ fun AgentSessionPane(
                                     .padding(horizontal = 12.dp),
                                 verticalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
-                                V2TaskStrip(store.v2Tasks, store.status)
+                                TaskDockStrip(
+                                    v2Tasks = store.v2Tasks,
+                                    agentTasks = store.bgAgentTasks,
+                                    bashTasks = store.bgBashTasks,
+                                    status = store.status,
+                                    now = clockNow,
+                                )
                                 QueueStrip(
                                     queue = store.queue,
                                     onCancel = { q ->
@@ -967,12 +980,14 @@ fun AgentSessionPane(
                         // 运行态提示条 —— 顶栏不放状态(对齐 WorkBuddy),改成在输入框
                         // 上面单起一行,空闲时整行不渲染,不占视觉位置。
                         //
-                        // 有任务清单时 status 已经 inline 到 V2TaskStrip 的 header,
-                        // 否则 strip header 一行 + status 行 + 输入卡挤在屏幕底端很噪。
+                        // 任务栏在渲染时 status 已经 inline 到它的 header(见
+                        // TaskDockStrip),否则 strip header 一行 + status 行 + 输入卡
+                        // 挤在屏幕底端很噪。判定用 hasDockContent —— 只要有任务栏就
+                        // 不重复画这一行,后台任务在跑而任务清单为空时同样适用。
                         //
                         // start = 12.dp:对齐消息气泡左边距,让 StatusBadge 的三个 dot
                         // 起点跟消息文本对齐,而不是贴屏幕左边。
-                        if (store.status != AgentRunStatus.Idle && store.v2Tasks.isEmpty()) {
+                        if (store.status != AgentRunStatus.Idle && !store.hasDockContent) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()

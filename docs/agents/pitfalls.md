@@ -19,6 +19,7 @@
 | Android 11+ gesture bar 不消失 | 系统限制,只能 swipe 唤起后自动隐;要彻底隐需切 3-button nav |
 | 状态栏被扣两次 | 根 Scaffold 的 `contentWindowInsets` 没关;外层 `contentWindowInsets = WindowInsets(0,0,0,0)`(§10) |
 | 详情页内容被底栏顶掉一截 | 内层屏幕又加了一次 `navigationBarsPadding`;底栏常驻后 inset 已被扣过一次(0.14.2 已去) |
+| 页面里的 `<input>` 点一下就**整页刷新**,键盘闪一下就没,一个字打不进去 | 挂在 `AndroidView` 上的 `.imePadding()` 让本屏**每帧 IME inset 变化都重跑 composable 函数体**,而 `webView.loadUrl(...)`(和客户端装配)被写在了函数体里 → 每帧重新加载一次。装配 + 首次加载必须收进 `LaunchedEffect(webView)`(0.18.1 修;实测同一 bug 在进场动画期间也会把页面连加载 8 遍) |
 
 ## WebView 上传 / 文件选择
 

@@ -182,81 +182,93 @@ fun WebViewScreen(url: String, onBack: () -> Unit) {
         }
     }
 
-    webView.webViewClient = object : WebViewClient() {
-        override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
-            canGoBack = view?.canGoBack() == true
-            if (pendingReload) {
-                pendingReload = false
-                scope.launch { snackbarHostState.showSnackbar("已刷新") }
+    // ⚠️ 客户端装配 + 首次 loadUrl **必须在这个 LaunchedEffect 里**,不能写进
+    // composable 函数体。函数体每次重组都会整个重跑,而本屏在键盘弹起时
+    // **每一帧 IME inset 变化都会重组**(AndroidView 上挂着 `.imePadding()`;
+    // 实测点一次输入框产生 9 次重组)。函数体里的 loadUrl 于是变成:
+    //   点页面 <input> → IME 弹出 → AndroidView 随 inset 收缩 → 重组 →
+    //   又 loadUrl 一次 → **整页重新加载** → 输入框失焦、键盘收起 →
+    //   一个字都打不进去(用户报的「点输入框就刷新」)。
+    // 同一 bug 在进入本屏时也发作:导航进场动画期间重组 8 次,页面被连续
+    // 加载 8 遍(实测 composition #1-#8 / loadUrl #1-#8)。
+    // key = WebView 实例 → 一个 WebView 只装配 / 只首次加载一次。
+    LaunchedEffect(webView) {
+        webView.webViewClient = object : WebViewClient() {
+            override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                canGoBack = view?.canGoBack() == true
+                if (pendingReload) {
+                    pendingReload = false
+                    scope.launch { snackbarHostState.showSnackbar("已刷新") }
+                }
+            }
+
+            override fun onReceivedError(
+                view: WebView?,
+                request: WebResourceRequest?,
+                error: WebResourceError?
+            ) {
+                // Silently ignore. LAN tools hit transient net::ERR_FAILED all the
+                // time (server bouncing, sub-resources behind proxies, etc.) and a
+                // Snackbar per failed request is noise. The page itself still
+                // renders whatever loaded successfully.
             }
         }
 
-        override fun onReceivedError(
-            view: WebView?,
-            request: WebResourceRequest?,
-            error: WebResourceError?
-        ) {
-            // Silently ignore. LAN tools hit transient net::ERR_FAILED all the
-            // time (server bouncing, sub-resources behind proxies, etc.) and a
-            // Snackbar per failed request is noise. The page itself still
-            // renders whatever loaded successfully.
+        // Without a WebChromeClient, Android WebView's default onShowFileChooser
+        // returns false and <input type="file"> clicks are silently dropped — so
+        // the zai "上传图片" button (which triggers a hidden <input accept="image/*">)
+        // does nothing. We launch the system chooser via params.createIntent(),
+        // which already encodes the page's acceptTypes (image/* here) and mode.
+        webView.webChromeClient = object : WebChromeClient() {
+            override fun onShowFileChooser(
+                view: WebView,
+                callback: ValueCallback<Array<Uri>>,
+                params: WebChromeClient.FileChooserParams,
+            ): Boolean {
+                // Only one pending pick at a time: if the page re-triggers before
+                // our previous result returns, the old callback must be cancelled
+                // (Android docs require this) or it leaks and the old input stays
+                // stuck open.
+                filePathCallback?.onReceiveValue(null)
+                filePathCallback = callback
+
+                // Build the picker intent ourselves instead of relying on
+                // params.createIntent(). Several OEM ROMs (MIUI / ColorOS /
+                // older Android WebView) ship a createIntent() that returns an
+                // Intent without FLAG_GRANT_READ_URI_PERMISSION — when the
+                // system chooser then hands back a content:// URI our process
+                // can't read, some implementations silently dismiss the chooser
+                // (returning RESULT_CANCELED) or return RESULT_OK with empty
+                // Intent.data. Doing it manually with the grant flag and
+                // Intent.createChooser (forces chooser UI even with one
+                // candidate) sidesteps both failure modes.
+                val type = params.acceptTypes.firstOrNull { it.isNotBlank() } ?: "image/*"
+                val pickIntent = Intent(Intent.ACTION_GET_CONTENT).apply {
+                    this.type = type
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    putExtra(
+                        Intent.EXTRA_ALLOW_MULTIPLE,
+                        params.mode == WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE,
+                    )
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                val chooser = Intent.createChooser(pickIntent, "选择图片").apply {
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+
+                return try {
+                    pickFileLauncher.launch(chooser)
+                    true
+                } catch (e: ActivityNotFoundException) {
+                    callback.onReceiveValue(null)
+                    filePathCallback = null
+                    false
+                }
+            }
         }
+
+        webView.loadUrl(if (url.isBlank()) "about:blank" else url)
     }
-
-    // Without a WebChromeClient, Android WebView's default onShowFileChooser
-    // returns false and <input type="file"> clicks are silently dropped — so
-    // the zai "上传图片" button (which triggers a hidden <input accept="image/*">)
-    // does nothing. We launch the system chooser via params.createIntent(),
-    // which already encodes the page's acceptTypes (image/* here) and mode.
-    webView.webChromeClient = object : WebChromeClient() {
-        override fun onShowFileChooser(
-            view: WebView,
-            callback: ValueCallback<Array<Uri>>,
-            params: WebChromeClient.FileChooserParams,
-        ): Boolean {
-            // Only one pending pick at a time: if the page re-triggers before
-            // our previous result returns, the old callback must be cancelled
-            // (Android docs require this) or it leaks and the old input stays
-            // stuck open.
-            filePathCallback?.onReceiveValue(null)
-            filePathCallback = callback
-
-            // Build the picker intent ourselves instead of relying on
-            // params.createIntent(). Several OEM ROMs (MIUI / ColorOS /
-            // older Android WebView) ship a createIntent() that returns an
-            // Intent without FLAG_GRANT_READ_URI_PERMISSION — when the
-            // system chooser then hands back a content:// URI our process
-            // can't read, some implementations silently dismiss the chooser
-            // (returning RESULT_CANCELED) or return RESULT_OK with empty
-            // Intent.data. Doing it manually with the grant flag and
-            // Intent.createChooser (forces chooser UI even with one
-            // candidate) sidesteps both failure modes.
-            val type = params.acceptTypes.firstOrNull { it.isNotBlank() } ?: "image/*"
-            val pickIntent = Intent(Intent.ACTION_GET_CONTENT).apply {
-                this.type = type
-                addCategory(Intent.CATEGORY_OPENABLE)
-                putExtra(
-                    Intent.EXTRA_ALLOW_MULTIPLE,
-                    params.mode == WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE,
-                )
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            val chooser = Intent.createChooser(pickIntent, "选择图片").apply {
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-
-            return try {
-                pickFileLauncher.launch(chooser)
-                true
-            } catch (e: ActivityNotFoundException) {
-                callback.onReceiveValue(null)
-                filePathCallback = null
-                false
-            }
-        }
-    }
-
-    webView.loadUrl(if (url.isBlank()) "about:blank" else url)
 
     DisposableEffect(webView) {
         onDispose { webView.destroy() }

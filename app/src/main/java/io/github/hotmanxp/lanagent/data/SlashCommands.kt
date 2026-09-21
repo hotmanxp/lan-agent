@@ -18,8 +18,10 @@
 package io.github.hotmanxp.lanagent.data
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 // ===== wire 模型 =====
 
@@ -39,8 +41,16 @@ data class SlashItem(
     /** 调用名(`/name`)。插件项是带前缀的全名(`superpowers:commit`)。 */
     val name: String,
     val description: String = "",
-    /** 参数占位提示(如 `[--force]`)。空 / null = 该命令不需要参数。 */
-    val argumentHint: String? = null,
+    /**
+     * 参数占位提示。**服务端历史上只返字符串**(`"[--force]"`),
+     * 但 opencc 项目专属命令(/release-opencc /sync-upperstream)会把
+     * 多形态参数写成 JSON 数组(`["<version_type>"]`)—— 紧绑成 `String?`
+     * 会让整条 item 反序列化失败,进而让 `SlashListResponse.items` 整次作废,
+     * 兜成空列表后 `AgentInputBar` 看到 `slashItems.isEmpty()` 直接禁掉
+     * 命令面板。所以这里收 `JsonElement?`,渲染前用 [argumentHintText]
+     * 统一成字符串。
+     */
+    val argumentHint: JsonElement? = null,
     val whenToUse: String? = null,
     val isBuiltIn: Boolean? = null,
     val isConflict: Boolean? = null,
@@ -63,7 +73,19 @@ data class SlashItem(
     val isLocal: Boolean get() = type == COMMAND_LOCAL
 
     /** 需要用户补参数(`[--force]` 这种)—— 选中时先补全 `/name ` 而不是直接跑。 */
-    val takesArgs: Boolean get() = !argumentHint.isNullOrBlank()
+    val takesArgs: Boolean get() = argumentHintText().isNotEmpty()
+
+    /**
+     * 三态渲染:字符串原样;数组 → 用 `, ` 拼回形如 `[a, b, c]` 的展示串;
+     * 其它(null / 数字 / 嵌套对象)→ 空串。**只用于面板右侧的提示 chip**,
+     * 真正的执行路径走服务端 `command.ts` 自己解 argumentHint,这里只管显示。
+     */
+    fun argumentHintText(): String = when (val h = argumentHint) {
+        null -> ""
+        is JsonPrimitive -> h.content
+        is JsonArray -> h.joinToString(", ") { it.toString() }
+        else -> ""
+    }
 
     companion object {
         const val KIND_COMMAND = "command"

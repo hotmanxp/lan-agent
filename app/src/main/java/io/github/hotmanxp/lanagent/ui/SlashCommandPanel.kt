@@ -161,7 +161,7 @@ private fun SlashRow(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false),
                 )
-                item.argumentHint?.takeIf { it.isNotBlank() }?.let { hint ->
+                item.argumentHintText().takeIf { it.isNotBlank() }?.let { hint ->
                     Spacer(Modifier.width(6.dp))
                     Text(
                         text = hint,

@@ -94,6 +94,11 @@ class AgentApi(
         ignoreUnknownKeys = true
         isLenient = true
         explicitNulls = false
+        // 真正坏掉的字段(类型不匹配 / 缺值)用 null 兜住,而不是让整条 item
+        // 反序列化失败。配合 SlashItem.argumentHint: JsonElement? 这类宽松
+        // 字段使用 —— 否则只要服务端某条命令的某个字段类型对不上,整张
+        // /api/slash 列表就静默作废,面板被硬开关禁掉。
+        coerceInputValues = true
     }
 
     private fun urlFor(path: String): String {

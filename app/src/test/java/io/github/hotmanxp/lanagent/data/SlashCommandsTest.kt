@@ -10,8 +10,10 @@
 package io.github.hotmanxp.lanagent.data
 
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -207,6 +209,62 @@ class SlashCommandsTest {
         assertNull(item.type)
         assertTrue(item.isSkill && !item.takesArgs)
     }
+
+    @Test
+    fun `argumentHint tolerates list shape from server`() {
+        // 回归:opencc 项目专属命令(/release-opencc /sync-upperstream)在
+        // 服务端 `slashList` 实现里把 argumentHint 写成 JSON 数组
+        // (`["<version_type>"]`),不是字符串。客户端模型是 String?,整条
+        // item 反序列化失败 → SlashListResponse.items 整列表失败 →
+        // listSlashCommands runCatching 兜成 emptyList() → AgentInputBar
+        // 看到 slashItems.isNotEmpty() == false,硬开关直接禁掉面板。
+        // 这条命令是 opencc 项目独有,所以「opencc 项目面板不弹 / 其他项目 OK」。
+        val raw = """{"items":[
+            {"kind":"command","name":"release-opencc","description":"bump version",
+             "type":"prompt","argumentHint":["<version_type>"]},
+            {"kind":"command","name":"clear","description":"清空","type":"local",
+             "isBuiltIn":true,"argumentHint":null}
+        ]}"""
+        // 回归:opencc 项目专属命令(/release-opencc /sync-upperstream)在
+        // 服务端 `slashList` 实现里把 argumentHint 写成 JSON 数组
+        // (`["<version_type>"]`),不是字符串。客户端模型是 String?,整条
+        // item 反序列化失败 → SlashListResponse.items 整列表失败 →
+        // listSlashCommands runCatching 兜成 emptyList() → AgentInputBar
+        // 看到 slashItems.isNotEmpty() == false,硬开关直接禁掉面板。
+        // 这两条命令是 opencc 项目独有,所以「opencc 项目面板不弹 / 其他项目 OK」。
+        //
+        // 修复方向:把 argumentHint 收成 JsonElement?,渲染时按 String /
+        // Array / null 三态分别处理(数组 → joinToString(", "))。
+        // 修复后下面两个断言都必须 PASS。
+        val decoded = runCatching { json.decodeFromString<SlashListResponse>(raw) }
+        val list = decoded.getOrNull()
+        assertNotNull(list, "argumentHint 类型分歧不能让整表解码抛:err=${decoded.exceptionOrNull()?.message}")
+        val names = list.items.map { it.name }
+        assertTrue("release-opencc" in names, "list-shape hint 的 item 必须存活,实际=$names")
+        assertTrue("clear" in names, "正常 item 也必须存活,实际=$names")
+    }
+
+    @Test
+    fun `argumentHintText renders string array and null`() {
+        // 渲染侧三态:字符串原样、数组 → ", " 拼接、null → 空串。
+        // 这条直接钉住 argumentHintText 助手的行为,改渲染代码时能立刻看出影响。
+        val items = listOf(
+            SlashItem(name = "compact", argumentHint = buildJsonString("\"[--force]\"")),
+            SlashItem(name = "release-opencc", argumentHint = buildJsonArray("""["<version_type>"]""")),
+            SlashItem(name = "clear", argumentHint = null),
+        )
+        assertEquals("[--force]", items[0].argumentHintText())
+        assertTrue(items[1].argumentHintText().contains("<version_type>"), "array hint 必须提到元素:实际=${items[1].argumentHintText()}")
+        assertEquals("", items[2].argumentHintText())
+        // takesArgs 跟着 argumentHintText 走 —— 任意形态有内容都算「要补全」。
+        assertTrue(items[0].takesArgs)
+        assertTrue(items[1].takesArgs)
+        assertTrue(!items[2].takesArgs)
+    }
+
+    // ---- 测试小工具:服务端 raw JSON → JsonElement ----
+    private fun buildJsonString(raw: String): JsonElement = Json.parseToJsonElement(raw)
+    private fun buildJsonArray(raw: String): JsonElement = Json.parseToJsonElement(raw)
 
     @Test
     fun `plugin item label strips prefix but keeps full name for invocation`() {

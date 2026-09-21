@@ -67,7 +67,7 @@
 
 模块: `model/SshHost.kt` + `data/SshRepository.kt` + `ssh/JschClient.kt` + `ssh/ZaiLauncher.kt` + `ssh/ZaiPortProbe.kt`。
 
-**命令模板**(`ZaiLauncher.PATH_PREFIX` 兜底 sshd PATH 缺失): `export PATH="$HOME/.local/bin:$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"; source ~/.zshenv ~/.bashrc 2>/dev/null; nohup zai --lan --port ${zaiPort} > /tmp/zai.log 2>&1 & disown`。**全局 `zai` 二进制**,不走 `pnpm --filter`。每条 SSH host 独立 `zaiPort`(默认 9201),避免 `EADDRINUSE`。`StrictHostKeyChecking=no`(LAN 工具无 MITM 威胁模型)。密码存 DataStore 明文(Phase 2 接受)。
+**命令模板**(`ZaiLauncher.PATH_PREFIX` 兜底 sshd PATH 缺失): `export PATH="$HOME/.local/bin:$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"; source ~/.zshenv 2>/dev/null; source ~/.bashrc 2>/dev/null; nohup zai --lan --port ${zaiPort} > /tmp/zai.log 2>&1 & disown`。**全局 `zai` 二进制**,不走 `pnpm --filter`。每条 SSH host 独立 `zaiPort`(默认 9201),避免 `EADDRINUSE`。`StrictHostKeyChecking=no`(LAN 工具无 MITM 威胁模型)。密码存 DataStore 明文(Phase 2 接受)。
 
 ### 7. WebView 后台保活
 
@@ -75,7 +75,7 @@
 
 ### 8. WebView 配置单源
 
-`service/WebViewFactory.create(context, url)` 是**唯一**创建入口,settings 集中: `javaScriptEnabled` / `domStorageEnabled` / `useWideViewPort=true` / `loadWithOverviewMode=false` / `textZoom=85` / TRANSPARENT 背景。`WebViewScreen` 和 `WebViewKeepAliveService` 共用,避免 foreground/background settings 漂移让 SSE 重连定时器悄悄重置。
+`service/WebViewFactory.create(context, url)` 是 **`WebViewKeepAliveService` 与 `FileViewerOverlay` 用的工厂入口**;`WebViewScreen` 内联的 settings 与之 1:1 对齐,避免 foreground/background settings 漂移让 SSE 重连定时器悄悄重置。配置: `javaScriptEnabled` / `domStorageEnabled` / `useWideViewPort=true` / `loadWithOverviewMode=false` / `textZoom=85` / TRANSPARENT 背景。`createForContent` 单独把 `textZoom` 改回 100,给 FileViewerOverlay 用。
 
 ### 9. WebView 背景色陷阱
 
@@ -223,4 +223,4 @@ adb shell pm clear io.github.hotmanxp.lanagent
 
 ## 版本 / 发布
 
-**当前**: 0.18.0 (72) — 底部任务栏合并「任务清单 + 后台任务」:后台 agent 子代理与后台 bash 的状态直接显示在会话底栏(见 §21)。0.17.5 (71) 按住说话胶囊瘦身;0.17.4 (70) WorkBuddy 语音 401 自愈;0.17.2 模型选择器 provider 显示名;0.17.0 (67) `/` 命令面板 + Skill 候选;0.16.1 (56) 文件预览 overlay;0.16.0 (55) DisplayFiles;0.15.2 (54) 会话精简模式;0.15.0 (52) 任务栏 = 原生 Agent 工作区;0.14.0 (49) 底部五栏。不发 release;详细历史见 git log。
+**当前**: 0.18.0 (72) — 底部任务栏合并「任务清单 + 后台任务」:后台 agent 子代理与后台 bash 的状态直接显示在会话底栏(见 §21)。0.17.5 (71) 按住说话胶囊瘦身;0.17.4 (70) WorkBuddy 语音 401 自愈;0.17.2 模型选择器 provider 显示名;0.17.0 (67) `/` 命令面板 + Skill 候选;0.16.1 (56) 文件预览 overlay;0.16.0 (55) DisplayFiles;0.15.2 (54) 会话精简模式;0.15.0 (52) 任务栏 = 原生 Agent 工作区;0.14.0 (49) 底部五栏。中间 patch bump(0.14.1 / 0.14.2 / 0.16.2-0.16.5 等)见 git log;**不发 release**;0.17.1 与 0.17.3 是未发版的占位号。

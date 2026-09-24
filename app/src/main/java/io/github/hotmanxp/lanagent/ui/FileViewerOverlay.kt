@@ -22,6 +22,7 @@
 // (见 data/PresentFile.kt 的 [FilePreview])。
 package io.github.hotmanxp.lanagent.ui
 
+import android.util.Base64
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.animation.AnimatedVisibility
@@ -87,7 +88,6 @@ import io.github.hotmanxp.lanagent.service.WebViewFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.net.URLEncoder
 
 /**
  * 一次预览的目标。
@@ -228,9 +228,13 @@ private fun FileViewerContent(
                 p.fileKind == FileKind.Image && !isSvg(path) ->
                     ImageBytesBody(api = api, path = path)
 
-                // SVG 是 XML,BitmapFactory 解不了 → 交给 WebView,而且**直接吃
-                // /api/fs/raw 的字节流**,不受 /api/fs/preview 的 1 MiB 限制。
-                p.fileKind == FileKind.Image -> WebBody(url = rawUrl(baseUrl, path))
+                // SVG:BitmapFactory 解不了 XML → 必须 WebView。但 Chromium WebView 的
+                // main frame **不渲染 `image/svg+xml` MIME 的 GET 响应**(把它当下载资源
+                // → 主框架保持空白 → 全黑),所以读字节 → base64 → 包成 `<img>` 标签 +
+                // `text/html` 主框架加载(`<img>` 渲染 SVG 是 100% 可靠的,同浏览器打开
+                // .svg 文件的渲染路径)。字节上限仍走 /api/fs/raw 的 IMAGE_MAX_BYTES
+                // (10 MiB)保护。
+                p.fileKind == FileKind.Image -> SvgBytesBody(api = api, path = path)
 
                 p.fileKind == FileKind.Html -> HtmlBody(html = p.content.orEmpty())
 
@@ -246,11 +250,63 @@ private fun FileViewerContent(
     }
 }
 
-private fun isSvg(path: String): Boolean = path.lowercase().endsWith(".svg")
+/**
+ * SVG 必须走 WebView(`BitmapFactory` 解不了 XML)。但 Chromium WebView 的 main
+ * frame **不渲染 `image/svg+xml` MIME 的 GET 响应** —— 收到这个 MIME Chromium
+ * 会按"下载资源"处理,主框架保持空白 → 全黑(见 [ImageBytesBody] 同款黑底)。所以
+ * 读字节 → base64 → 包成 `<img src="data:image/svg+xml;base64,...">` HTML,主框架
+ * 换 MIME `text/html` 加载 —— `<img>` 渲染 SVG 是 100% 可靠的(同浏览器直接打开
+ * .svg 文件的渲染路径,只是借了 HTML 主框架)。字节来源仍是 [AgentApi.rawFile]
+ * (`/api/fs/raw` 通道),`IMAGE_MAX_BYTES`(10 MiB)保护直接继承,不用新加限制。
+ */
+@Composable
+private fun SvgBytesBody(api: AgentApi, path: String) {
+    val state by produceState<SvgState>(SvgState.Loading, api, path) {
+        value = withContext(Dispatchers.IO) {
+            runCatching {
+                val bytes = api.rawFile(path)
+                val b64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+                """<html><body style="margin:0;background:#fff">
+<img src="data:image/svg+xml;base64,$b64"
+     style="display:block;width:100%;height:100%;object-fit:contain">
+</body></html>"""
+            }.fold(
+                onSuccess = { SvgState.Ok(it) },
+                onFailure = { SvgState.Failed(previewErrorMessage(it)) },
+            )
+        }
+    }
+    when (val s = state) {
+        SvgState.Loading -> Box(
+            modifier = Modifier.fillMaxSize().background(Color.Black),
+            contentAlignment = Alignment.Center,
+        ) { CircularProgressIndicator(color = Color.White) }
 
-/** `/api/fs/raw` 的地址(图片 / 矢量图在 WebView 里直接开)。 */
-private fun rawUrl(baseUrl: String, path: String): String =
-    "${baseUrl.trimEnd('/')}/api/fs/raw?path=${URLEncoder.encode(path, "UTF-8")}"
+        is SvgState.Ok -> LazyWebView {
+            it.loadDataWithBaseURL(null, s.html, "text/html", "utf-8", null)
+        }
+
+        is SvgState.Failed -> Box(
+            modifier = Modifier.fillMaxSize().background(Color.Black),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = s.message,
+                fontSize = 13.sp,
+                color = Color.White,
+                modifier = Modifier.padding(24.dp),
+            )
+        }
+    }
+}
+
+private sealed interface SvgState {
+    data object Loading : SvgState
+    data class Ok(val html: String) : SvgState
+    data class Failed(val message: String) : SvgState
+}
+
+private fun isSvg(path: String): Boolean = path.lowercase().endsWith(".svg")
 
 @Composable
 private fun CenterSpinner() {
@@ -356,11 +412,6 @@ private fun HtmlBody(html: String) {
 }
 
 /** 直接开一个 URL(SVG 走 `/api/fs/raw`)。 */
-@Composable
-private fun WebBody(url: String) {
-    LazyWebView { it.loadUrl(url) }
-}
-
 @Composable
 private fun LazyWebView(load: (WebView) -> Unit) {
     AndroidView(

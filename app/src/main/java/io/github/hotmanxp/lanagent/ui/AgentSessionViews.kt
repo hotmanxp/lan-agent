@@ -54,6 +54,8 @@ import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AddPhotoAlternate
 import androidx.compose.material.icons.rounded.ArrowUpward
+import androidx.compose.material.icons.rounded.Article
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.Build
 import androidx.compose.material.icons.rounded.Check
@@ -68,9 +70,12 @@ import androidx.compose.material.icons.rounded.Html
 import androidx.compose.material.icons.rounded.Keyboard
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Photo
+import androidx.compose.material.icons.rounded.PictureAsPdf
 import androidx.compose.material.icons.rounded.Psychology
+import androidx.compose.material.icons.rounded.Slideshow
 import androidx.compose.material.icons.rounded.SmartToy
 import androidx.compose.material.icons.rounded.Stop
+import androidx.compose.material.icons.rounded.TableChart
 import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -79,6 +84,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -86,10 +92,12 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -123,17 +131,23 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.hotmanxp.lanagent.R
 import io.github.hotmanxp.lanagent.data.AgentApi
+import io.github.hotmanxp.lanagent.data.AskOption
 import io.github.hotmanxp.lanagent.data.AskQuestion
 import io.github.hotmanxp.lanagent.data.AttachedImage
 import io.github.hotmanxp.lanagent.data.BG_RECENT_TTL_MS
 import io.github.hotmanxp.lanagent.data.BgAgentTask
 import io.github.hotmanxp.lanagent.data.BgBashTask
-import io.github.hotmanxp.lanagent.data.DisplayFile
 import io.github.hotmanxp.lanagent.data.FileKind
 import io.github.hotmanxp.lanagent.data.HttpException
 import io.github.hotmanxp.lanagent.data.ImageAttachments
 import io.github.hotmanxp.lanagent.data.ModelEntry
 import io.github.hotmanxp.lanagent.data.PendingInteraction
+import io.github.hotmanxp.lanagent.data.PresentedFile
+import io.github.hotmanxp.lanagent.data.baseName
+import io.github.hotmanxp.lanagent.data.classifyByExtension
+import io.github.hotmanxp.lanagent.data.fileKindLabel
+import io.github.hotmanxp.lanagent.data.isDocument
+import io.github.hotmanxp.lanagent.data.parentDir
 import io.github.hotmanxp.lanagent.data.pretty
 import io.github.hotmanxp.lanagent.data.QueuedPrompt
 import io.github.hotmanxp.lanagent.data.SlashItem
@@ -428,19 +442,10 @@ internal fun ThinkingBubble(item: AgentItem.Thinking) {
 // ===== 工具调用卡 =====
 
 @Composable
-internal fun ToolCallCard(
-    item: AgentItem.ToolCall,
-    api: AgentApi?,
-    onOpenFile: (DisplayFile) -> Unit,
-) {
-    // `DisplayFiles` 有文件列表时走**文件卡片**形态(见 [DisplayFilesBody]):
-    // 它的 output 是一段给前端渲染用的元数据 JSON,照普通工具卡渲染只会让
-    // 用户看到一坨 JSON。
-    val files = item.files
-    val isFiles = files.isNotEmpty()
-    // 工具卡默认收起是为了压住入参/输出的噪声;文件卡本身没有噪声,
-    // 而且它出现就意味着「让你看东西」—— 默认展开,少一次点击。
-    var expanded by remember(item.key) { mutableStateOf(isFiles) }
+internal fun ToolCallCard(item: AgentItem.ToolCall) {
+    // 工具卡默认收起是为了压住入参/输出的噪声。`PresentFile` 不走这里 ——
+    // 它有自己的卡片(见 [PresentFileCard]),默认展开、内容直接渲染。
+    var expanded by remember(item.key) { mutableStateOf(false) }
     // 完成态用中性灰(对齐 onSurfaceVariant / InkMutedLight),不抢品牌色
     // —— 品牌平安橙留给发送按钮 / 主按钮这些真正需要点睛的位置。
     // running 用 tertiary 暖橙,error 用 error 红,差异由状态承担。
@@ -469,16 +474,16 @@ internal fun ToolCallCard(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Icon(
-                    imageVector = if (isFiles) Icons.Rounded.FolderOpen else Icons.Rounded.Build,
+                    imageVector = Icons.Rounded.Build,
                     contentDescription = null,
                     tint = accent,
                     modifier = Modifier.size(16.dp),
                 )
                 Text(
-                    text = if (isFiles) "文件 · ${files.size}" else item.name,
+                    text = item.name,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Medium,
-                    fontFamily = if (isFiles) FontFamily.Default else FontFamily.Monospace,
+                    fontFamily = FontFamily.Monospace,
                     modifier = Modifier.weight(1f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -504,25 +509,21 @@ internal fun ToolCallCard(
             }
             if (expanded) {
                 Column(modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 12.dp)) {
-                    if (isFiles) {
-                        DisplayFilesBody(files = files, api = api, onOpenFile = onOpenFile)
-                    } else {
-                        item.input?.takeIf { it.isNotBlank() }?.let {
-                            SectionLabel("入参")
-                            CodeBox(it)
-                        }
-                        item.output?.takeIf { it.isNotBlank() }?.let {
-                            Spacer(Modifier.height(8.dp))
-                            SectionLabel("输出")
-                            CodeBox(it)
-                        }
-                        if (item.input.isNullOrBlank() && item.output.isNullOrBlank()) {
-                            Text(
-                                text = "无入参/输出记录",
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
+                    item.input?.takeIf { it.isNotBlank() }?.let {
+                        SectionLabel("入参")
+                        CodeBox(it)
+                    }
+                    item.output?.takeIf { it.isNotBlank() }?.let {
+                        Spacer(Modifier.height(8.dp))
+                        SectionLabel("输出")
+                        CodeBox(it)
+                    }
+                    if (item.input.isNullOrBlank() && item.output.isNullOrBlank()) {
+                        Text(
+                            text = "无入参/输出记录",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                 }
             }
@@ -530,77 +531,52 @@ internal fun ToolCallCard(
     }
 }
 
-// ===== DisplayFiles 文件卡片 =====
+// ===== PresentFile 文件卡 =====
 
 /**
- * `DisplayFiles` 工具的文件列表。每行:类型图标 + 文件名 + `大小 · 修改时间` +
- * 路径;图片再多一张内联缩略图。整行可点 → 打开会话面板内从右侧滑入的预览层
- * (见 `ui/FileViewerOverlay.kt`)。
+ * `PresentFile` 工具的文件卡 —— 会话流里**直接展示一个文件**。
  *
- * **为什么不做「元数据单独一段、点击才加载」**:Agent 调这个工具的意图就是
- * 「给你看这东西」,再收一层等于让用户多点一次。图片缩略图由 LazyColumn 的
- * 懒组合天然收敛 —— 卡片滚出屏幕就停止加载。
+ * 与 web 端 `presentFileRenderer` 同一套语义:Agent 调这个工具的意图就是
+ * 「把这个文件摊到你面前」,所以卡片**默认展开、内容直接渲染**(图片缩略图 /
+ * 文本前若干行),而不是让你先点一次按钮再等抽屉弹出来。
+ *
+ * 手机端有渲染器的只有三类(图片 / 文本 / 网页),文档类与二进制**不假装能
+ * 预览** —— 给的是「在 Mac 上打开所在目录」。↗ 打开的预览层
+ * (见 `ui/FileViewerOverlay.kt`)与卡内内联区共用同一条取字节链路。
+ *
+ * @param api null = 实例还没解析出来(元数据照常渲染,只是点不开 / 拉不到内容)。
+ * @param onOpenFile 点 ↗(或内联缩略图)→ 打开会话面板内的预览层。
+ * @param onReveal 点 📂 → `POST /api/fs/reveal`,在 Mac 上打开所在目录。
  */
 @Composable
-private fun DisplayFilesBody(
-    files: List<DisplayFile>,
+internal fun PresentFileCard(
+    item: AgentItem.ToolCall,
     api: AgentApi?,
-    onOpenFile: (DisplayFile) -> Unit,
+    onOpenFile: (PresentedFile) -> Unit,
+    onReveal: (PresentedFile) -> Unit,
 ) {
-    // 只有前 [MAX_INLINE_IMAGES] 张图片内联渲染缩略图。
-    //
-    // 为什么必须设上限:整张卡是 LazyColumn 的**一个** item,所以「可见」= 卡里
-    // 所有缩略图同时组合、同时发请求。服务端单张上限 1 MiB,20 张就是 20 个并发
-    // 请求 + 20 份解码后的 bitmap —— 采样到 1024px 也还有 4MB/张,足够把低端机
-    // 的堆推爆。超出的那些照常是**一行元数据**,点进去照样看得到大图。
-    val inlineable = remember(files) {
-        files.asSequence()
-            .filter { it.kind == FileKind.Image && it.previewable && !it.isVectorImage }
-            .take(MAX_INLINE_IMAGES)
-            .map { it.path }
-            .toSet()
-    }
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        files.forEach { file ->
-            DisplayFileRow(
-                file = file,
-                api = api,
-                onOpenFile = onOpenFile,
-                inlineThumb = file.path in inlineable,
-            )
-        }
-    }
-}
+    // 连路径都没解出来(工具还没回 input / 脏数据)→ 退回通用工具卡,至少入参
+    // 还看得到,而不是整条消息凭空消失。
+    val file = item.file ?: return ToolCallCard(item)
 
-@Composable
-private fun DisplayFileRow(
-    file: DisplayFile,
-    api: AgentApi?,
-    onOpenFile: (DisplayFile) -> Unit,
-    inlineThumb: Boolean,
-) {
-    // api == null = 实例还没解析出来;此时行仍渲染(元数据来自 transcript,
-    // 不依赖网络),只是点不开。
-    val canOpen = file.previewable && api != null
-    val tone = when {
-        file.failed -> MaterialTheme.colorScheme.error
-        canOpen -> MaterialTheme.colorScheme.onSurface
-        else -> MaterialTheme.colorScheme.onSurfaceVariant
-    }
+    // 与旧的文件卡一致:内容就是「让你看东西」,默认展开,少一次点击。
+    var expanded by remember(item.key) { mutableStateOf(true) }
 
     Surface(
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        shape = RoundedCornerShape(10.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        shape = RoundedCornerShape(12.dp),
         border = androidx.compose.foundation.BorderStroke(
             1.dp,
             MaterialTheme.colorScheme.outlineVariant,
         ),
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(enabled = canOpen) { onOpenFile(file) },
+        modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(modifier = Modifier.padding(10.dp)) {
+        Column {
             Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded }
+                    .padding(start = 12.dp, end = 6.dp, top = 10.dp, bottom = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -619,12 +595,15 @@ private fun DisplayFileRow(
                         text = file.name,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium,
-                        color = tone,
+                        color = if (file.failed) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        },
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    // 副标题可能整体为空:冷启动后 binary 文件既没有 size 也没有
-                    // 可说的类型(`过多大` 只在已知尺寸时才成立)。空串就别渲染 ——
+                    // 副标题可能整体为空(冷启动 + 未知类型),空串就别渲染 ——
                     // 否则行里会多出一条空文本占位。
                     fileSubtitle(file).takeIf { it.isNotBlank() }?.let { subtitle ->
                         Text(
@@ -640,107 +619,179 @@ private fun DisplayFileRow(
                         )
                     }
                 }
-                if (canOpen) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Rounded.OpenInNew,
-                        contentDescription = "预览",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(16.dp),
+                if (item.running) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(12.dp),
+                        strokeWidth = 1.5.dp,
+                        color = MaterialTheme.colorScheme.tertiary,
+                    )
+                }
+                if (file.viewable && api != null) {
+                    CardIconAction(
+                        icon = Icons.AutoMirrored.Rounded.OpenInNew,
+                        description = "大尺寸预览",
+                        onClick = { onOpenFile(file) },
+                    )
+                }
+                if (!file.failed && api != null) {
+                    CardIconAction(
+                        icon = Icons.Rounded.FolderOpen,
+                        description = "在 Mac 上打开所在目录",
+                        onClick = { onReveal(file) },
+                    )
+                }
+                Icon(
+                    imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
+            if (expanded) {
+                Column(modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 12.dp)) {
+                    file.caption?.takeIf { it.isNotBlank() }?.let {
+                        Text(
+                            text = it,
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(6.dp))
+                    }
+                    PresentFileBody(file = file, api = api, onOpenFile = onOpenFile)
+                    Spacer(Modifier.height(6.dp))
+                    // 路径单独一行、等宽小字 —— 「Agent 给我看的是哪个文件」光看
+                    // basename 常常不够(同名文件在多个 worktree 里很常见)。
+                    Text(
+                        text = file.path,
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
-
-            // 图片内联缩略图。SVG 排除在外 —— BitmapFactory 解不了矢量图,
-            // 交给全屏查看器的 WebView(点行即可)。
-            if (inlineThumb && api != null) {
-                Spacer(Modifier.height(8.dp))
-                RemoteImageThumb(api = api, file = file, onTap = { onOpenFile(file) })
-            }
-
-            // 路径单独一行、等宽小字 —— 排查「Agent 给我看的是哪个文件」时
-            // 这个名字往往不够(同名文件在多个 worktree 里很常见)。
-            Spacer(Modifier.height(4.dp))
-            Text(
-                text = file.path,
-                fontSize = 10.sp,
-                fontFamily = FontFamily.Monospace,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
         }
     }
 }
 
-/** 一行的次要说明:`1.2 MB · 3 分钟前`;失败时直接给错误原因。 */
-private fun fileSubtitle(file: DisplayFile): String {
-    if (file.failed) return file.error.orEmpty()
-    val parts = ArrayList<String>(3)
-    file.size?.let { parts.add(formatBytes(it)) }
-    file.mtime?.takeIf { it > 0L }?.let { parts.add(formatRelativeAgoMs(it)) }
-    when (file.kind) {
-        FileKind.Image -> parts.add("图片")
-        FileKind.Html -> parts.add("网页")
-        FileKind.Text -> parts.add("文本")
-        FileKind.Binary -> if (file.tooLarge) parts.add("过大，暂不预览")
-    }
-    return parts.joinToString(" · ")
-}
-
-private fun fileKindIcon(kind: FileKind) = when (kind) {
-    FileKind.Image -> Icons.Rounded.Photo
-    FileKind.Html -> Icons.Rounded.Html
-    FileKind.Text -> Icons.Rounded.Description
-    FileKind.Binary -> Icons.AutoMirrored.Rounded.InsertDriveFile
-}
-
-/** 字节数。小数固定用 `.`(默认 Locale 会在部分地区给逗号)。 */
-internal fun formatBytes(bytes: Long): String = when {
-    bytes < 1024L -> "$bytes B"
-    bytes < 1024L * 1024L -> String.format(Locale.US, "%.1f KB", bytes / 1024.0)
-    else -> String.format(Locale.US, "%.1f MB", bytes / 1024.0 / 1024.0)
-}
-
 /**
- * 预览失败 → 给人看的一句话。413 / 404 与「网络不通」对用户的含义完全不同,
- * 不能都写成「加载失败」。
- */
-internal fun previewErrorMessage(t: Throwable): String = when {
-    t is HttpException && t.code == 413 -> "文件过大，不支持内联预览"
-    t is HttpException && t.code == 400 -> "该路径不是文件（可能是目录）"
-    t is HttpException && t.code == 404 -> "文件不存在或已被移动"
-    t is HttpException -> "预览失败（HTTP ${t.code}）"
-    else -> t.message ?: "预览加载失败"
-}
-
-private sealed interface ThumbState {
-    data object Loading : ThumbState
-    data class Ok(val bitmap: android.graphics.Bitmap) : ThumbState
-    data class Failed(val message: String) : ThumbState
-}
-
-/**
- * 内联图片缩略图 —— 字节走 `GET /api/fs/preview` 取回(base64),在 IO 线程
- * 采样解码。
- *
- * **必须采样**:服务端上限 1 MiB(`FILE_PREVIEW_MAX_BYTES`),但一张 1 MiB 的
- * PNG 解出来可能就是 4000×4000,`ARGB_8888` 下约 64MB —— 一次渲染几张就能
- * 把低端机推爆。
- * 采样算法与 `ImageAttachments` 的两遍解码同款(先只读 bounds,再按
- * `inSampleSize` 解)。
+ * 卡片头部的图标动作。**不用 `IconButton`** —— 它的 48dp 最小交互尺寸会把
+ * 卡片头部撑成两行高(与「浮刷新按钮」踩过的同一条,见 AGENTS.md §11)。
  */
 @Composable
-private fun RemoteImageThumb(api: AgentApi, file: DisplayFile, onTap: () -> Unit) {
+private fun CardIconAction(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    description: String,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .size(32.dp)
+            .clip(CircleShape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = description,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(17.dp),
+        )
+    }
+}
+
+/** 一行说明(不可内联 / 失败 / 过大)。 */
+@Composable
+private fun NoticeLine(text: String, isError: Boolean = false) {
+    Text(
+        text = text,
+        fontSize = 12.sp,
+        color = if (isError) {
+            MaterialTheme.colorScheme.error
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        },
+    )
+}
+
+/**
+ * 卡内内联区 —— 按 kind 分岔(对齐 web 端 §6.4 的表格):
+ * 文本 → 前 [INLINE_TEXT_LINES] 行 + 卡内展开;图片 → 采样缩略图(点开大图);
+ * 网页 / 矢量图 → 一行说明 + ↗;文档类 / 二进制 / 过大 / 失败 → 一行说明。
+ */
+@Composable
+private fun PresentFileBody(
+    file: PresentedFile,
+    api: AgentApi?,
+    onOpenFile: (PresentedFile) -> Unit,
+) {
+    when {
+        file.failed -> NoticeLine(file.error.orEmpty().ifBlank { "文件不可用" }, isError = true)
+
+        file.tooLarge -> NoticeLine(tooLargeNotice(file))
+
+        file.kind == FileKind.Image && !file.isVectorImage -> InlineFileImage(
+            file = file,
+            api = api,
+            onOpenFile = onOpenFile,
+        )
+
+        file.kind == FileKind.Text -> InlineFileText(file = file, api = api)
+
+        file.kind == FileKind.Image -> NoticeLine("矢量图（SVG）· 点 ↗ 查看")
+
+        file.kind == FileKind.Html -> NoticeLine("网页 · 点 ↗ 查看")
+
+        file.kind.isDocument ->
+            NoticeLine("${fileKindLabel(file.kind)} · 手机端不支持预览，可用 📂 在 Mac 上打开")
+
+        else -> NoticeLine("此文件类型不支持内联预览")
+    }
+}
+
+/** 超过该类上限时的说明 —— 指向真正能用的那条路。 */
+private fun tooLargeNotice(file: PresentedFile): String {
+    val size = file.size?.let { formatBytes(it) }
+    return when (file.kind) {
+        FileKind.Image ->
+            "图片${size?.let { " $it" }.orEmpty()}超过 10 MiB，请用 📂 在 Mac 上打开"
+
+        FileKind.Text, FileKind.Html ->
+            "${fileKindLabel(file.kind)}${size?.let { " $it" }.orEmpty()}超过 1 MiB，暂不内联预览，可用 📂 在 Mac 上打开"
+
+        else -> "${fileKindLabel(file.kind)}过大，可用 📂 在 Mac 上打开"
+    }
+}
+
+/**
+ * 内联图片。字节走 `GET /api/fs/raw`(≤ [IMAGE_MAX_BYTES],服务端保证),
+ * 在 IO 线程**采样解码** —— 一张 2 MiB 的 PNG 解出来可能就是 4000×4000,
+ * `ARGB_8888` 下约 64 MB,不采样几张就能把低端机的堆推爆。
+ *
+ * 超过 [INLINE_THUMB_MAX_BYTES] 的整图不进内联区(字节 + 解码内存都翻倍),
+ * 但仍可从 ↗ 打开大图 —— 预览层是黑底全屏,那才是看大图的地方。
+ */
+@Composable
+private fun InlineFileImage(
+    file: PresentedFile,
+    api: AgentApi?,
+    onOpenFile: (PresentedFile) -> Unit,
+) {
+    if (api == null) {
+        NoticeLine("实例未连接，暂时读不到图片")
+        return
+    }
+    val size = file.size
+    if (size != null && size > INLINE_THUMB_MAX_BYTES) {
+        NoticeLine("图片较大（${formatBytes(size)}）· 点 ↗ 查看")
+        return
+    }
+
     val state by produceState<ThumbState>(ThumbState.Loading, api, file.path) {
         value = withContext(Dispatchers.IO) {
             runCatching {
-                val preview = api.previewFile(file.path)
-                val encoded = preview.content
-                if (preview.fileKind != FileKind.Image || encoded.isNullOrEmpty()) {
-                    throw IllegalStateException("服务端未返回图片内容")
-                }
-                decodeSampled(Base64.decode(encoded, Base64.DEFAULT))
-                    ?: throw IllegalStateException("图片解码失败")
+                decodeSampled(api.rawFile(file.path)) ?: throw IllegalStateException("图片解码失败")
             }.fold(
                 onSuccess = { ThumbState.Ok(it) },
                 onFailure = { ThumbState.Failed(previewErrorMessage(it)) },
@@ -754,7 +805,7 @@ private fun RemoteImageThumb(api: AgentApi, file: DisplayFile, onTap: () -> Unit
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 72.dp, max = 240.dp)
-            .clickable(onClick = onTap),
+            .clickable { onOpenFile(file) },
     ) {
         when (val s = state) {
             is ThumbState.Loading -> Box(Modifier.fillMaxWidth().height(96.dp), Alignment.Center) {
@@ -779,17 +830,298 @@ private fun RemoteImageThumb(api: AgentApi, file: DisplayFile, onTap: () -> Unit
 }
 
 /**
+ * 内联文本。`/api/fs/preview` 只回 ≤ 1 MiB 的文本,超限走 [tooLargeNotice] 那条
+ * 分支(根本不发请求)。
+ *
+ * **默认只渲染前 [INLINE_TEXT_LINES] 行**:会话流里的卡片不该被一个 800 行的
+ * 文件撑成一屏。展开后交给既有渲染(`.md` 走自研 Markdown,其余等宽代码块)。
+ */
+@Composable
+private fun InlineFileText(file: PresentedFile, api: AgentApi?) {
+    if (api == null) {
+        NoticeLine("实例未连接，暂时读不到内容")
+        return
+    }
+    var expanded by remember(file.path) { mutableStateOf(false) }
+    var retry by remember(file.path) { mutableStateOf(0) }
+
+    val state by produceState<TextState>(TextState.Loading, api, file.path, retry) {
+        value = withContext(Dispatchers.IO) {
+            runCatching { api.previewFile(file.path).content }
+                .fold(
+                    onSuccess = { c ->
+                        if (c.isNullOrEmpty()) TextState.Failed("服务端未返回内容") else TextState.Ok(c)
+                    },
+                    onFailure = { TextState.Failed(previewErrorMessage(it)) },
+                )
+        }
+    }
+
+    when (val s = state) {
+        is TextState.Loading -> Text(
+            text = "加载中…",
+            fontSize = 11.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        is TextState.Failed -> Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(text = s.message, fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
+            TextButton(onClick = { retry++ }) { Text("重试", fontSize = 12.sp) }
+        }
+
+        is TextState.Ok -> {
+            val lines = s.content.lines()
+            Column {
+                if (expanded) {
+                    if (isMarkdownPath(file.path)) MarkdownText(s.content) else CodeBox(s.content)
+                    TextButton(onClick = { expanded = false }) { Text("收起", fontSize = 12.sp) }
+                } else {
+                    Text(
+                        text = lines.take(INLINE_TEXT_LINES).joinToString("\n"),
+                        fontSize = 11.sp,
+                        lineHeight = 16.sp,
+                        fontFamily = FontFamily.Monospace,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    if (lines.size > INLINE_TEXT_LINES) {
+                        TextButton(onClick = { expanded = true }) {
+                            Text("展开全部（${lines.size} 行）", fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private sealed interface TextState {
+    data object Loading : TextState
+    data class Ok(val content: String) : TextState
+    data class Failed(val message: String) : TextState
+}
+
+private fun isMarkdownPath(path: String): Boolean =
+    path.lowercase().let { it.endsWith(".md") || it.endsWith(".markdown") }
+
+// ===== 本轮产物 =====
+
+/**
+ * 「本轮产物」块 —— 每轮对话结束后,在消息段末尾列出这一轮**生成 / 修改过的
+ * 文件**(清单由 `deriveTurnArtifacts` 从消息流派生,见 `ui/TurnArtifacts.kt`)。
+ *
+ * 为什么值得单独一块:用户不必翻找散落在 transcript 里的 `Edit` / `Write` 调用,
+ * 也不必指望模型记得调 `PresentFile`。对齐 web 端 `TurnArtifactsBlock`。
+ *
+ * 默认展开,文件数 > [ARTIFACTS_AUTO_COLLAPSE] 时默认折叠(块头仍显示总数)。
+ * 折叠态存在**本组件**的 remember 里,而块 key 取该轮首条用户消息 —— 后续消息
+ * append 不会重挂载,用户的展开/收起意图不会被重置。
+ */
+@Composable
+internal fun TurnArtifactsBlock(
+    files: List<ArtifactFile>,
+    onOpenFile: (PresentedFile) -> Unit,
+) {
+    var open by remember { mutableStateOf(files.size <= ARTIFACTS_AUTO_COLLAPSE) }
+
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        shape = RoundedCornerShape(12.dp),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant,
+        ),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { open = !open },
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.AutoAwesome,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(15.dp),
+                )
+                Text(
+                    text = "本轮产物 · ${files.size} 个文件",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                )
+                Icon(
+                    imageVector = if (open) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(15.dp),
+                )
+            }
+            if (open) {
+                Spacer(Modifier.height(2.dp))
+                files.forEach { ArtifactRow(file = it, onOpenFile = onOpenFile) }
+            }
+        }
+    }
+}
+
+/**
+ * 产物清单的一行:类型图标 + 文件名 + 上级目录 + `×N` + 徽标。整行可点 →
+ * 会话内的预览层(与 PresentFile 卡片同一个 [onOpenFile])。
+ *
+ * 这里只有**路径**(不落盘、不预检):解析不出来的路径点开后会由预览层显示
+ * 「文件不存在或已被移动」,比在列表里预检更省事也更准。
+ */
+@Composable
+private fun ArtifactRow(file: ArtifactFile, onOpenFile: (PresentedFile) -> Unit) {
+    val kind = classifyByExtension(file.path)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .clickable {
+                onOpenFile(PresentedFile(path = file.path, name = baseName(file.path), kind = kind))
+            }
+            .padding(horizontal = 4.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Icon(
+            imageVector = fileKindIcon(kind),
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(14.dp),
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = baseName(file.path),
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            parentDir(file.path).takeIf { it.isNotBlank() }?.let {
+                Text(
+                    text = it,
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        if (file.count > 1) {
+            Text(
+                text = "×${file.count}",
+                fontSize = 10.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        ArtifactBadge(file = file)
+    }
+}
+
+/** 徽标:`写入` 走绿系 / `编辑` 走紫系(与 web 端同一对色)。 */
+@Composable
+private fun ArtifactBadge(file: ArtifactFile) {
+    val color = if (file.written) ARTIFACT_WRITTEN else ARTIFACT_EDITED
+    Surface(
+        color = Color.Transparent,
+        shape = RoundedCornerShape(4.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, color.copy(alpha = 0.4f)),
+    ) {
+        Text(
+            text = file.label,
+            fontSize = 10.sp,
+            color = color,
+            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+        )
+    }
+}
+
+private val ARTIFACT_WRITTEN = Color(0xFF22C55E)
+private val ARTIFACT_EDITED = Color(0xFFA78BFA)
+
+/** 一行的次要说明:`1.2 MB · 3 分钟前 · 图片`;失败时直接给错误原因。 */
+private fun fileSubtitle(file: PresentedFile): String {
+    if (file.failed) return file.error.orEmpty()
+    val parts = ArrayList<String>(3)
+    file.size?.let { parts.add(formatBytes(it)) }
+    file.mtime?.takeIf { it > 0L }?.let { parts.add(formatRelativeAgoMs(it)) }
+    parts.add(fileKindLabel(file.kind))
+    return parts.joinToString(" · ")
+}
+
+private fun fileKindIcon(kind: FileKind) = when (kind) {
+    FileKind.Image -> Icons.Rounded.Photo
+    FileKind.Html -> Icons.Rounded.Html
+    FileKind.Text -> Icons.Rounded.Description
+    FileKind.Docx -> Icons.Rounded.Article
+    FileKind.Sheet -> Icons.Rounded.TableChart
+    FileKind.Ppt -> Icons.Rounded.Slideshow
+    FileKind.Pdf -> Icons.Rounded.PictureAsPdf
+    FileKind.LegacyOffice -> Icons.AutoMirrored.Rounded.InsertDriveFile
+    FileKind.Binary -> Icons.AutoMirrored.Rounded.InsertDriveFile
+}
+
+/** 字节数。小数固定用 `.`(默认 Locale 会在部分地区给逗号)。 */
+internal fun formatBytes(bytes: Long): String = when {
+    bytes < 1024L -> "$bytes B"
+    bytes < 1024L * 1024L -> String.format(Locale.US, "%.1f KB", bytes / 1024.0)
+    else -> String.format(Locale.US, "%.1f MB", bytes / 1024.0 / 1024.0)
+}
+
+/**
+ * 预览失败 → 给人看的一句话。413 / 415 / 404 与「网络不通」对用户的含义完全
+ * 不同,不能都写成「加载失败」。
+ */
+internal fun previewErrorMessage(t: Throwable): String = when {
+    t is HttpException && t.code == 413 -> "文件过大，不支持内联预览"
+    t is HttpException && t.code == 415 -> "该文件类型不走字节预览通道"
+    t is HttpException && t.code == 400 -> "该路径不是文件（可能是目录）"
+    t is HttpException && t.code == 403 -> "无权限读取该文件"
+    t is HttpException && t.code == 404 -> "文件不存在或已被移动"
+    t is HttpException -> "预览失败（HTTP ${t.code}）"
+    else -> t.message ?: "预览加载失败"
+}
+
+private sealed interface ThumbState {
+    data object Loading : ThumbState
+    data class Ok(val bitmap: android.graphics.Bitmap) : ThumbState
+    data class Failed(val message: String) : ThumbState
+}
+
+/**
  * 内联缩略图的最长边。**比 `ImageAttachments.fullBitmap` 的 1600px 小一档** ——
  * 缩略图最宽也就占满一张卡(手机上约 1080px),再大只是白占内存
- * (1024px 的 `ARGB_8888` ≈ 4MB,1600px ≈ 10MB,几张就是几十 MB 的差距)。
- * 想看细节点进全屏查看器,那边不采样。
+ * (1024px 的 `ARGB_8888` ≈ 4MB,1600px ≈ 10MB 的差距)。想看细节点进全屏
+ * 查看器,那边不采样。
  */
 private const val THUMB_MAX_EDGE = 1024
 
-/** 一张文件卡片里最多内联几张图片缩略图(理由见 `DisplayFilesBody`)。 */
-private const val MAX_INLINE_IMAGES = 4
+/**
+ * 内联缩略图的整图字节上限。服务端字节通道允许到 10 MiB
+ * (`IMAGE_MAX_BYTES`),但**内联 + 解码**是「字节数组 + 采样后的 bitmap」两份
+ * 内存,4 MiB 是手机端的务实分界:更大的图只给「点 ↗ 查看」,既不进内联区也
+ * 不占会话流的内存。
+ */
+private const val INLINE_THUMB_MAX_BYTES = 4L * 1024 * 1024
 
-private fun decodeSampled(bytes: ByteArray, maxEdge: Int = THUMB_MAX_EDGE): android.graphics.Bitmap? {
+/** 内联文本默认渲染的行数(展开后交给 Markdown / 代码块渲染全部)。 */
+private const val INLINE_TEXT_LINES = 12
+
+/**
+ * 两遍采样解码(先只读 bounds,再按 `inSampleSize` 解)。与
+ * `ImageAttachments` 同款 —— **必须采样**:一张 1 MiB 的 PNG 解出来可能就是
+ * 4000×4000,`ARGB_8888` 下约 64 MB,不采样几张就能把低端机的堆推爆。
+ */
+internal fun decodeSampled(bytes: ByteArray, maxEdge: Int = THUMB_MAX_EDGE): android.graphics.Bitmap? {
     if (bytes.isEmpty()) return null
     // 第一遍:只读尺寸(inJustDecodeBounds 时不分配像素)
     val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -829,7 +1161,8 @@ internal fun ToolGroupCard(
     members: List<AgentItem>,
     groupKey: String,
     api: AgentApi?,
-    onOpenFile: (DisplayFile) -> Unit,
+    onOpenFile: (PresentedFile) -> Unit,
+    onReveal: (PresentedFile) -> Unit,
 ) {
     var expanded by remember(groupKey) { mutableStateOf(false) }
     val tools = members.filterIsInstance<AgentItem.ToolCall>()
@@ -907,7 +1240,7 @@ internal fun ToolGroupCard(
         }
         if (expanded) {
             // 按 transcript 原顺序铺开 —— 工具卡与思考卡交错,跟不聚合时的顺序一致。
-            members.forEach { AgentItemView(it, api, onOpenFile) }
+            members.forEach { AgentItemView(it, api, onOpenFile, onReveal) }
         }
     }
 }
@@ -1335,80 +1668,336 @@ private fun AskCard(
     onSubmit: (Map<String, String>) -> Unit,
     onReject: () -> Unit,
 ) {
-    // key = 问题原文(服务端 answers 的 key 就是问题文本)
-    var answers by remember(questions) { mutableStateOf<Map<String, String>>(emptyMap()) }
-    val allAnswered = questions.all { answers[it.question] != null }
+    val state = rememberAskAnswerState(questions)
 
     ActionCard(title = "需要你确认", accent = MaterialTheme.colorScheme.primary) {
         questions.forEach { q ->
-            if (q.header.isNotBlank()) {
-                Text(
-                    text = q.header,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Text(text = q.question, fontSize = 13.sp, lineHeight = 19.sp)
-            Spacer(Modifier.height(8.dp))
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                q.options.forEach { opt ->
-                    val selected = answers[q.question] == opt.label
-                    Surface(
-                        color = if (selected) {
-                            MaterialTheme.colorScheme.primaryContainer
-                        } else {
-                            MaterialTheme.colorScheme.surfaceContainerHighest
-                        },
-                        shape = RoundedCornerShape(9.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { answers = answers + (q.question to opt.label) },
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = opt.label,
-                                    fontSize = 13.sp,
-                                    fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
-                                )
-                                opt.description?.takeIf { it.isNotBlank() }?.let {
-                                    Text(
-                                        text = it,
-                                        fontSize = 11.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                            }
-                            if (selected) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Check,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(15.dp),
-                                )
-                            }
-                        }
-                    }
-                }
-            }
+            AskQuestionPanel(
+                question = q,
+                selected = state.selectedLabels(q.question),
+                otherActive = state.isOtherSelected(q.question),
+                otherText = state.otherText(q.question),
+                onToggle = { label -> state.toggle(q, label) },
+                onOtherTextChange = { text -> state.setOtherText(q.question, text) },
+            )
             Spacer(Modifier.height(10.dp))
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             ActionButton(
                 text = "提交",
-                enabled = allAnswered && !busy,
+                enabled = state.allAnswered() && !busy,
                 busy = busy,
                 filled = true,
-                onClick = { onSubmit(answers) },
+                onClick = { onSubmit(state.payload()) },
             )
             ActionButton(text = "拒绝", enabled = !busy, busy = false, filled = false, onClick = onReject)
         }
     }
 }
+
+/**
+ * 一道 ask 题的渲染:题面 + options 行 + (末尾追加的 Other 行 + 文本框)。
+ *
+ * Other 选项对齐 opencc-web 的 `QuestionCard.tsx`:UI 在 LLM 给出的 options
+ * 末尾**自动追加**一个 "Other" 项,选 Other 时下方出单行文本框,用户输入的真实
+ * 文本存在父级 [AskAnswerState] 的 `otherTexts` 映射里 —— `answers` 始终保持
+ * `__other__` 占位符(不要把用户输入写回 answers,否则 Compose 重组时 Other
+ * 行 selected 状态翻成 false,文本框被卸载,焦点丢到外面)。
+ */
+@Composable
+private fun AskQuestionPanel(
+    question: AskQuestion,
+    selected: Set<String>,
+    otherActive: Boolean,
+    otherText: String,
+    onToggle: (String) -> Unit,
+    onOtherTextChange: (String) -> Unit,
+) {
+    if (question.header.isNotBlank()) {
+        Text(
+            text = question.header,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+    Text(text = question.question, fontSize = 13.sp, lineHeight = 19.sp)
+    Spacer(Modifier.height(8.dp))
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        question.options.forEach { opt ->
+            AskOptionRow(
+                option = opt,
+                selected = selected.contains(opt.label),
+                onClick = { onToggle(opt.label) },
+            )
+        }
+        AskOptionRow(
+            option = AskOption(label = OTHER_LABEL),
+            selected = otherActive,
+            onClick = { onToggle(OTHER_VALUE) },
+        )
+        if (otherActive) {
+            OtherTextField(
+                value = otherText,
+                onChange = onOtherTextChange,
+            )
+        }
+    }
+}
+
+@Composable
+private fun AskOptionRow(
+    option: AskOption,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        color = if (selected) {
+            MaterialTheme.colorScheme.primaryContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerHighest
+        },
+        shape = RoundedCornerShape(9.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = option.label,
+                    fontSize = 13.sp,
+                    fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
+                )
+                option.description?.takeIf { it.isNotBlank() }?.let { desc ->
+                    Text(
+                        text = desc,
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                option.preview?.takeIf { it.isNotBlank() }?.let { prev ->
+                    Spacer(Modifier.height(4.dp))
+                    PreviewText(text = prev)
+                }
+            }
+            if (selected) {
+                Icon(
+                    imageVector = Icons.Rounded.Check,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(15.dp),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Other 文本框。autoFocus 在第一次 mount 时抢焦点;后续 user typing 不再
+ * 触发 LaunchedEffect,焦点留在字段内。
+ */
+@Composable
+private fun OtherTextField(
+    value: String,
+    onChange: (String) -> Unit,
+) {
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    OutlinedTextField(
+        value = value,
+        onValueChange = onChange,
+        singleLine = true,
+        placeholder = {
+            Text("请输入你的回答", fontSize = 13.sp)
+        },
+        textStyle = TextStyle(fontSize = 13.sp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 6.dp)
+            .focusRequester(focusRequester),
+    )
+}
+
+/**
+ * 选项预览片段(对齐 web `QuestionCard.tsx` 的 `PreviewText`):
+ * > 200 字截断 + 「展开」按钮。LLM 在 AskUserQuestion 工具的 option 上填
+ * preview 来对比方案 A vs B,日常单选几乎不出现。
+ */
+private const val PREVIEW_LIMIT = 200
+
+@Composable
+private fun PreviewText(text: String) {
+    var expanded by remember(text) { mutableStateOf(false) }
+    val display = if (expanded || text.length <= PREVIEW_LIMIT) {
+        text
+    } else {
+        text.take(PREVIEW_LIMIT) + "…"
+    }
+    Column {
+        Text(
+            text = display,
+            fontSize = 11.sp,
+            fontFamily = FontFamily.Monospace,
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    MaterialTheme.colorScheme.surfaceContainerHighest,
+                    RoundedCornerShape(4.dp),
+                )
+                .padding(8.dp),
+        )
+        if (text.length > PREVIEW_LIMIT) {
+            TextButton(
+                onClick = { expanded = !expanded },
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+                modifier = Modifier.height(22.dp),
+            ) {
+                Text(
+                    text = if (expanded) "收起" else "展开",
+                    fontSize = 11.sp,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * AskCard 的状态壳:answers(选项标签 / `__other__` 占位) + otherTexts
+ * (Other 文本框的真实输入)。`mutableStateMapOf` 做细粒度 reactivity,
+ * 单条 key 变更只触发读了它的 Composable 重组 —— 这是为什么 Other 文本框
+ * 可以边打字边保留焦点:输入写 otherTexts,只重组 OutlinedTextField 本身,
+ * 不会让 AskOptionRow 的 selected 状态翻成 false 把 Input 卸载掉。
+ *
+ * @suppress:测试用 public API,但 Compose `@Composable` 不能跨模块 export。
+ * 单测不需要 Compose,只验纯函数 [buildAskPayload] / [allAnsweredFor]。
+ */
+@Composable
+private fun rememberAskAnswerState(questions: List<AskQuestion>): AskAnswerState {
+    val answers = remember(questions) { mutableStateMapOf<String, String>() }
+    val otherTexts = remember(questions) { mutableStateMapOf<String, String>() }
+    return AskAnswerState(questions, answers, otherTexts)
+}
+
+internal class AskAnswerState internal constructor(
+    private val questions: List<AskQuestion>,
+    private val answers: SnapshotStateMap<String, String>,
+    private val otherTexts: SnapshotStateMap<String, String>,
+) {
+    fun selectedLabels(questionText: String): Set<String> {
+        val raw = answers[questionText] ?: return emptySet()
+        return raw.split(", ").filter { it.isNotBlank() }.toSet()
+    }
+
+    fun isOtherSelected(questionText: String): Boolean =
+        answers[questionText]?.split(", ")?.contains(OTHER_VALUE) == true
+
+    fun otherText(questionText: String): String = otherTexts[questionText].orEmpty()
+
+    fun setOtherText(questionText: String, text: String) {
+        if (text.isEmpty()) otherTexts.remove(questionText) else otherTexts[questionText] = text
+    }
+
+    /**
+     * 单选/多选状态切换。对齐 web `QuestionCard.tsx` 的语义:
+     * - 单选 Radio:覆盖(不取消),切到 Other 时清空 otherText 等用户输入
+     * - 多选 Checkbox:点击已选项 = 移除(antd Checkbox.Group 默认行为)
+     * - Other 永远 join 在首位(简化提交时的槽替换)
+     */
+    fun toggle(question: AskQuestion, label: String) {
+        val raw = answers[question.question]
+        val current = raw?.split(", ")?.toMutableList() ?: mutableListOf()
+        if (question.multiSelect) {
+            if (current.contains(label)) {
+                current.remove(label)
+                if (current.isEmpty()) answers.remove(question.question)
+                else answers[question.question] = current.joinToString(", ")
+            } else {
+                if (label == OTHER_VALUE) {
+                    current.removeAll { it == OTHER_VALUE }
+                    current.add(0, OTHER_VALUE)
+                } else {
+                    current.add(label)
+                }
+                answers[question.question] = current.joinToString(", ")
+            }
+            // 切走 Other 时清空 otherText 残留(对齐 web QuestionCard.tsx:115)
+            if (!current.contains(OTHER_VALUE)) otherTexts.remove(question.question)
+        } else {
+            // Radio:覆盖;切到 Other 也清空 otherText 让用户重新输入
+            answers[question.question] = label
+            otherTexts.remove(question.question)
+        }
+    }
+
+    fun allAnswered(): Boolean = allAnsweredFor(answers.toMap(), otherTexts.toMap(), questions)
+
+    fun payload(): Map<String, String> =
+        buildAskPayload(answers.toMap(), otherTexts.toMap(), questions)
+}
+
+/**
+ * 把 UI 状态折成服务端 [AgentApi.submitAnswer] 期望的 wire answers:
+ * 单选 = label / Other 文本;多选 = `", "` join + Other 槽替换成文本。
+ *
+ * @suppress:测试 import。
+ */
+internal fun buildAskPayload(
+    answers: Map<String, String>,
+    otherTexts: Map<String, String>,
+    questions: List<AskQuestion>,
+): Map<String, String> {
+    val out = LinkedHashMap<String, String>(answers.size)
+    questions.forEach { q ->
+        val raw = answers[q.question] ?: return@forEach
+        val other = otherTexts[q.question].orEmpty()
+        out[q.question] = if (q.multiSelect) {
+            raw.split(", ")
+                .map { if (it == OTHER_VALUE) other else it }
+                .filter { it.isNotBlank() }
+                .joinToString(", ")
+        } else if (raw == OTHER_VALUE) {
+            other
+        } else {
+            raw
+        }
+    }
+    return out
+}
+
+/**
+ * Submit 启用条件。对齐 web `QuestionCard.tsx` 的 `isAnswered`:
+ * - 单选:必须选中一项;若选 Other,文本非空
+ * - 多选:至少选一项;若包含 Other,文本非空
+ *
+ * @suppress:测试 import。
+ */
+internal fun allAnsweredFor(
+    answers: Map<String, String>,
+    otherTexts: Map<String, String>,
+    questions: List<AskQuestion>,
+): Boolean = questions.all { q ->
+    val raw = answers[q.question] ?: return@all false
+    val hasOther = if (q.multiSelect) {
+        raw.split(", ").contains(OTHER_VALUE)
+    } else {
+        raw == OTHER_VALUE
+    }
+    !hasOther || otherTexts[q.question].orEmpty().trim().isNotEmpty()
+}
+
+/**
+ * 与 opencc-web `packages/zai/src/web/src/components/QuestionCard.tsx` 的
+ * `OTHER_OPTION_VALUE` 常量对齐 —— answers 里出现这个 sentinel 表示「选了
+ * Other,真实文本在 otherTexts 里」。
+ */
+internal const val OTHER_VALUE = "__other__"
+
+/** 用户面上看到的「Other」标签。 */
+internal const val OTHER_LABEL = "Other"
 
 @Composable
 private fun PermissionCard(

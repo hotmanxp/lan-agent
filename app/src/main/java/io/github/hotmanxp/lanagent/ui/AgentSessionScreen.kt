@@ -123,7 +123,8 @@ import io.github.hotmanxp.lanagent.data.CMD_TYPE_PROMPT
 import io.github.hotmanxp.lanagent.data.CMD_TYPE_STATUS
 import io.github.hotmanxp.lanagent.data.CMD_TYPE_UNKNOWN
 import io.github.hotmanxp.lanagent.data.compactedInfo
-import io.github.hotmanxp.lanagent.data.DisplayFile
+import io.github.hotmanxp.lanagent.data.PRESENT_FILE_TOOL
+import io.github.hotmanxp.lanagent.data.PresentedFile
 import io.github.hotmanxp.lanagent.data.errorText
 import io.github.hotmanxp.lanagent.data.messageText
 import io.github.hotmanxp.lanagent.data.parseSlashInput
@@ -173,7 +174,7 @@ fun AgentSessionScreen(
  * @param initialSessionId 初始会话 id。**null** = 自动挑该实例最近更新的一条会话。
  * @param onBack null = 作为 tab 根展示,不渲染返回箭头。
  *
- * 点 `DisplayFiles` 卡片里的某个文件时,**不分发给调用方** —— 预览层由面板自己
+ * 点 `PresentFile` 卡片里的某个文件时,**不分发给调用方** —— 预览层由面板自己
  * 持有([previewTarget] + [previewOpen]),叠在会话之上从右侧滑入。所以预览不占
  * 路由、不进返回栈,系统返回键由下面的 `BackHandler` 优先吃掉。
  * 预览目标是**当前活跃实例**的 baseUrl:面板能在原地切实例,路由参数会过期。
@@ -253,7 +254,7 @@ fun AgentSessionPane(
     var showInfo by remember { mutableStateOf(false) }
     val infoSheetState = rememberModalBottomSheetState()
 
-    // DisplayFiles 预览层(从右侧滑入的全屏 overlay,见 ui/FileViewerOverlay.kt)。
+    // PresentFile 预览层(从右侧滑入的全屏 overlay,见 ui/FileViewerOverlay.kt)。
     // **关闭时只把 previewOpen 置 false,previewTarget 保留** —— 滑出动画期间内容
     // 还得在场,清空的话抽屉会在滑走的过程中变成一片空白。
     var previewTarget by remember { mutableStateOf<FilePreviewTarget?>(null) }
@@ -380,12 +381,19 @@ fun AgentSessionPane(
             ?: ModelEntry(model = storedModel)
     }
 
-    // 渲染块:精简模式下把连续工具调用折成一「段」。用 `items.size` 当 key 是
-    // 有意的 —— items 只 append,原地更新都是同类替换(见 buildAgentBlocks 注释),
-    // 所以「下标 → 类型」的映射只在条数变化时才会变。渲染时按下标读**实时**值,
-    // 工具输出回流因此照常刷新。
-    val blocks = remember(store.items.size, compactTools) {
-        buildAgentBlocks(store.items, compactTools)
+    // 每轮的「产物」清单(这一轮生成 / 修改了哪些文件)。同样是**渲染期派生**:
+    // 数据源就是这一份 items,不落 transcript、不需要后端配合(见 ui/TurnArtifacts.kt)。
+    // 它依赖轮次是否结束 —— 流式进行中不出块,所以 status 也是 key。
+    val turnArtifacts = remember(store.items.size, store.status) {
+        deriveTurnArtifacts(store.items, closed = store.status.turnClosed)
+    }
+
+    // 渲染块:精简模式下把连续工具调用折成一「段」,再把每轮的产物块按锚点插进去。
+    // 用 `items.size` 当 key 是有意的 —— items 只 append,原地更新都是同类替换
+    // (见 buildAgentBlocks 注释),所以「下标 → 类型」的映射只在条数变化时才会变。
+    // 渲染时按下标读**实时**值,工具输出回流因此照常刷新。
+    val blocks = remember(store.items.size, compactTools, turnArtifacts) {
+        buildAgentBlocks(store.items, compactTools, turnArtifacts)
     }
 
     // reverseLayout=true 时 index 0 在**底部**,所以「贴底」等价于
@@ -402,6 +410,17 @@ fun AgentSessionPane(
 
     fun toast(msg: String) {
         scope.launch { snackbarHostState.showSnackbar(msg) }
+    }
+
+    /**
+     * 在 Mac 上打开该文件所在目录(`POST /api/fs/reveal`,macOS 侧是 `open -R`)。
+     * 成功与失败都给一句反馈 —— 不留静默失败(与预览层里那个 📂 一致)。
+     */
+    fun revealOnMac(a: AgentApi, path: String) {
+        scope.launch {
+            val ok = runCatching { a.revealFile(path) }.getOrDefault(false)
+            toast(if (ok) "已在 Mac 上打开所在目录" else "打开目录失败（Mac 可能没起图形界面）")
+        }
     }
 
     /**
@@ -689,7 +708,7 @@ fun AgentSessionPane(
     // 主屏 Composable 不重建,SSE / 输入框状态全保留。切会话 / 切实例都是改 state,
     // LaunchedEffect 按 key 重启,Scaffold 内容自动刷成新会话。
     //
-    // 外面这层 Box 是**预览层的叠放宿主**:DisplayFiles 预览要盖住整个会话区
+    // 外面这层 Box 是**预览层的叠放宿主**:PresentFile 预览要盖住整个会话区
     // (含顶栏),所以跟 ModalNavigationDrawer 平级叠放,而不是塞进 Scaffold 内容里。
     Box(modifier = Modifier.fillMaxSize()) {
         ModalNavigationDrawer(
@@ -889,6 +908,9 @@ fun AgentSessionPane(
                                                     previewTarget = FilePreviewTarget(url, file.path)
                                                     previewOpen = true
                                                 }
+                                            },
+                                            onReveal = { file ->
+                                                api?.let { revealOnMac(it, file.path) }
                                             },
                                         )
                                     }
@@ -1445,22 +1467,33 @@ private fun statusLabel(status: AgentRunStatus): String = when (status) {
 }
 
 /**
- * @param api 当前实例的客户端 —— `DisplayFiles` 的文件卡片要用它拉预览。
+ * @param api 当前实例的客户端 —— `PresentFile` 的文件卡要用它拉预览 / 字节。
  *   null = 实例还没解析出来(元数据照常渲染,只是点不开)。
- * @param onOpenFile 点某一行文件 → 打开会话面板内的预览层
- *   (见 ui/FileViewerOverlay.kt)。
+ * @param onOpenFile 点文件 → 打开会话面板内的预览层(见 ui/FileViewerOverlay.kt)。
+ * @param onReveal 点 📂 → 在 Mac 上打开该文件所在目录(`POST /api/fs/reveal`)。
  */
 @Composable
 internal fun AgentItemView(
     item: AgentItem,
     api: AgentApi?,
-    onOpenFile: (DisplayFile) -> Unit,
+    onOpenFile: (PresentedFile) -> Unit,
+    onReveal: (PresentedFile) -> Unit,
 ) {
     when (item) {
         is AgentItem.UserText -> UserBubble(item)
         is AgentItem.AssistantText -> AssistantBubble(item)
         is AgentItem.Thinking -> ThinkingBubble(item)
-        is AgentItem.ToolCall -> ToolCallCard(item, api, onOpenFile)
+        // `PresentFile` 是**自包含展示类**工具:卡片自己就是内容(图片 / 文本
+        // 内联渲染),不进通用工具卡的入参/输出形态 —— 对齐 web 端
+        // `presentFileRenderer.skipOuterGroup`。没有文件条时(脏数据 / 旧会话)
+        // 由 PresentFileCard 自己退回通用卡。
+        is AgentItem.ToolCall ->
+            if (item.name == PRESENT_FILE_TOOL) {
+                PresentFileCard(item, api, onOpenFile, onReveal)
+            } else {
+                ToolCallCard(item)
+            }
+
         is AgentItem.Note -> NoteRow(item)
     }
 }
@@ -1478,17 +1511,22 @@ private fun AgentBlockView(
     block: AgentBlock,
     items: List<AgentItem>,
     api: AgentApi?,
-    onOpenFile: (DisplayFile) -> Unit,
+    onOpenFile: (PresentedFile) -> Unit,
+    onReveal: (PresentedFile) -> Unit,
 ) {
     when (block) {
         is AgentBlock.Single ->
-            items.getOrNull(block.index)?.let { AgentItemView(it, api, onOpenFile) }
+            items.getOrNull(block.index)?.let { AgentItemView(it, api, onOpenFile, onReveal) }
 
         is AgentBlock.ToolGroup -> ToolGroupCard(
             members = block.indices.mapNotNull { items.getOrNull(it) },
             groupKey = block.key,
             api = api,
             onOpenFile = onOpenFile,
+            onReveal = onReveal,
         )
+
+        is AgentBlock.Artifacts ->
+            TurnArtifactsBlock(files = block.files, onOpenFile = onOpenFile)
     }
 }

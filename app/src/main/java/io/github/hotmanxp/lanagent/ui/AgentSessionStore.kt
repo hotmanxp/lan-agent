@@ -32,14 +32,16 @@ import io.github.hotmanxp.lanagent.data.AskQuestion
 import io.github.hotmanxp.lanagent.data.BG_RECENT_TTL_MS
 import io.github.hotmanxp.lanagent.data.BgAgentTask
 import io.github.hotmanxp.lanagent.data.BgBashTask
-import io.github.hotmanxp.lanagent.data.DISPLAY_FILES_TOOL
-import io.github.hotmanxp.lanagent.data.DisplayFile
-import io.github.hotmanxp.lanagent.data.DisplayFilesCache
+import io.github.hotmanxp.lanagent.data.PRESENT_FILE_TOOL
+import io.github.hotmanxp.lanagent.data.PresentFileCache
+import io.github.hotmanxp.lanagent.data.PresentedFile
 import io.github.hotmanxp.lanagent.data.PendingInteraction
+import io.github.hotmanxp.lanagent.data.WriteTarget
 import io.github.hotmanxp.lanagent.data.bgTerminal
-import io.github.hotmanxp.lanagent.data.mergeDisplayFiles
-import io.github.hotmanxp.lanagent.data.parseDisplayFileMeta
-import io.github.hotmanxp.lanagent.data.parseDisplayFilePaths
+import io.github.hotmanxp.lanagent.data.mergePresented
+import io.github.hotmanxp.lanagent.data.parsePresentFileInput
+import io.github.hotmanxp.lanagent.data.parsePresentFileMeta
+import io.github.hotmanxp.lanagent.data.writeTargetOf
 import io.github.hotmanxp.lanagent.data.QueuedPrompt
 import io.github.hotmanxp.lanagent.data.SessionStateResponse
 import io.github.hotmanxp.lanagent.data.Transcript
@@ -110,14 +112,24 @@ sealed interface AgentItem {
         val isError: Boolean,
         val timestamp: Long?,
         /**
-         * `DisplayFiles` 工具展示的文件列表,见 `data/DisplayFiles.kt`。
-         * 非空时 [ToolCallCard] 渲染成文件卡片(而不是入参/输出两段 code)。
+         * `PresentFile` 工具展示的那个文件,见 `data/PresentFile.kt`。
+         * 非空时渲染层走**内联文件卡**(见 `ui/AgentSessionViews.kt` 的
+         * `PresentFileCard`),而不是入参 / 输出两段 code。
          *
-         * 其余工具恒为空。两条来源合并而成:**tool_use 的 `input.paths`**
+         * 其余工具恒为 null。两条来源合并而成:**tool_use 的 `input.path`**
          * (任何时态都有)+ **tool_result 的元数据**(仅直播态,重开会话时
          * transcript 里是字面量 `'done'`)。
          */
-        val files: List<DisplayFile> = emptyList(),
+        val file: PresentedFile? = null,
+        /**
+         * 该调用写入的文件(`Write` / `Edit` / `MultiEdit` / `NotebookEdit` 才有),
+         * 由 [writeTargetOf] 在入库时从入参里抽好 —— 「本轮产物」块(见
+         * `ui/TurnArtifacts.kt`)据此结算。
+         *
+         * 为什么在入库时抽而不是渲染期从 [input] 里再解一遍:[input] 是**给人看的
+         * 文本**,写文件的调用动辄上万字符,早就被 `capForDisplay` 截断成非法 JSON。
+         */
+        val write: WriteTarget? = null,
     ) : AgentItem {
         val running: Boolean get() = output == null && !isError
     }
@@ -152,6 +164,15 @@ sealed interface AgentBlock {
      * 展开状态与滚动位置都稳。
      */
     data class ToolGroup(val indices: List<Int>, override val key: String) : AgentBlock
+
+    /**
+     * 一轮结束后的「本轮产物」块(见 `ui/TurnArtifacts.kt`)。
+     *
+     * 与 [ToolGroup] 一样是**渲染粒度**而不是数据:清单由 `deriveTurnArtifacts`
+     * 从 items 派生,不落任何存储、不进 transcript。key 里带该轮首条用户消息的
+     * key,所以新消息 append 不会重挂载(用户的展开/收起意图得以保留)。
+     */
+    data class Artifacts(override val key: String, val files: List<ArtifactFile>) : AgentBlock
 }
 
 /**
@@ -173,13 +194,20 @@ sealed interface AgentBlock {
  * 全是**同类替换**(见 `appendText` / `applyToolResult` / `upsertToolCall`),
  * 所以「下标 → 类型」的映射只在 size 变化时才会变。渲染侧再兜一层类型检查,
  * 任何情况下都不会把正文画进工具段。
+ *
+ * @param artifacts 每轮的产物清单(见 `deriveTurnArtifacts`)。按 `endIndex`
+ *   插到对应渲染块**之后** —— 锚点落在某个工具段内部时就插在整段之后。
  */
-internal fun buildAgentBlocks(items: List<AgentItem>, compact: Boolean): List<AgentBlock> {
-    val out = ArrayList<AgentBlock>(items.size)
+internal fun buildAgentBlocks(
+    items: List<AgentItem>,
+    compact: Boolean,
+    artifacts: List<TurnArtifacts> = emptyList(),
+): List<AgentBlock> {
+    val base = ArrayList<AgentBlock>(items.size)
     var i = 0
     while (i < items.size) {
         if (!items[i].isWork) {
-            out.add(AgentBlock.Single(i, items[i].key))
+            base.add(AgentBlock.Single(i, items[i].key))
             i++
             continue
         }
@@ -190,18 +218,48 @@ internal fun buildAgentBlocks(items: List<AgentItem>, compact: Boolean): List<Ag
             j++
         }
         if (compact && tools >= 2) {
-            out.add(AgentBlock.ToolGroup((i until j).toList(), "tgroup-${items[i].key}"))
+            base.add(AgentBlock.ToolGroup((i until j).toList(), "tgroup-${items[i].key}"))
         } else {
-            for (k in i until j) out.add(AgentBlock.Single(k, items[k].key))
+            for (k in i until j) base.add(AgentBlock.Single(k, items[k].key))
         }
         i = j
+    }
+    if (artifacts.isEmpty()) return base
+
+    // 同一下标只可能有**一轮**的产物块(轮次边界互斥),不必担心撞车。
+    val byAnchor = artifacts.associateBy { it.endIndex }
+    val out = ArrayList<AgentBlock>(base.size + artifacts.size)
+    for (block in base) {
+        out.add(block)
+        byAnchor[block.lastItemIndex]?.let {
+            out.add(AgentBlock.Artifacts("artifacts-${it.turnKey}", it.files))
+        }
     }
     return out
 }
 
-/** 段落成员:工具调用,以及夹在它们之间的思考过程。 */
+/** 渲染块覆盖到的最大 items 下标(产物块的锚点判定用)。 */
+private val AgentBlock.lastItemIndex: Int
+    get() = when (this) {
+        is AgentBlock.Single -> index
+        is AgentBlock.ToolGroup -> indices.maxOrNull() ?: -1
+        is AgentBlock.Artifacts -> -1
+    }
+
+/**
+ * 段落成员:工具调用,以及夹在它们之间的思考过程。
+ *
+ * **`PresentFile` 除外**:它自带内容(图片 / 文本 / 网页在卡内直接渲染,见
+ * `PresentFileCard`),收进「工具调用 · N 次」等于把用户要看的东西藏进折叠卡
+ * —— 对齐 web 端 `presentFileRenderer.skipOuterGroup` 的语义。所以它像正文一样
+ * **打断段落**,永远单独成卡。
+ */
 private val AgentItem.isWork: Boolean
-    get() = this is AgentItem.ToolCall || this is AgentItem.Thinking
+    get() = when (this) {
+        is AgentItem.ToolCall -> name != PRESENT_FILE_TOOL
+        is AgentItem.Thinking -> true
+        else -> false
+    }
 
 class AgentSessionStore(val sessionId: String) {
 
@@ -375,7 +433,8 @@ class AgentSessionStore(val sessionId: String) {
                     output = null,
                     isError = false,
                     ts = ts,
-                    files = displayFilesFromInput(b.id, b.input),
+                    file = presentFileFromInput(b.id, b.input),
+                    write = writeTargetOf(b.name.orEmpty(), b.input),
                 )
 
                 else -> Unit
@@ -393,7 +452,8 @@ class AgentSessionStore(val sessionId: String) {
                 output = null,
                 isError = false,
                 ts = ts,
-                files = displayFilesFromInput(b.id, b.input),
+                file = presentFileFromInput(b.id, b.input),
+                write = writeTargetOf(b.name.orEmpty(), b.input),
             )
         }
     }
@@ -415,24 +475,20 @@ class AgentSessionStore(val sessionId: String) {
         if (idx < 0) return
         val cur = items[idx] as? AgentItem.ToolCall ?: return
         val text = content?.toolResultText().orEmpty().capForDisplay()
-        // DisplayFiles 的结果是给前端渲染的文件元数据 JSON(不是给人读的
-        // 文本),抽成文件列表交给文件卡片渲染。**重开历史会话时这里解析出
-        // 空列表** —— transcript 里存的是字面量 'done'。三级来源,从严到宽:
-        //   1. 本次 result 的元数据(直播态,有真 size/kind)—— 顺手进缓存
+        // PresentFile 的结果是给前端渲染的文件元数据 JSON(不是给人读的
+        // 文本),抽成文件条交给文件卡片渲染。**重开历史会话时这里解析出
+        // null** —— transcript 里存的是字面量 'done'。三级来源,从严到宽:
+        //   1. 本次 result 的元数据(直播态,有真 size/kind/caption)—— 顺手进缓存
         //   2. 进程内缓存(进过一次查看器/切过 tab 后回来,wire 上已经没有了)
-        //   3. upsert 时从 input.paths 派生的那份(只有路径 —— 冷启动的兜底)
-        val files = if (cur.name == DISPLAY_FILES_TOOL) {
-            val meta = parseDisplayFileMeta(content)
-            val best = if (meta.isNotEmpty()) {
-                DisplayFilesCache.remember(cur.toolUseId, meta)
-            } else {
-                DisplayFilesCache.recall(cur.toolUseId)
-            }
-            mergeDisplayFiles(cur.files, best)
+        //   3. upsert 时从 input.path 派生的那份(只有路径 —— 冷启动的兜底)
+        val file = if (cur.name == PRESENT_FILE_TOOL) {
+            val meta = parsePresentFileMeta(content)
+            val best = if (meta != null) PresentFileCache.remember(cur.toolUseId, meta) else null
+            mergePresented(fromInput = cur.file, fromResult = best ?: PresentFileCache.recall(cur.toolUseId))
         } else {
-            cur.files
+            cur.file
         }
-        items[idx] = cur.copy(output = text, isError = isError, files = files)
+        items[idx] = cur.copy(output = text, isError = isError, file = file)
     }
 
     // ===== SSE reduce =====
@@ -470,14 +526,17 @@ class AgentSessionStore(val sessionId: String) {
 
             "runtime.tool_call" -> {
                 noteStreaming()
+                val name = ev.str("toolName").orEmpty().ifEmpty { "tool" }
+                val input = ev.payload["input"]
                 upsertToolCall(
                     toolUseId = ev.str("toolUseId").orEmpty(),
-                    name = ev.str("toolName").orEmpty().ifEmpty { "tool" },
-                    input = ev.payload["input"].cleanText(),
+                    name = name,
+                    input = input.cleanText(),
                     output = null,
                     isError = false,
                     ts = ev.long("ts"),
-                    files = parseDisplayFilePaths(ev.payload["input"]),
+                    file = presentFileFromInput(ev.str("toolUseId"), input),
+                    write = writeTargetOf(name, input),
                 )
             }
 
@@ -774,8 +833,10 @@ class AgentSessionStore(val sessionId: String) {
         output: String?,
         isError: Boolean,
         ts: Long?,
-        /** 仅 `DisplayFiles` 非空 —— 从 tool_use 的 `input.paths` 派生。 */
-        files: List<DisplayFile> = emptyList(),
+        /** 仅 `PresentFile` 非空 —— 从 tool_use 的 `input.path` 派生。 */
+        file: PresentedFile? = null,
+        /** 仅写入类工具非空(见 `data/TurnArtifacts.kt`)。 */
+        write: WriteTarget? = null,
     ) {
         // 工具卡之后的 text 必须落在**新**气泡里(否则会 append 到工具卡前面
         // 那个旧气泡,视觉顺序就错了)。
@@ -795,7 +856,8 @@ class AgentSessionStore(val sessionId: String) {
                 // 上一次已有的元数据(带 size/error 的那份)不能被这次的
                 // 纯路径版本覆盖 —— transcript 里 tool_use 会先于 tool_result
                 // 被读到,但同一会话重放时两个来源都可能再来一遍。
-                files = if (files.isNotEmpty()) files else cur.files,
+                file = file ?: cur.file,
+                write = write ?: cur.write,
             )
             return
         }
@@ -808,7 +870,8 @@ class AgentSessionStore(val sessionId: String) {
                 output = output,
                 isError = isError,
                 timestamp = ts,
-                files = files,
+                file = file,
+                write = write,
             )
         )
     }
@@ -825,16 +888,16 @@ class AgentSessionStore(val sessionId: String) {
         toolUseId.takeIf { it.isNotEmpty() }?.let { "tool-$it" }
 
     /**
-     * tool_use 侧的 DisplayFiles 文件列表 —— 路径来自 input,元数据优先取
-     * 进程内缓存(见 [DisplayFilesCache]:重新 hydrate 时 wire 上那份已经没了,
+     * tool_use 侧的 PresentFile 文件条 —— 路径 + caption 来自 input,元数据优先取
+     * 进程内缓存(见 [PresentFileCache]:重新 hydrate 时 wire 上那份已经没了,
      * 不补的话卡片上的 size / 时间会凭空消失)。
      */
-    private fun displayFilesFromInput(
+    private fun presentFileFromInput(
         toolUseId: String?,
         input: JsonElement?,
-    ): List<DisplayFile> = mergeDisplayFiles(
-        fromInput = parseDisplayFilePaths(input),
-        fromResult = DisplayFilesCache.recall(toolUseId),
+    ): PresentedFile? = mergePresented(
+        fromInput = parsePresentFileInput(input),
+        fromResult = PresentFileCache.recall(toolUseId),
     )
 }
 

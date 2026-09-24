@@ -1,4 +1,4 @@
-// ui/FileViewerOverlay.kt — 从右侧滑入的全屏文件预览层(DisplayFiles 卡片点进来)。
+// ui/FileViewerOverlay.kt — 从右侧滑入的全屏文件预览层(PresentFile 卡片点进来)。
 //
 // 为什么是 overlay 而不是独立路由:
 //   - 预览是「叠在会话上的一层」,不是一次导航。走路由会往返回栈里塞一层,
@@ -14,12 +14,14 @@
 //   - 顺带把「在 Mac 上打开所在目录」(`POST /api/fs/reveal`)收在这一层,
 //     文件卡片本身就不必再挂一个次要动作。
 //
-// 数据来源:`GET {baseUrl}/api/fs/preview?path=`(见 data/AgentApi.kt 的
-// [AgentApi.previewFile])。响应按 kind 分岔 —— image 是 base64、text/html 是
-// 原文、binary 只有元数据(见 data/DisplayFiles.kt 的 [FilePreview])。
+// data 来源:`GET {baseUrl}/api/fs/preview?path=`(见 data/AgentApi.kt 的
+// [AgentApi.previewFile]),**图片的字节另走 `GET /api/fs/raw`**
+// ([AgentApi.rawFile],≤ 10 MiB 原始流)—— 2026-09-24 起 `/api/fs/preview` 对
+// 超过 1 MiB 的图片只回元数据,base64 那条路已经装不下大图。
+// 响应按 kind 分岔 —— text/html 是原文、文档类与 binary 只有元数据
+// (见 data/PresentFile.kt 的 [FilePreview])。
 package io.github.hotmanxp.lanagent.ui
 
-import android.util.Base64
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.animation.AnimatedVisibility
@@ -79,8 +81,13 @@ import androidx.core.view.doOnLayout
 import io.github.hotmanxp.lanagent.data.AgentApi
 import io.github.hotmanxp.lanagent.data.FileKind
 import io.github.hotmanxp.lanagent.data.FilePreview
+import io.github.hotmanxp.lanagent.data.fileKindLabel
+import io.github.hotmanxp.lanagent.data.isDocument
 import io.github.hotmanxp.lanagent.service.WebViewFactory
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.net.URLEncoder
 
 /**
  * 一次预览的目标。
@@ -219,14 +226,19 @@ private fun FileViewerContent(
                 p == null -> CenterMessage(text = "没有内容", onRetry = null)
 
                 p.fileKind == FileKind.Image && !isSvg(path) ->
-                    ImageBody(path = path, preview = p)
+                    ImageBytesBody(api = api, path = path)
 
-                // HTML 与 SVG 都交给 WebView:SVG 是 XML,BitmapFactory 解不了,
-                // 而 WebView 天生会渲染它。
-                p.fileKind == FileKind.Html || (p.fileKind == FileKind.Image && isSvg(path)) ->
-                    HtmlBody(html = p.content.orEmpty())
+                // SVG 是 XML,BitmapFactory 解不了 → 交给 WebView,而且**直接吃
+                // /api/fs/raw 的字节流**,不受 /api/fs/preview 的 1 MiB 限制。
+                p.fileKind == FileKind.Image -> WebBody(url = rawUrl(baseUrl, path))
+
+                p.fileKind == FileKind.Html -> HtmlBody(html = p.content.orEmpty())
 
                 p.fileKind == FileKind.Text -> TextBody(path = path, content = p.content.orEmpty())
+
+                // 文档类(docx/sheet/ppt/pdf/legacy-office):手机端没有渲染器,
+                // 老实说清楚,并把「在 Mac 上打开」放在最显眼处。
+                p.fileKind.isDocument -> DocumentBody(preview = p, onReveal = { reveal() })
 
                 else -> BinaryBody(preview = p, onReveal = { reveal() })
             }
@@ -235,6 +247,10 @@ private fun FileViewerContent(
 }
 
 private fun isSvg(path: String): Boolean = path.lowercase().endsWith(".svg")
+
+/** `/api/fs/raw` 的地址(图片 / 矢量图在 WebView 里直接开)。 */
+private fun rawUrl(baseUrl: String, path: String): String =
+    "${baseUrl.trimEnd('/')}/api/fs/raw?path=${URLEncoder.encode(path, "UTF-8")}"
 
 @Composable
 private fun CenterSpinner() {
@@ -267,41 +283,61 @@ private fun CenterMessage(text: String, onRetry: (() -> Unit)?) {
  * 图片:黑底 + `ContentScale.Fit`。不做缩放交互,但保持与用户消息
  * 全屏查看器([FullScreenImageViewer])一致的观感。
  *
- * 这里**不采样**:服务端已经把图片卡在 1 MiB,而用户主动点开就是要看清楚,
- * 降采样反而丢失细节。缩略图那侧才必须采样(见 `RemoteImageThumb`)。
+ * 字节走 `GET /api/fs/raw`(≤ 10 MiB 原始流)—— `/api/fs/preview` 的 base64
+ * 只覆盖 ≤ 1 MiB 的图,2026-09-24 起大图那边根本拿不到内容(只回元数据)。
+ *
+ * **必须采样**:全屏是手机上的大图入口,但 10 MiB 的上限意味着可能有
+ * 8000×8000 的图 —— 原样解码是 256 MB,必 OOM。采样到
+ * [FULL_IMAGE_MAX_EDGE](约 2.5 倍于主流手机屏宽)肉眼看不出差别。
  */
 @Composable
-private fun ImageBody(path: String, preview: FilePreview) {
-    val bitmap by produceState<android.graphics.Bitmap?>(null, path) {
-        value = decodeBase64Image(preview.content)
+private fun ImageBytesBody(api: AgentApi, path: String) {
+    val state by produceState<ImageState>(ImageState.Loading, api, path) {
+        value = withContext(Dispatchers.IO) {
+            runCatching {
+                decodeSampled(api.rawFile(path), maxEdge = FULL_IMAGE_MAX_EDGE)
+                    ?: throw IllegalStateException("图片解码失败")
+            }.fold(
+                onSuccess = { ImageState.Ok(it) },
+                onFailure = { ImageState.Failed(previewErrorMessage(it)) },
+            )
+        }
     }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black),
         contentAlignment = Alignment.Center,
     ) {
-        val bmp = bitmap
-        if (bmp != null) {
-            Image(
-                bitmap = bmp.asImageBitmap(),
+        when (val s = state) {
+            is ImageState.Loading -> CircularProgressIndicator(color = Color.White)
+
+            is ImageState.Ok -> Image(
+                bitmap = s.bitmap.asImageBitmap(),
                 contentDescription = null,
                 contentScale = ContentScale.Fit,
                 modifier = Modifier.fillMaxSize(),
             )
-        } else {
-            CircularProgressIndicator(color = Color.White)
+
+            is ImageState.Failed -> Text(
+                text = s.message,
+                fontSize = 13.sp,
+                color = Color.White,
+                modifier = Modifier.padding(24.dp),
+            )
         }
     }
 }
 
-private fun decodeBase64Image(encoded: String?): android.graphics.Bitmap? {
-    if (encoded.isNullOrEmpty()) return null
-    return runCatching {
-        val bytes = Base64.decode(encoded, Base64.DEFAULT)
-        android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-    }.getOrNull()
+private sealed interface ImageState {
+    data object Loading : ImageState
+    data class Ok(val bitmap: android.graphics.Bitmap) : ImageState
+    data class Failed(val message: String) : ImageState
 }
+
+/** 全屏图片的采样目标边长(见 [ImageBytesBody])。 */
+private const val FULL_IMAGE_MAX_EDGE = 2560
 
 /**
  * 一段 HTML 字符串 → WebView。
@@ -316,6 +352,17 @@ private fun decodeBase64Image(encoded: String?): android.graphics.Bitmap? {
  */
 @Composable
 private fun HtmlBody(html: String) {
+    LazyWebView { it.loadDataWithBaseURL(null, html, "text/html", "utf-8", null) }
+}
+
+/** 直接开一个 URL(SVG 走 `/api/fs/raw`)。 */
+@Composable
+private fun WebBody(url: String) {
+    LazyWebView { it.loadUrl(url) }
+}
+
+@Composable
+private fun LazyWebView(load: (WebView) -> Unit) {
     AndroidView(
         modifier = Modifier.fillMaxSize(),
         factory = { ctx ->
@@ -330,7 +377,7 @@ private fun HtmlBody(html: String) {
                 doOnLayout { v ->
                     if (!loaded && v.height > 0) {
                         loaded = true
-                        loadDataWithBaseURL(null, html, "text/html", "utf-8", null)
+                        load(v as WebView)
                     }
                 }
             }
@@ -357,27 +404,56 @@ private fun TextBody(path: String, content: String) {
     }
 }
 
+/**
+ * 文档类(docx / sheet / ppt / pdf / legacy-office)。
+ *
+ * 手机端**没有**文档渲染器(web 端那套是 JSZip + PDF.js + SheetJS,一整套浏览器
+ * 库),所以这里不假装能预览 —— 说清楚类型,并把「在 Mac 上打开所在目录」放在
+ * 最显眼的位置。对齐 web 端「文档类只给类型说明 + ↗」的取舍。
+ */
+@Composable
+private fun DocumentBody(preview: FilePreview, onReveal: () -> Unit) {
+    NoticeBody(
+        title = fileKindLabel(preview.fileKind),
+        detail = listOfNotNull(
+            preview.ext?.takeIf { it.isNotBlank() },
+            preview.size.takeIf { it > 0L }?.let { formatBytes(it) },
+            "手机端不支持预览",
+        ).joinToString(" · "),
+        onReveal = onReveal,
+    )
+}
+
 /** binary:不内联预览 —— 给元数据 + 「在 Mac 上打开所在目录」。 */
 @Composable
 private fun BinaryBody(preview: FilePreview, onReveal: () -> Unit) {
+    NoticeBody(
+        title = "此文件类型不支持内联预览",
+        detail = listOfNotNull(
+            preview.ext?.takeIf { it.isNotBlank() },
+            preview.size.takeIf { it > 0L }?.let { formatBytes(it) },
+        ).joinToString(" · "),
+        onReveal = onReveal,
+    )
+}
+
+/** 「不支持预览」家族共用的居中版式:标题 + 元数据 + 打开目录。 */
+@Composable
+private fun NoticeBody(title: String, detail: String, onReveal: () -> Unit) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.padding(24.dp),
         ) {
             Text(
-                text = "此文件类型不支持内联预览",
+                text = title,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Medium,
             )
-            Spacer(Modifier.height(6.dp))
-            val meta = listOfNotNull(
-                preview.ext?.takeIf { it.isNotBlank() },
-                preview.size.takeIf { it > 0 }?.let { formatBytes(it) },
-            ).joinToString(" · ")
-            if (meta.isNotBlank()) {
+            if (detail.isNotBlank()) {
+                Spacer(Modifier.height(6.dp))
                 Text(
-                    text = meta,
+                    text = detail,
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

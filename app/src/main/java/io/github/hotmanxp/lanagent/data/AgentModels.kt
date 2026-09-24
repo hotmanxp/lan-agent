@@ -309,13 +309,29 @@ data class ActionResult(
 // ===== ask / permission / approve =====
 
 @Serializable
-data class AskOption(val label: String, val description: String? = null)
+data class AskOption(
+    val label: String,
+    val description: String? = null,
+    /**
+     * 可选预览片段(对齐 web `QuestionCard.tsx` `PreviewText`)。LLM 在
+     * `AskUserQuestion` 工具的 option 上填 preview(>200 字截断 + 「展开」),
+     * 仅在「我想对比方案 A vs B」这种场景出现,日常单选几乎不用。`null`
+     * 等价于「没有预览」,UI 直接跳过。
+     */
+    val preview: String? = null,
+)
 
 @Serializable
 data class AskQuestion(
     val question: String = "",
     val header: String = "",
     val options: List<AskOption> = emptyList(),
+    /**
+     * 是否多选。对齐 opencc-web `packages/zn-agent-core/src/opencc-src/tools/
+     * AskUserQuestionTool/AskUserQuestionTool.tsx:24` 的 schema 默认值;旧
+     * wire 没这字段会按默认 `false` 解码(单选)。
+     */
+    val multiSelect: Boolean = false,
 )
 
 /**

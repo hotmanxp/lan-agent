@@ -15,7 +15,8 @@
 //   POST /api/agent/permission-response          permission.ts:42
 //   POST /api/agent/approve           + /reject  approve.ts:73/102
 //   GET  /api/agent/approve/file?toolUseId=      approve.ts:147
-//   GET  /api/fs/preview?path=                   fs.ts:1020  文件预览(DisplayFiles)
+//   GET  /api/fs/preview?path=                   fs.ts:1043  文件预览(PresentFile)
+//   GET  /api/fs/raw?path=                       fs.ts:1183  原始字节(图片,≤10 MiB)
 //   POST /api/fs/reveal                          fs.ts:1125  在 Mac 上打开所在目录
 //   GET  /api/event?sid=<sid>                    routes/event.ts:44  SSE
 //   GET  /api/slash                              slash.ts:7   命令 + skill 清单
@@ -348,13 +349,14 @@ class AgentApi(
         return execute(request("/api/agent/approve/file?toolUseId=$encoded", sessionId).getJson())
     }
 
-    // ===== 文件预览(DisplayFiles 工具,见 data/DisplayFiles.kt) =====
+    // ===== 文件预览(PresentFile 工具,见 data/PresentFile.kt) =====
 
     /**
-     * `GET /api/fs/preview?path=` —— 读一个本地文件的预览内容(`routes/fs.ts:1020`)。
+     * `GET /api/fs/preview?path=` —— 读一个本地文件的预览内容(`routes/fs.ts:1043`)。
      *
-     * 响应按 kind 分岔:image → base64,text/html → 原文,binary → 只有元数据
-     * (见 [FilePreview])。服务端把 `maxBytes` clamp 在 `[1024, 1 MiB]`,超出直接回
+     * 响应按 kind 分岔:text/html → 原文,**图片 ≤ 1 MiB → base64**,
+     * 图片 > 1 MiB / 文档类 / binary → 只有元数据(见 [FilePreview])。
+     * 服务端把 `maxBytes` clamp 在 `[1024, 1 MiB]`,**文本 / HTML** 超出直接回
      * **413 ETOOBIG** —— 调用方要把 413 翻译成「文件过大」而不是「加载失败」,
      * 两者对用户的含义完全不同。
      *
@@ -362,6 +364,27 @@ class AgentApi(
      */
     suspend fun previewFile(path: String): FilePreview =
         execute(request("/api/fs/preview?path=${URLEncoder.encode(path, "UTF-8")}").getJson())
+
+    /**
+     * `GET /api/fs/raw?path=` —— 原始字节流(`routes/fs.ts:1183`)。**图片专用**
+     * (2026-09-24 起服务端对它开白名单),文档类也走这条但手机端没渲染器。
+     *
+     * 为什么图片不走 [previewFile]:那条路是 JSON + base64(33% 膨胀 + 主线程
+     * 解码)且卡在 1 MiB;字节流能到 **10 MiB**([IMAGE_MAX_BYTES]),给
+     * `BitmapFactory` 两遍采样解码正好。非图片扩展名会 **415**,超过同类上限
+     * 会 **413**。
+     *
+     * 走 `execute` 之外的单条路径(响应不是 JSON):只按 HTTP 状态判成败。
+     */
+    suspend fun rawFile(path: String): ByteArray = withContext(Dispatchers.IO) {
+        client.newCall(request("/api/fs/raw?path=${URLEncoder.encode(path, "UTF-8")}").get().build())
+            .execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    throw HttpException(resp.code, parseErrorBody(resp.peekBody(4096).string()))
+                }
+                resp.body?.bytes() ?: ByteArray(0)
+            }
+    }
 
     /** `POST /api/fs/reveal` —— 在 Mac 上打开该文件所在目录(macOS 走 `open -R`)。 */
     suspend fun revealFile(path: String): Boolean =

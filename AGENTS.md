@@ -2,7 +2,7 @@
 
 > **lan-agent** — Android App,把局域网内多个 opencc-web 实例入口收成卡片列表 + **原生**展示实例管理 API + **原生** Agent 会话(直连 `/api/agent/sessions` + `/api/event` SSE)+ SSH 一键启动 zai。配套工程 `/Users/ethan/code/opencc-web`,zai 需 `pnpm --filter @zn-ai/zai dev -- --lan` 启动。
 >
-> **关键里程碑**: 0.10.0 视觉对齐 WorkBuddy + 自研 Markdown;0.14.0 改底部五栏;0.15.0 任务栏直接是原生 Agent 工作区;0.16.0 DisplayFiles 文件卡片;0.16.1 文件预览改面板内 overlay(不占路由);0.17.0 `/` 命令面板 + Skill 候选;0.17.4 语音 401 自愈;0.18.0 底部任务栏显示后台任务 / 后台子代理;0.18.1 WebView 函数体副作用修复(点 /m 输入框不再整页刷新)。**当前 HEAD**: HEAD on `main` · **versionCode 73** · **versionName 0.18.1**。
+> **关键里程碑**: 0.10.0 视觉对齐 WorkBuddy + 自研 Markdown;0.14.0 改底部五栏;0.15.0 任务栏直接是原生 Agent 工作区;0.16.0 DisplayFiles 文件卡片;0.16.1 文件预览改面板内 overlay(不占路由);0.17.0 `/` 命令面板 + Skill 候选;0.17.4 语音 401 自愈;0.18.0 底部任务栏显示后台任务 / 后台子代理;0.18.1 WebView 函数体副作用修复(点 /m 输入框不再整页刷新);0.18.2 `/` 命令面板 argumentHint 解析容错;0.18.3 原生 AskUserQuestion 卡片 + 自动追加 Other;0.19.0 DisplayFiles 改 **PresentFile**(单文件内容卡:图片/文本内联渲染,9 种 kind)+ **本轮产物块**。**当前 HEAD**: HEAD on `main` · **versionCode 76** · **versionName 0.19.0**。
 >
 > **独立顶级目录、独立 git 仓库**,不在 opencc-web monorepo 内。spec / plan 在 `docs/superpowers/{specs,plans}/`(0.6.0 之后已过期,仅作历史参考)。
 
@@ -149,15 +149,21 @@
 
 **渲染**(`ToolGroupCard`): 折叠态一行 `⚒ 工具调用 · N 次` + 副行名字汇总(`Edit ×4 · Bash ×3`,同校按首次出现合并、>1 时加 `×N`) + 右侧状态(运行中 tertiary 暖橙 / 失败 error 红 + `N 失败` chip / 否则 `完成`) + `⌄`;**点整行**展开(不做下拉手势);展开 key = 段内首条成员 key(流式追加不合并);**块存下标不存快照**(`items[idx]` 读实时值,工具输出原地替换不渲染过期);`remember(items.size, compact)` 缓存是有意的(items 只 append);自动滚动 key 改"块数"(段内增长不动视口)。
 
-### 19. DisplayFiles 文件卡片
+### 19. PresentFile 文件卡片(0.19.0,取代 DisplayFiles)
 
-- wire: `runtime.tool_call.input.paths` + `runtime.tool_result.output`(JSON 字符串,`content[0].json.files = FileMeta[]`,`kind ∈ text|image|html|binary`)
-- **三大坑**: ① transcript 里 `tool_result` 是字面量 `'done'`,元数据只走一次 SSE 且 take-and-delete → **冷启动后只剩路径**(`DisplayFilesCache` 进程内兜"离开再回来") ② `mtime` 浮点(`fs.Stats.mtimeMs`),`size` 别赌整数,一律容错 ③ 路径解析拆两条:`parseDisplayFilePaths(input)`(任何时态,`kind` 客户端按扩展名猜)+ `parseDisplayFileMeta(output)`(仅直播态)+ `mergeDisplayFiles(...)` 合并
-- 预览字节: `GET {instanceBaseUrl}/api/fs/preview?path=...` 无鉴权;`maxBytes` clamp `[1024, 1 MiB]`(`PREVIEW_DEFAULT_MAX`,**不是 512KB**),超 413 ETOOBIG;目录 400 EISDIR;不存在 404 → 这三个必须翻译成人话(`previewErrorMessage`)
-- 四分支渲染: **图片** → 内联缩略图(`RemoteImageThumb` **必须采样**`inJustDecodeBounds`+`inSampleSize`;SVG 解不了走 WebView);**HTML/SVG** → `FileViewerOverlay` WebView(`WebViewFactory.createForContent`,**textZoom=100**;`shouldOverrideUrlLoading` 一律 true 只读);**文本** → `.md` 自研 Markdown / 其余 `CodeBox`;**binary / 超 1 MiB** → 「在 Mac 上打开目录」(`POST /api/fs/reveal`,`open -R`)
-- 限制: ① 单次最多 20 ② 超 1 MiB 不内联 ③ 冷启动只有路径
-- 改前看 `data/DisplayFilesTest` + `ui/AgentSessionStoreDisplayFilesTest`(后者守"重开会话",直播正常、只有离开再回来才坏)
-- 见 `data/DisplayFiles.kt` / `ui/AgentSessionViews.kt` 的 `DisplayFilesBody` / `ui/FileViewerOverlay.kt`
+对齐 opencc-web `packages/zn-agent-core/src/opencc-src/server/presentFileOpencc.ts` + web `toolRenderers/presentFile.tsx`。**单文件**工具(旧的 `paths: string[]` 多文件形态已移除,不留兼容 shim)。
+
+- wire: 入参 `runtime.tool_call.input = { path, caption? }` —— **是 JSON 对象,不是字符串**(服务端 `routes/agent.ts:534` 那行 `JSON.parse(buf)`;schema 是 `input: z.unknown()`)。传/存字符串会让 input 派生整条路失效,而直播态能从 tool_result 兜底,症状完全看不出来
+- wire: 结果 `runtime.tool_result.output`(JSON **字符串**)→ `content[0].json = { file: FileMeta, caption? }`。**`caption` 与 `file` 平级**,不在 file 里面 —— 在根对象上找 caption 永远为空
+- `FileMeta = { path, name, size, mtime, kind, error?: {code,message} }`;`kind` **9 种**: `text|image|html|binary|docx|sheet|ppt|pdf|legacy-office`(认不出的一律 `binary`,不猜成可预览)
+- **三大坑**: ① transcript 里 `tool_result` 是字面量 `'done'`,元数据只走一次 SSE 且 take-and-delete → **冷启动后只剩路径**(`PresentFileCache` 进程内兜"离开再回来") ② `mtime` 浮点(`fs.Stats.mtimeMs`),`size` 别赌整数,一律容错 ③ 解析拆两条:`parsePresentFileInput(input)`(任何时态,`kind` 客户端按扩展名猜 `classifyByExtension`)+ `parsePresentFileMeta(output)`(仅直播态)+ `mergePresented(...)` 合并(结果为准,caption 谁有留谁)
+- 字节三条通道,上限各不相同: **图片** `GET /api/fs/raw` 原始字节流(`IMAGE_MAX_BYTES = 10 MiB`,`isDocumentKind(kind) || kind === 'image'` 白名单);**text/html** `GET /api/fs/preview`(`maxBytes` clamp `[1024, 1 MiB]`,超 413 ETOOBIG,JSON+base64);**文档类**只回元数据(手机端不渲染)。错误码必须翻译成人话(`previewErrorMessage`: 413/415/403/404/EISDIR)
+- 渲染: 卡片内**直接出内容**(`PresentFileCard` + `PresentFileBody`)—— 图片内联缩略图(`decodeSampled` **必须采样** `inJustDecodeBounds`+`inSampleSize`,1024px;`.svg` 是矢量图,`BitmapFactory` 解不了,只给全屏 WebView);text 内联 12 行 + 展开;文档类 / binary / 超限 / stat 失败 → 一行说明 + 「在 Mac 上打开目录」(`POST /api/fs/reveal`,`open -R`)
+- **`PresentFile` 不进 `ToolGroupCard`**(对齐 web `presentFileRenderer.skipOuterGroup`):它自带内容,收进「工具调用 · N 次」等于把用户要看的东西藏进折叠卡。`AgentItem.isWork` 里显式排除 → 像正文一样打断段落、永远单独成卡
+- 全屏预览层 `FileViewerOverlay`: 图片走字节(`api.rawFile` + `decodeSampled(maxEdge=2560)`)、SVG 走 WebView 直开 `rawUrl`、文档类走 `DocumentBody`
+- 限制: ① 单文件 ② 超 1 MiB 的文本 / 超 10 MiB 的图片不内联 ③ 冷启动只有路径
+- 改前看 `data/PresentFileTest` + `ui/AgentSessionStorePresentFileTest`(后者守"重开会话",直播正常、只有离开再回来才坏)
+- 见 `data/PresentFile.kt` / `ui/AgentSessionViews.kt` 的 `PresentFileCard` / `ui/FileViewerOverlay.kt`
 
 ### 20. 「按住说话」鉴权路径(4 条,`VoiceAsrConfig.providerOrNull` 按序命中)
 
@@ -189,6 +195,40 @@
 - 单测: `data/BackgroundTasksTest.kt`(状态文案 / TTL / 耗时 / 兜底链) + `AgentSessionStoreSseTest.kt`(两路 upsert / 按 id 就地替换 / 过期裁剪 / state 冷启动)
 - 见 `data/BackgroundTasks.kt` / `ui/AgentSessionStore.kt` / `ui/AgentSessionViews.kt` 的 `TaskDockStrip`
 
+### 22. 原生 AskUserQuestion 卡片 + 自动追加 Other(0.18.3)
+
+对齐 opencc-web `QuestionCard.tsx` 的 auto-Other 能力(web 端早就有了,git `1cdbcfe9`),手机端原生 Agent 会话以前只渲染 LLM 给的 options —— 用户答不了 LLM 没列的答案,只能切 WebView。
+
+- **wire**: `AskOption { label, description?, preview? }` + `AskQuestion { question, header, options, multiSelect }`(对 opencc-web `packages/zai/src/server/routes/agent.ts:647-665` 的 `prompt.ask` SSE payload,`ignoreUnknownKeys` 解码)
+- **UI**(`ui/AgentSessionViews.kt`): `AskCard` 拆出 `AskQuestionPanel` + `AskOptionRow` + `PreviewText` + `OtherTextField`,LLM 给的 options 末尾**自动追加** `AskOption(label="Other")` 行;选 Other 时下方出 `OutlinedTextField` 单行文本框,`FocusRequester` + `LaunchedEffect(Unit)` autoFocus
+- **状态机**(`rememberAskAnswerState` → `AskAnswerState`):
+  - `answers: SnapshotStateMap<String, String>` —— 单选 = label / `__other__`;多选 = `", "` join,Other 永远在首位(便于槽替换)
+  - `otherTexts: SnapshotStateMap<String, String>` —— Other 文本框的真实输入,**与 answers 分离存储**
+  - 关键不变量:`answers` 里出现 `__other__` 时**永不替换**为实际文本;这样 Other Input 在 Compose 重组时不会被卸载(对照 web React 上踩过的焦点丢失 bug,见 web `QuestionCard.tsx:88-99`)
+  - 切走 Other 时清空 `otherTexts` 残留(对齐 web `QuestionCard.tsx:115`)
+- **提交**(`buildAskPayload`): 单选 = `if (raw == "__other__") otherText else raw`;多选 = `split(", ").map { if (it == "__other__") otherText else it }.joinToString(", ")`。**服务端收到的是用户实际文本**,不是占位符
+- **Submit 启用**(`allAnsweredFor`): Other + 空文本 = disabled;其他情形对齐 web `QuestionCard.tsx:234-250` 的 `isAnswered`
+- **preview 字段**:服务端可选,默认折叠(> 200 字截断 + 「展开」按钮),对齐 web `PreviewText`(`QuestionCard.tsx:34-54`)
+- **wire 常量对齐**: `OTHER_VALUE = "__other__"` 必须和 web `OTHER_OPTION_VALUE` 完全相同,`OTHER_LABEL = "Other"` 是 UI 文案可改
+- 单测 `ui/AskAnswerTest.kt`(17 用例): `buildAskPayload` × 单/多 × 普通/Other、`allAnsweredFor` × 各种空文本边界、wire 解码(`multiSelect` 默认 false / `preview` 可空)
+- 见 `data/AgentModels.kt` 的 `AskOption` / `AskQuestion`、`ui/AgentSessionViews.kt` 的 `AskCard`
+
+### 23. 「本轮产物」块(0.19.0)
+
+对齐 opencc-web `packages/zai/src/web/src/components/transcript/deriveTurnArtifacts.ts` + `TurnArtifactsBlock.tsx`:每轮对话结束时,在该轮末尾插一个块,列出**这一轮生成 / 修改过的文件**。
+
+- **纯客户端派生,没有后端**。数据源就是渲染用的同一份 `items`(直播流与历史回放同形态),不落 transcript、不进任何存储
+- **按用户消息切轮**,不用服务端的 `turnIndex`(那边恒为 0,不可用)。`deriveTurnArtifacts(items, closed)` 两遍:`UserText` 是边界,上一轮被新用户消息顶掉即视为结束
+- **只有已结束的轮次出块**(`AgentRunStatus.turnClosed` = 非 `Streaming`/`Retrying`)—— 流式中出块会让文件列表边跑边跳。`Idle`/`Aborted`/`Error` 都算结束(中断的轮次已产生的产物照常列)
+- **块内容只含本轮**,不跨轮累加;同路径合并成一行 + `count` 累加(`> 1` 时显示 `×N`),**`Write` 优先决定徽标**(写入绿 `ARTIFACT_WRITTEN` / 编辑紫 `ARTIFACT_EDITED`,与出现顺序无关)
+- **白名单显式列出**(`ARTIFACT_WRITE_TOOLS`):`Write` / `Edit` / `MultiEdit` / `NotebookEdit`(注意最后一个的字段是 `notebook_path`)。**不能用「input 里有 file_path 就算」**—— `Read` / `Grep` / `Glob` 同样带路径,泛化会把只读调用误报成产物
+- **落点在入库时抽**(`writeTargetOf(name, input)` 在 `upsertToolCall` 处调用),不是渲染期从 `AgentItem.input` 再解一遍:`input` 是**给人看的文本**,写文件的调用动辄上万字符,早被 `capForDisplay` 截断成非法 JSON。抽好的结果存在 `AgentItem.ToolCall.write: WriteTarget?`
+- 渲染块 `AgentBlock.Artifacts`(与 `ToolGroup` 一样是渲染粒度,不是数据),由 `buildAgentBlocks(items, compact, artifacts)` 按 `endIndex` 插在锚点所属渲染块**之后**(锚点落在工具段内部就插在整段之后);key = `artifacts-${turnKey}`,`turnKey` 是该轮首条用户消息的 key → 新消息 append 不重挂载,用户的展开/收起意图保留
+- 文件数 `> ARTIFACTS_AUTO_COLLAPSE`(8)默认折叠,块头仍显示总数
+- **看不到** subagent 内部改动与 Bash 间接写入(`sed -i` / 输出重定向)—— 纯客户端方案的固有代价,别当 bug 修
+- 单测 `ui/TurnArtifactsTest`(12 用例): 白名单边界(数字路径 / 空串 / `Read` 不认)、轮次切分与 `endIndex` 锚点、流式中不出块、`Write` 覆盖徽标、产物块插入位置、`PresentFile` 打断工具段
+- 见 `ui/TurnArtifacts.kt`(派生)+ `data/TurnArtifacts.kt`(白名单与取路径)+ `ui/AgentSessionViews.kt` 的 `TurnArtifactsBlock`
+
 ## 常用命令 + 强制开发规则(合并)
 
 ```bash
@@ -211,6 +251,7 @@ adb shell pm clear io.github.hotmanxp.lanagent
 **强制规则**:
 
 - `JAVA_HOME` 必须显式设(同上面命令);`/usr/libexec/java_home` 在这台机器是 broken
+- **Kotlin 编译要删 `app/build/kotlin/**` 下的旧产物,这台机器上 `unlink` 会被拦**(报 `Unable to delete directory ... kotlin-classes/debug` 或 `dirty-sources.txt: Operation not permitted`),第一次会失败。解法:先 `rm -rf app/build`(shell 的 `rm` 是 WorkBuddy shim → 整体 rename 进废纸篓,不受影响)再跑,并带上 `--no-daemon -Dkotlin.incremental=false -Dkotlin.compiler.execution.strategy=in-process`。编译过程中还会打一堆 `Operation not permitted` 堆栈,只要最后是 `BUILD SUCCESSFUL` 就没事(Kotlin 自己会 fallback 到无 daemon 编译)
 - `dl.google.com` 不可达 → `settings.gradle.kts` 已加 Tencent Maven mirror(普通网络用户可移除)
 - Android SDK 在 `/Users/ethan/Library/Android/sdk`,`local.properties` 已 gitignore
 - JDK 21 替代 17(AGP 8.6.1 支持),`compileOptions` 仍保持 `VERSION_17` bytecode target
@@ -223,4 +264,4 @@ adb shell pm clear io.github.hotmanxp.lanagent
 
 ## 版本 / 发布
 
-**当前**: 0.18.1 (73) — 修 WebView 全屏页(`webview/{url}`,含 Agent 会话「在网页打开」到 `/m?sid=`)把 `loadUrl` 写在 composable 函数体里:键盘弹起时每帧 IME inset 变化都重组,每次都重新加载整页,页面输入框点一下就被刷掉、一个字打不进去。已把客户端装配 + 首次 `loadUrl` 收进 `LaunchedEffect(webView)`(见 pitfalls「WebView / Compose 渲染」)。0.18.0 (72) 底部任务栏合并「任务清单 + 后台任务」:后台 agent 子代理与后台 bash 的状态直接显示在会话底栏(见 §21)。0.17.5 (71) 按住说话胶囊瘦身;0.17.4 (70) WorkBuddy 语音 401 自愈;0.17.2 模型选择器 provider 显示名;0.17.0 (67) `/` 命令面板 + Skill 候选;0.16.1 (56) 文件预览 overlay;0.16.0 (55) DisplayFiles;0.15.2 (54) 会话精简模式;0.15.0 (52) 任务栏 = 原生 Agent 工作区;0.14.0 (49) 底部五栏。中间 patch bump(0.14.1 / 0.14.2 / 0.16.2-0.16.5 等)见 git log;**不发 release**;0.17.1 与 0.17.3 是未发版的占位号。
+**当前**: 0.18.3 (75) — 原生 Agent 会话的 AskCard 加 auto-Other:对齐 web `QuestionCard.tsx`,UI 在 LLM 给出的 options 末尾自动追加 Other 选项,选 Other 时出文本框;服务端收到的是用户实际输入(不是 `__other__` 占位符);同时支持 multiSelect + preview 渲染。0.18.2 (74) `/` 命令面板 `argumentHint` 类型分歧(`Array` vs `String`)的反序列化兜底(见 `AgentModelsTest.kt`)。0.18.1 (73) 修 WebView 全屏页(`webview/{url}`,含 Agent 会话「在网页打开」到 `/m?sid=`)把 `loadUrl` 写在 composable 函数体里:键盘弹起时每帧 IME inset 变化都重组,每次都重新加载整页,页面输入框点一下就被刷掉、一个字打不进去。已把客户端装配 + 首次 `loadUrl` 收进 `LaunchedEffect(webView)`(见 pitfalls「WebView / Compose 渲染」)。0.18.0 (72) 底部任务栏合并「任务清单 + 后台任务」:后台 agent 子代理与后台 bash 的状态直接显示在会话底栏(见 §21)。0.17.5 (71) 按住说话胶囊瘦身;0.17.4 (70) WorkBuddy 语音 401 自愈;0.17.2 模型选择器 provider 显示名;0.17.0 (67) `/` 命令面板 + Skill 候选;0.16.1 (56) 文件预览 overlay;0.16.0 (55) DisplayFiles;0.15.2 (54) 会话精简模式;0.15.0 (52) 任务栏 = 原生 Agent 工作区;0.14.0 (49) 底部五栏。中间 patch bump(0.14.1 / 0.14.2 / 0.16.2-0.16.5 等)见 git log;**不发 release**;0.17.1 与 0.17.3 是未发版的占位号。

@@ -444,9 +444,10 @@ private fun CommandBlockCard(block: SshCommandBlock, onRerun: () -> Unit) {
 
             if (block.output.isNotBlank()) {
                 Box(Modifier.padding(top = 8.dp)) {
-                    // lang 传 "output" 而不是留空 —— CodeBox 的标签位空着会
+                    // label 传 "output" 而不是留空 —— CodeBox 的标签位空着会
                     // 回落成 "code"(它本来是给 Markdown 代码块用的)。
-                    CodeBox(body = capTail(block.output), lang = "output")
+                    // 走 label 而非 lang:命令输出不是某种语言,不该拿去猜着色规则。
+                    CodeBox(body = capTail(block.output), label = "output")
                 }
             }
 

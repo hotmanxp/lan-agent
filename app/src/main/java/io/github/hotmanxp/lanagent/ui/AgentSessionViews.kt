@@ -508,15 +508,16 @@ internal fun ToolCallCard(item: AgentItem.ToolCall) {
                 )
             }
             if (expanded) {
+                val codeLang = toolCodeLabel(item)
                 Column(modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 12.dp)) {
                     item.input?.takeIf { it.isNotBlank() }?.let {
                         SectionLabel("入参")
-                        CodeBox(it)
+                        CodeBox(it, codeLang)
                     }
                     item.output?.takeIf { it.isNotBlank() }?.let {
                         Spacer(Modifier.height(8.dp))
                         SectionLabel("输出")
-                        CodeBox(it)
+                        CodeBox(it, codeLang)
                     }
                     if (item.input.isNullOrBlank() && item.output.isNullOrBlank()) {
                         Text(
@@ -876,7 +877,11 @@ private fun InlineFileText(file: PresentedFile, api: AgentApi?) {
             val lines = s.content.lines()
             Column {
                 if (expanded) {
-                    if (isMarkdownPath(file.path)) MarkdownText(s.content) else CodeBox(s.content)
+                    if (isMarkdownPath(file.path)) {
+                        MarkdownText(s.content)
+                    } else {
+                        CodeBox(s.content, codeLanguageLabel(file.path))
+                    }
                     TextButton(onClick = { expanded = false }) { Text("收起", fontSize = 12.sp) }
                 } else {
                     Text(
@@ -2078,7 +2083,7 @@ private fun ApproveCard(
                     strokeWidth = 1.5.dp,
                 )
 
-                fileContent != null -> CodeBox(fileContent)
+                fileContent != null -> CodeBox(fileContent, codeLanguageLabel(pending.filePath))
                 else -> Text(
                     text = "文件内容不可用",
                     fontSize = 12.sp,

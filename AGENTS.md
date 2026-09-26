@@ -2,7 +2,7 @@
 
 > **lan-agent** — Android App,把局域网内多个 opencc-web 实例入口收成卡片列表 + **原生**展示实例管理 API + **原生** Agent 会话(直连 `/api/agent/sessions` + `/api/event` SSE)+ SSH 一键启动 zai。配套工程 `/Users/ethan/code/opencc-web`,zai 需 `pnpm --filter @zn-ai/zai dev -- --lan` 启动。
 >
-> **关键里程碑**: 0.10.0 视觉对齐 WorkBuddy + 自研 Markdown;0.14.0 改底部五栏;0.15.0 任务栏直接是原生 Agent 工作区;0.16.0 DisplayFiles 文件卡片;0.16.1 文件预览改面板内 overlay(不占路由);0.17.0 `/` 命令面板 + Skill 候选;0.17.4 语音 401 自愈;0.18.0 底部任务栏显示后台任务 / 后台子代理;0.18.1 WebView 函数体副作用修复(点 /m 输入框不再整页刷新);0.18.2 `/` 命令面板 argumentHint 解析容错;0.18.3 原生 AskUserQuestion 卡片 + 自动追加 Other;0.19.0 DisplayFiles 改 **PresentFile**(单文件内容卡:图片/文本内联渲染,9 种 kind)+ **本轮产物块**;0.19.1 SVG 全屏预览改 base64 + `<img>` 包 `text/html`(避开 Chromium 不渲染 `image/svg+xml` 主框架);**0.19.2 修 0.19.1 引入的白屏**(缺 doctype 落 quirks 模式 + `height:100%` 塌成 0,见 §19「SVG 预览两步坑」)。**当前 HEAD**: HEAD on `main` · **versionCode 78** · **versionName 0.19.2**。
+> **关键里程碑**: 0.10.0 视觉对齐 WorkBuddy + 自研 Markdown;0.14.0 改底部五栏;0.15.0 任务栏直接是原生 Agent 工作区;0.16.0 DisplayFiles 文件卡片;0.16.1 文件预览改面板内 overlay(不占路由);0.17.0 `/` 命令面板 + Skill 候选;0.17.4 语音 401 自愈;0.18.0 底部任务栏显示后台任务 / 后台子代理;0.18.1 WebView 函数体副作用修复(点 /m 输入框不再整页刷新);0.18.2 `/` 命令面板 argumentHint 解析容错;0.18.3 原生 AskUserQuestion 卡片 + 自动追加 Other;0.19.0 DisplayFiles 改 **PresentFile**(单文件内容卡:图片/文本内联渲染,9 种 kind)+ **本轮产物块**;0.19.1 SVG 全屏预览改 base64 + `<img>` 包 `text/html`(避开 Chromium 不渲染 `image/svg+xml` 主框架);**0.19.2 修 0.19.1 引入的白屏**(缺 doctype 落 quirks 模式 + `height:100%` 塌成 0,见 §19「SVG 预览两步坑」);0.20.0 代码块语法高亮(内核 `dev.snipme:highlights`,见 §24)。**当前 HEAD**: HEAD on `main` · **versionCode 79** · **versionName 0.20.0**。
 >
 > **独立顶级目录、独立 git 仓库**,不在 opencc-web monorepo 内。spec / plan 在 `docs/superpowers/{specs,plans}/`(0.6.0 之后已过期,仅作历史参考)。
 
@@ -233,6 +233,21 @@
 - 单测 `ui/TurnArtifactsTest`(12 用例): 白名单边界(数字路径 / 空串 / `Read` 不认)、轮次切分与 `endIndex` 锚点、流式中不出块、`Write` 覆盖徽标、产物块插入位置、`PresentFile` 打断工具段
 - 见 `ui/TurnArtifacts.kt`(派生)+ `data/TurnArtifacts.kt`(白名单与取路径)+ `ui/AgentSessionViews.kt` 的 `TurnArtifactsBlock`
 
+### 24. 代码块语法高亮(0.20.0)
+
+内核 `dev.snipme:highlights`(highlight.js 的 Kotlin 移植),渲染在 `ui/CodeHighlight.kt`。**web 端的高亮来自 Shiki / highlight.js 全集,内核只有 18 种语言** —— 认不出就老实用纯文本,这是常态不是 bug。
+
+- **版本只能用 1.0.0**:它依赖 `kotlin-stdlib 2.0.20`,与本项目 Kotlin 2.0.21 对齐。**1.1.0 把 stdlib 抬到 2.2.0,编译器直接报 kotlin metadata 版本不兼容** —— 别顺手升
+- **API 不用 `Highlights.getHighlights()`**:它返回 `ColorHighlight(location, rgb)`,颜色被内核主题锁死(其 light 变体实际就是深色,亮底上会糊)。改取 `getCodeStructure()` 按**类型字段**(`keywords` / `strings` / `comments` / `marks` / `punctuations` / `literals` / `annotations`)自己染色,才能跟 `WbPalette` 对齐
+- **区间是 `[start, end)` 左闭右开**(与 Compose `addStyle(style, start, end)` 一致),但**不保证合法** → 见下面那条闪退
+- **`isUsableRange` 守卫不能删**:内核会产出 `start > end` 的反向区间。SHELL 里「星号紧跟斜杠」(形如 `find … -path "…/node_modules/…"`)会被块注释扫描器当成注释结束标记,算出 `start=56, end=44`,直接喂 Compose 抛 `IllegalArgumentException: Reversed range is not supported` 把**整个会话屏幕闪退**。`highlightCode` 外层还有一层 `runCatching` 兜底
+- **性能是超线性的**(实测):100 行 ≈ 1ms / 400 行 ≈ 5ms / 800 行 ≈ 18ms(已超一帧)/ 5000 行 ≈ 710ms。瓶颈在内核标点定位器对每个标点做全串 `indicesOf`,不是字符数 —— 同样 137k 字符的纯文本只要 23ms。故 `MAX_HIGHLIGHT_CHARS = 4000`,超了整个跳过着色。**改这个常量前重跑基准**
+- **明暗色板走 `LocalWbDarkTheme`,不能用 `isSystemInDarkTheme()`**:设置栏可手动选亮/暗,系统值会跟页面真实明暗不一致,导致「浅色卡片上刷深色代码」。`LanAgentTheme` 里 provides 真实的 `darkTheme`
+- **`CodeBox` 的 `lang` 与 `label` 分开**:`lang` 选着色规则,`label` 只改右上角小字。SSH 输出传的是 `label = "output"` —— 它以前占着 `lang`,会被拿去猜语言(已修)
+- **工具卡的 `lang` 优先取写入路径**(`ToolCall.write.path` → `codeLanguageLabel`),取不到才按工具名兜底(`Bash` → `sh`)。**故意不按工具名大面积兜底**:写文件类工具的入参是 JSON 结构体,拿「全语言关键字并集」去染它会给出误导性配色,宁可不着色
+- 单测 `ui/CodeHighlightTest`(15 用例): 别名收敛、人话标签不当代码(`output` / 中文)、路径取扩展名边界、`isUsableRange`、**内核确实产出反向区间**(上游修了会失败,提示可放宽守卫但别删)
+- 见 `ui/CodeHighlight.kt`(高亮与语言映射)+ `ui/Markdown.kt` 的 `CodeBox`(渲染)
+
 ## 常用命令 + 强制开发规则(合并)
 
 ```bash
@@ -268,4 +283,4 @@ adb shell pm clear io.github.hotmanxp.lanagent
 
 ## 版本 / 发布
 
-**当前**: 0.19.2 (78) — 修 0.19.1 引入的 SVG 全屏预览白屏:那段包 `<img>` 的 HTML 缺 `<!DOCTYPE html>`,WebView 落进 quirks 模式导致 `body` 算不出高度、图片 `height:100%` 塌成 0(实测 `naturalWidth/Height` 与 `complete` 全对、`rect` 是 `[980,0]`)。补 doctype + 改 `position:fixed`(包含块是视口)。**桌面 Chrome 复现不了此坑**,只能真机验。回归测试 `ui/SvgPreviewHtmlTest`。0.19.1 (77) SVG 全屏预览改 base64 + `<img>` 包 `text/html`,避开 Chromium 不渲染 `image/svg+xml` 主框架(该版只解决了黑屏、白屏问题留到 0.19.2)。0.19.0 (76) DisplayFiles → PresentFile + 本轮产物块。0.18.3 (75) 原生 Agent 会话的 AskCard 加 auto-Other:对齐 web `QuestionCard.tsx`,UI 在 LLM 给出的 options 末尾自动追加 Other 选项,选 Other 时出文本框;服务端收到的是用户实际输入(不是 `__other__` 占位符);同时支持 multiSelect + preview 渲染。0.18.2 (74) `/` 命令面板 `argumentHint` 类型分歧(`Array` vs `String`)的反序列化兜底(见 `AgentModelsTest.kt`)。0.18.1 (73) 修 WebView 全屏页(`webview/{url}`,含 Agent 会话「在网页打开」到 `/m?sid=`)把 `loadUrl` 写在 composable 函数体里:键盘弹起时每帧 IME inset 变化都重组,每次都重新加载整页,页面输入框点一下就被刷掉、一个字打不进去。已把客户端装配 + 首次 `loadUrl` 收进 `LaunchedEffect(webView)`(见 pitfalls「WebView / Compose 渲染」)。0.18.0 (72) 底部任务栏合并「任务清单 + 后台任务」:后台 agent 子代理与后台 bash 的状态直接显示在会话底栏(见 §21)。0.17.5 (71) 按住说话胶囊瘦身;0.17.4 (70) WorkBuddy 语音 401 自愈;0.17.2 模型选择器 provider 显示名;0.17.0 (67) `/` 命令面板 + Skill 候选;0.16.1 (56) 文件预览 overlay;0.16.0 (55) DisplayFiles;0.15.2 (54) 会话精简模式;0.15.0 (52) 任务栏 = 原生 Agent 工作区;0.14.0 (49) 底部五栏。中间 patch bump(0.14.1 / 0.14.2 / 0.16.2-0.16.5 等)见 git log;**不发 release**;0.17.1 与 0.17.3 是未发版的占位号。
+**当前**: 0.20.0 (79) — 代码块语法高亮:引入内核 `dev.snipme:highlights` 1.0.0(highlight.js 的 Kotlin 移植,18 种语言),`CodeBox` 渲染 AnnotatedString 取代纯文本;深浅两套 token 色板跟 `WbPalette` 对齐,走新加的 `LocalWbDarkTheme`(**不用 `isSystemInDarkTheme()`** —— 设置栏可手动选亮/暗,系统值会跟页面真实明暗不一致);认不出语言 / 超 4000 字符自动降级纯文本。落地时真机抓到一个**必崩 bug**:内核为 SHELL 里的「星号紧跟斜杠」产出反向区间(`start=56, end=44`),直接把会话屏幕闪退 —— 加 `isUsableRange` 守卫 + 外层 `runCatching`。详见 §24。0.19.2 (78) — 修 0.19.1 引入的 SVG 全屏预览白屏:那段包 `<img>` 的 HTML 缺 `<!DOCTYPE html>`,WebView 落进 quirks 模式导致 `body` 算不出高度、图片 `height:100%` 塌成 0(实测 `naturalWidth/Height` 与 `complete` 全对、`rect` 是 `[980,0]`)。补 doctype + 改 `position:fixed`(包含块是视口)。**桌面 Chrome 复现不了此坑**,只能真机验。回归测试 `ui/SvgPreviewHtmlTest`。0.19.1 (77) SVG 全屏预览改 base64 + `<img>` 包 `text/html`,避开 Chromium 不渲染 `image/svg+xml` 主框架(该版只解决了黑屏、白屏问题留到 0.19.2)。0.19.0 (76) DisplayFiles → PresentFile + 本轮产物块。0.18.3 (75) 原生 Agent 会话的 AskCard 加 auto-Other:对齐 web `QuestionCard.tsx`,UI 在 LLM 给出的 options 末尾自动追加 Other 选项,选 Other 时出文本框;服务端收到的是用户实际输入(不是 `__other__` 占位符);同时支持 multiSelect + preview 渲染。0.18.2 (74) `/` 命令面板 `argumentHint` 类型分歧(`Array` vs `String`)的反序列化兜底(见 `AgentModelsTest.kt`)。0.18.1 (73) 修 WebView 全屏页(`webview/{url}`,含 Agent 会话「在网页打开」到 `/m?sid=`)把 `loadUrl` 写在 composable 函数体里:键盘弹起时每帧 IME inset 变化都重组,每次都重新加载整页,页面输入框点一下就被刷掉、一个字打不进去。已把客户端装配 + 首次 `loadUrl` 收进 `LaunchedEffect(webView)`(见 pitfalls「WebView / Compose 渲染」)。0.18.0 (72) 底部任务栏合并「任务清单 + 后台任务」:后台 agent 子代理与后台 bash 的状态直接显示在会话底栏(见 §21)。0.17.5 (71) 按住说话胶囊瘦身;0.17.4 (70) WorkBuddy 语音 401 自愈;0.17.2 模型选择器 provider 显示名;0.17.0 (67) `/` 命令面板 + Skill 候选;0.16.1 (56) 文件预览 overlay;0.16.0 (55) DisplayFiles;0.15.2 (54) 会话精简模式;0.15.0 (52) 任务栏 = 原生 Agent 工作区;0.14.0 (49) 底部五栏。中间 patch bump(0.14.1 / 0.14.2 / 0.16.2-0.16.5 等)见 git log;**不发 release**;0.17.1 与 0.17.3 是未发版的占位号。

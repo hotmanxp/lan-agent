@@ -107,6 +107,15 @@ private val DarkExtras = WbExtras(
 
 val LocalWbExtras = staticCompositionLocalOf { LightExtras }
 
+/**
+ * 当前**实际生效**的明暗状态。
+ *
+ * 不能直接用 `isSystemInDarkTheme()` 判断:设置栏可以手动选亮/暗,此时系统值
+ * 与页面真实明暗不一致 —— 代码块语法高亮若按系统值选色板,就会出现「浅色卡片
+ * 上刷深色代码」。这里把 [LanAgentTheme] 解析后的结果传给下面。
+ */
+val LocalWbDarkTheme = staticCompositionLocalOf { false }
+
 private val LightScheme = lightColorScheme(
     primary = WbPalette.BrandOrange,
     onPrimary = Color.White,
@@ -256,6 +265,7 @@ fun LanAgentTheme(
     ) {
         CompositionLocalProvider(
             LocalWbExtras provides if (darkTheme) DarkExtras else LightExtras,
+            LocalWbDarkTheme provides darkTheme,
             content = content,
         )
     }

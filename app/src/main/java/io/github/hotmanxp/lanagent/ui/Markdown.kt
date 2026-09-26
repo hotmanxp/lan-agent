@@ -597,13 +597,24 @@ private fun TableBlock(table: MdBlock.Table, body: TextStyle, colors: InlineColo
 }
 
 /**
- * 代码块。等宽字体 + 独立底框 + 可横滚,右上角给一个复制键 —— 手机上抄
- * 命令 / diff 的场景比桌面还多。
+ * 代码块。等宽字体 + 独立底框 + 可横滚 + 语法高亮,右上角给一个复制键 ——
+ * 手机上抄命令 / diff 的场景比桌面还多。
+ *
+ * 高亮实现在 [highlightCode];认不出语言 / 超过长度阈值时自动降级成纯文本,
+ * 不会因此少显示任何内容。
+ *
+ * [lang] 是**语言标签**(`kt` / `bash` / 围栏后的 `ts`),只用于选着色规则;
+ * 想改右上角那行小字而**不**触发着色(比如 SSH 输出标 `output`),传 [label]。
+ * 两者分开是因为它们本来就不是一回事 —— 早先把显示文案塞进 `lang`,会让
+ * `output` 这种纯展示文字被当成语言去猜。
  */
 @Composable
-internal fun CodeBox(body: String, lang: String? = null) {
+internal fun CodeBox(body: String, lang: String? = null, label: String? = null) {
     val clipboard = LocalClipboardManager.current
     val code = remember(body) { body.trim('\n') }
+    val styles = rememberCodeStyles()
+    val language = remember(lang) { codeLanguageForLabel(lang) }
+    val highlighted = rememberHighlightedCode(code, language, styles)
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerHighest,
         shape = RoundedCornerShape(10.dp),
@@ -617,7 +628,7 @@ internal fun CodeBox(body: String, lang: String? = null) {
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = lang?.takeIf { it.isNotBlank() } ?: "code",
+                    text = (label ?: lang)?.takeIf { it.isNotBlank() } ?: "code",
                     fontSize = 10.sp,
                     fontFamily = FontFamily.Monospace,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -647,7 +658,7 @@ internal fun CodeBox(body: String, lang: String? = null) {
                 }
             }
             Text(
-                text = code,
+                text = highlighted,
                 fontFamily = FontFamily.Monospace,
                 fontSize = 12.sp,
                 lineHeight = 18.sp,

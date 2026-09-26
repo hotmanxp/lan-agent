@@ -59,8 +59,8 @@ android {
         applicationId = "io.github.hotmanxp.lanagent"
         minSdk = 26
         targetSdk = 34
-        versionCode = 78
-        versionName = "0.19.2"
+        versionCode = 79
+        versionName = "0.20.0"
 
         // 语音识别凭据 / 开关。见文件头注释；空值 = 未配置，走系统 SpeechRecognizer。
         buildConfigField("String", "ASR_APP_ID", asrLiteral(asrAppId))
@@ -123,6 +123,7 @@ dependencies {
     implementation(libs.mlkit.barcode.scanning)
     implementation(libs.okhttp)
     implementation(libs.jsch)
+    implementation(libs.highlights)
 
     testImplementation(kotlin("test"))
     // 真实 org.json 实现，覆盖 Android stub —— voice/WorkBuddyApi 解析用。

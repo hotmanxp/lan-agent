@@ -465,7 +465,7 @@ private fun TextBody(path: String, content: String) {
         if (isMarkdown) {
             MarkdownText(content)
         } else {
-            CodeBox(content)
+            CodeBox(content, codeLanguageLabel(path))
         }
     }
 }

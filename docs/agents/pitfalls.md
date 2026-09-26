@@ -20,6 +20,7 @@
 | 状态栏被扣两次 | 根 Scaffold 的 `contentWindowInsets` 没关;外层 `contentWindowInsets = WindowInsets(0,0,0,0)`(§10) |
 | 详情页内容被底栏顶掉一截 | 内层屏幕又加了一次 `navigationBarsPadding`;底栏常驻后 inset 已被扣过一次(0.14.2 已去) |
 | 页面里的 `<input>` 点一下就**整页刷新**,键盘闪一下就没,一个字打不进去 | 挂在 `AndroidView` 上的 `.imePadding()` 让本屏**每帧 IME inset 变化都重跑 composable 函数体**,而 `webView.loadUrl(...)`(和客户端装配)被写在了函数体里 → 每帧重新加载一次。装配 + 首次加载必须收进 `LaunchedEffect(webView)`(0.18.1 修;实测同一 bug 在进场动画期间也会把页面连加载 8 遍) |
+| `loadDataWithBaseURL` 的 HTML **图表/图片看不见,但图是解码成功的** | 和第 70 行同源:`height:100%` 因**缺 `<!DOCTYPE html>`** 落 quirks 模式而塌成 0(第 70 行是 WebView 未测量,这里是 quirks 布局,两者症状像但根因不同 —— 都在"父容器高度算不出来")。探针 `naturalWidth/Height` 与 `complete` 全对、`getBoundingClientRect()` 却是 `[宽, 0]` 就是这个。修:`<!DOCTYPE html>` + `img{position:fixed;...}`(包含块是视口,不依赖 `body` 高度)。⚠️ **桌面/模拟器 Chrome 打开同一份 HTML 完全正常**,拿浏览器当对照会误判"HTML 没问题"(0.19.2 修,见 `AGENTS.md` §19) |
 
 ## WebView 上传 / 文件选择
 

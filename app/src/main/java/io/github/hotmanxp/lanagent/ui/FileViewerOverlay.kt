@@ -251,6 +251,9 @@ private fun FileViewerContent(
 }
 
 /**
+ * [SvgBytesBody] 的 HTML 拼装(抽出来是为了 [SvgPreviewHtmlTest] 能钉住两个
+ * **只在 WebView 里才会现形**的约束:doctype 与 `position:fixed`)。
+ *
  * SVG 必须走 WebView(`BitmapFactory` 解不了 XML)。但 Chromium WebView 的 main
  * frame **不渲染 `image/svg+xml` MIME 的 GET 响应** —— 收到这个 MIME Chromium
  * 会按"下载资源"处理,主框架保持空白 → 全黑(见 [ImageBytesBody] 同款黑底)。所以
@@ -258,18 +261,30 @@ private fun FileViewerContent(
  * 换 MIME `text/html` 加载 —— `<img>` 渲染 SVG 是 100% 可靠的(同浏览器直接打开
  * .svg 文件的渲染路径,只是借了 HTML 主框架)。字节来源仍是 [AgentApi.rawFile]
  * (`/api/fs/raw` 通道),`IMAGE_MAX_BYTES`(10 MiB)保护直接继承,不用新加限制。
+ *
+ * **`<!DOCTYPE html>` + `position:fixed` 都不能省**(0.19.2 修的坑):缺 doctype 时
+ * WebView 落进 quirks 模式,`body` 高度算不出来,`height:100%` / `max-height:100%`
+ * 挂在它下面都会塌成 **0** —— 图片 `naturalWidth/Height` 都正常、`complete:true`,
+ * 但 `getBoundingClientRect()` 是 `[宽, 0]`,整片白。`position:fixed` 的包含块是
+ * **视口**、不依赖 `body` 高度,是这里真正起作用的那个约束。桌面 Chrome 走另一套
+ * 视口处理,同一份 HTML 在它那儿正常 —— 所以**这个 bug 只在真机/模拟器的 WebView
+ * 里复现**,拿 Chrome 做对照会得出"HTML 没问题"的错误结论。
  */
+internal fun buildSvgPreviewHtml(base64: String): String =
+    """<!DOCTYPE html>
+<html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+html,body{margin:0;padding:0;background:#fff;overflow:hidden}
+img{position:fixed;left:0;top:0;width:100%;height:100%;object-fit:contain}
+</style></head>
+<body><img src="data:image/svg+xml;base64,$base64" alt=""></body></html>"""
+
 @Composable
 private fun SvgBytesBody(api: AgentApi, path: String) {
     val state by produceState<SvgState>(SvgState.Loading, api, path) {
         value = withContext(Dispatchers.IO) {
             runCatching {
-                val bytes = api.rawFile(path)
-                val b64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
-                """<html><body style="margin:0;background:#fff">
-<img src="data:image/svg+xml;base64,$b64"
-     style="display:block;width:100%;height:100%;object-fit:contain">
-</body></html>"""
+                buildSvgPreviewHtml(Base64.encodeToString(api.rawFile(path), Base64.NO_WRAP))
             }.fold(
                 onSuccess = { SvgState.Ok(it) },
                 onFailure = { SvgState.Failed(previewErrorMessage(it)) },

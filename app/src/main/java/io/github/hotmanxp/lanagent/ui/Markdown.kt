@@ -600,8 +600,8 @@ private fun TableBlock(table: MdBlock.Table, body: TextStyle, colors: InlineColo
  * 代码块。等宽字体 + 独立底框 + 可横滚 + 语法高亮,右上角给一个复制键 ——
  * 手机上抄命令 / diff 的场景比桌面还多。
  *
- * 高亮实现在 [highlightCode];认不出语言 / 超过长度阈值时自动降级成纯文本,
- * 不会因此少显示任何内容。
+ * 高亮实现在 [highlightCode],后台线程计算、不设长度上限;认不出语言时
+ * 自动降级成纯文本,不会因此少显示任何内容。
  *
  * [lang] 是**语言标签**(`kt` / `bash` / 围栏后的 `ts`),只用于选着色规则;
  * 想改右上角那行小字而**不**触发着色(比如 SSH 输出标 `output`),传 [label]。

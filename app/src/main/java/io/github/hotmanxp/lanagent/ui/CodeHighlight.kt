@@ -13,6 +13,7 @@ package io.github.hotmanxp.lanagent.ui
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
@@ -23,13 +24,9 @@ import androidx.compose.ui.text.font.FontWeight
 import dev.snipme.highlights.Highlights
 import dev.snipme.highlights.model.PhraseLocation
 import dev.snipme.highlights.model.SyntaxLanguage
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.util.Locale
-
-/**
- * 超过这个字符数就不再着色。理由见文件末尾注释 —— 内核定位器对密集代码是
- * **超线性**的,137k 字符要 700ms,放主线程就是必崩级别的卡顿。
- */
-private const val MAX_HIGHLIGHT_CHARS = 4000
 
 /** 代码块里的各类 token 颜色,由 [WbCodeStyles] 提供深浅两套。 */
 @Immutable
@@ -125,9 +122,13 @@ internal fun codeLanguageForLabel(label: String?): SyntaxLanguage? = syntaxLangu
  * 区间语义:`PhraseLocation` 是 **`[start, end)` 左闭右开**,与 Compose
  * `addStyle(start, end)` 一致 —— 但区间**不保证合法**,必须走 [styleRanges]
  * 校验后再用(原因见该函数注释)。
+ *
+ * **没有长度上限**:本函数只允许在后台线程调(见 [rememberHighlightedCode]),
+ * 内核对密集代码的耗时是超线性的,放主线程必卡帧;在后台线程上,大文件多算
+ * 几百毫秒只是「颜色晚一点出现」,UI 不受影响。
  */
 internal fun highlightCode(code: String, language: SyntaxLanguage?, styles: CodeStyles): AnnotatedString {
-    if (language == null || code.length > MAX_HIGHLIGHT_CHARS) return AnnotatedString(code)
+    if (language == null) return AnnotatedString(code)
 
     // 整个构建过程都兜住:内核是第三方解析器,它的输出是不可信输入 ——
     // [styleRanges] 已经挡住了已知的非法区间,这里是第二道保险,代价只是
@@ -193,17 +194,31 @@ private fun AnnotatedString.Builder.styleRanges(
 }
 
 /**
- * 带缓存的入口。[language] 为 null 或超长时返回纯文本。
+ * 带缓存 + 后台计算的入口。[language] 为 null 时返回纯文本。
+ *
+ * **耗时部分必须在后台线程**:内核解析对密集代码是超线性的(5000 行 ≈ 710ms,
+ * 见文件末尾基准),直接在 `remember {}` 里算就是主线程卡帧。所以这里用
+ * `produceState`:先渲染纯文本立即可见,`Dispatchers.Default` 算完高亮再原位
+ * 替换 —— 大文件「先白后彩」而不是「先卡后彩」。
  *
  * 缓存键含语言与明暗 —— 主题切换后必须重算,否则深色下会残留浅色 token 色。
+ * 语言为 null 时内核根本不会跑,直接同步返回,不值得开协程。
  */
 @Composable
 internal fun rememberHighlightedCode(
     code: String,
     language: SyntaxLanguage?,
     styles: CodeStyles,
-): AnnotatedString = remember(code, language, styles) {
-    highlightCode(code, language, styles)
+): AnnotatedString {
+    if (language == null) return remember(code) { AnnotatedString(code) }
+    return produceState(
+        initialValue = AnnotatedString(code),
+        key1 = code,
+        key2 = language,
+        key3 = styles,
+    ) {
+        value = withContext(Dispatchers.Default) { highlightCode(code, language, styles) }
+    }.value
 }
 
 /**
@@ -236,7 +251,7 @@ internal fun codeLanguageLabel(path: String?): String? {
     return base.substring(dot + 1)
 }
 
-// ── 性能取舍(实测数据,勿轻易调 MAX_HIGHLIGHT_CHARS)─────────────────────────
+// ── 性能取舍(实测数据)─────────────────────────────────────────────────
 //
 // 在 M 系主机上对内核 1.0.0 实测(密集代码,KOTLIN):
 //
@@ -247,8 +262,12 @@ internal fun codeLanguageLabel(path: String?): String? {
 //
 // 注意这不是线性的:瓶颈在内核的标点/括号定位器(`MarkLocator` 对每个标点做
 // 全串 `indicesOf`,O(字符数 × 不同标点数))。同样 137k 字符的**纯文本**(无
-// 标点)只要 22.8ms —— 所以卡顿完全由代码密度决定,不能只按行数估。
+// 标点)只要 22.8ms —— 所以卡顿由代码密度决定,行数只是它的近似。
 //
-// 4k 字符 ≈ 100 行,实测 ~1.5ms,远在帧预算内;超过就整个跳过着色用纯文本。
-// 跳过的代价只是「大 diff 没有颜色」,不影响可读性 —— 而着色带来的卡顿是
-// 整屏级的。
+// 阈值方案演进:先是 4000 字符 → 普通 100 行源码就 3-6k,大量文件被挡成纯
+// 文本;再是 1000 行 → 仍要维护「超限没颜色」的降级。现在**不再设阈值**:
+// `rememberHighlightedCode` 把解析挪到 `Dispatchers.Default`,主线程零耗时,
+// 大文件「先纯文本立即可见,高亮算完原位替换」。代价只是大文件颜色晚几百毫秒
+// 出现,不再有「没有颜色」这一说。唯一要保持的纪律: `highlightCode` **只准在
+// 后台线程调** —— 哪天有人把它挪回 `remember {}` 同步算,5000 行文件会当场
+// 把主线程卡住 700ms。

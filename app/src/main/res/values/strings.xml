@@ -346,4 +346,36 @@
     <string name="agent_cmd_compacted">已压缩 %1$d 条消息</string>
     <string name="agent_cmd_unknown">未找到命令 %1$s</string>
     <string name="agent_cmd_failed">命令执行失败:%1$s</string>
+    <!-- Agents-Anywhere server 接入(调试用最小可跑屏,见 ui/AgentsAnywhereScreen.kt) -->
+    <string name="settings_section_agents_anywhere">Agent 服务器</string>
+    <string name="settings_agents_anywhere_sub">连接 /Users/ethan/code/Agents-Anywhere server,验证 WS ticket 鉴权 + 推送契约 + 发送消息往返</string>
+    <string name="settings_agents_anywhere_open">打开调试屏</string>
+    <string name="agents_anywhere_title">Agents-Anywhere</string>
+    <string name="agents_anywhere_back">返回</string>
+    <string name="agents_anywhere_field_base_url">服务器地址</string>
+    <string name="agents_anywhere_field_access_token">Bearer Token</string>
+    <string name="agents_anywhere_save">保存</string>
+    <string name="agents_anywhere_list_sessions">拉取会话</string>
+    <string name="agents_anywhere_loading">加载中…</string>
+    <string name="agents_anywhere_subscribe_dashboard">订阅 Dashboard WS</string>
+    <string name="agents_anywhere_no_session">请先在下方选择一个会话</string>
+    <string name="agents_anywhere_input_hint">输入消息内容…</string>
+    <string name="agents_anywhere_send">发送</string>
+    <!-- 0.21.0 屏内扩充:状态/连接/气泡/notice 交互 -->
+    <string name="agents_anywhere_session_title">会话详情</string>
+    <string name="agents_anywhere_back_to_dashboard">← 列表</string>
+    <string name="agents_anywhere_config_title">服务器配置</string>
+    <string name="agents_anywhere_field_access_token_hint">从 Agents-Anywhere Web 登录后拿到 JWT(AuthResponse.accessToken);也可以从 dev 工具 /auth/config 拿 bootstrap</string>
+    <string name="agents_anywhere_local_props_active">已使用 local.properties 兜底</string>
+    <string name="agents_anywhere_reconnect">手动重连</string>
+    <string name="agents_anywhere_dashboard_sessions">会话</string>
+    <string name="agents_anywhere_dashboard_sessions_empty">点「拉取会话」列出</string>
+    <string name="agents_anywhere_dashboard_projects">项目</string>
+    <string name="agents_anywhere_dashboard_connectors">连接器</string>
+    <string name="agents_anywhere_dashboard_runtimes">运行时</string>
+    <string name="agents_anywhere_dashboard_runtimes_empty">无 user 级 REST 入口;请订阅 dashboard WS 查看</string>
+    <string name="agents_anywhere_session_empty">发送消息开始与 Agent 对话</string>
+    <string name="agents_anywhere_interrupt">中断当前轮次</string>
+    <string name="agents_anywhere_notice_input_hint">补充输入(可选)</string>
+    <string name="agents_anywhere_notice_cancel">取消</string>
 </resources>

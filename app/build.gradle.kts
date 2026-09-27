@@ -51,6 +51,14 @@ val asrWbRefreshToken = asrCfg("asrWbRefreshToken")
 val asrWbUid = asrCfg("asrWbUid")
 val asrWbEndpoint = asrCfg("asrWbEndpoint")
 
+// ── Agents-Anywhere server 默认配置(同 asrWbAccessToken 一套 local.properties 模式) ──
+// 真机调试 Agents-Anywhere 时把这两个写进 `local.properties`(已 gitignore):
+//   agentsAnywhereBaseUrl=http://192.168.x.x:8000
+//   agentsAnywhereToken=<server 登录拿到的 accessToken>
+// UI 里手动填值优先级更高 —— 留空 = 默认未配置,屏上提示用户填。
+val agentsAnywhereBaseUrl = asrCfg("agentsAnywhereBaseUrl")
+val agentsAnywhereToken = asrCfg("agentsAnywhereToken")
+
 android {
     namespace = "io.github.hotmanxp.lanagent"
     compileSdk = 34
@@ -59,8 +67,8 @@ android {
         applicationId = "io.github.hotmanxp.lanagent"
         minSdk = 26
         targetSdk = 34
-        versionCode = 81
-        versionName = "0.20.2"
+        versionCode = 82
+        versionName = "0.21.0"
 
         // 语音识别凭据 / 开关。见文件头注释；空值 = 未配置，走系统 SpeechRecognizer。
         buildConfigField("String", "ASR_APP_ID", asrLiteral(asrAppId))
@@ -75,6 +83,10 @@ android {
         buildConfigField("String", "ASR_WB_REFRESH_TOKEN", asrLiteral(asrWbRefreshToken))
         buildConfigField("String", "ASR_WB_UID", asrLiteral(asrWbUid))
         buildConfigField("String", "ASR_WB_ENDPOINT", asrLiteral(asrWbEndpoint))
+
+        // Agents-Anywhere server 默认值(local.properties 兜底,UI 优先级更高)
+        buildConfigField("String", "AGENTS_ANYWHERE_BASE_URL", asrLiteral(agentsAnywhereBaseUrl))
+        buildConfigField("String", "AGENTS_ANYWHERE_TOKEN", asrLiteral(agentsAnywhereToken))
     }
 
     buildTypes {

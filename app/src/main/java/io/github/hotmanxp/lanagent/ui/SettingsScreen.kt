@@ -74,6 +74,7 @@ fun SettingsScreen(
     onScan: () -> Unit = {},
     onOpenUrl: (String) -> Unit = {},
     onOpenSession: (baseUrl: String, instanceName: String, sid: String) -> Unit = { _, _, _ -> },
+    onOpenAgentsAnywhere: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -121,6 +122,18 @@ fun SettingsScreen(
                         checked = compactTools,
                         onCheckedChange = { on -> scope.launch { context.saveCompactTools(on) } },
                     )
+                }
+            }
+
+            // Agents-Anywhere server 调试入口(WIP,见 ui/AgentsAnywhereScreen.kt)。
+            item("agents_anywhere") {
+                SettingsCard(
+                    title = stringResource(R.string.settings_section_agents_anywhere),
+                    subtitle = stringResource(R.string.settings_agents_anywhere_sub),
+                ) {
+                    TextButton(onClick = onOpenAgentsAnywhere) {
+                        Text(stringResource(R.string.settings_agents_anywhere_open))
+                    }
                 }
             }
 

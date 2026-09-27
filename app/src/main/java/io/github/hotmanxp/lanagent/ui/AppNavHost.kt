@@ -105,6 +105,7 @@ fun AppNavHost(
                         "agent-session/${Uri.encode(baseUrl)}/${Uri.encode(instanceName)}/${Uri.encode(sid)}"
                     )
                 },
+                onOpenAgentsAnywhere = { navController.navigate("agents-anywhere") },
             )
         }
 
@@ -187,6 +188,11 @@ fun AppNavHost(
                 url = decoded.ifBlank { "about:blank" },
                 onBack = { navController.popBackStack() }
             )
+        }
+        // Agents-Anywhere server 调试屏:从 Settings 进入,验证 WS ticket 鉴权 +
+        // 推送契约 + 发送消息往返。
+        composable("agents-anywhere") {
+            AgentsAnywhereScreen(onBack = { navController.popBackStack() })
         }
     }
 }

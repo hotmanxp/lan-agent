@@ -329,9 +329,33 @@ class AgentSessionStore(val sessionId: String) {
     private var turnIndex = -1
     private var segCounter = 0
 
+    /**
+     * 请求代号 —— 防「重连前的慢请求回写脏数据」。
+     *
+     * 场景:切实例 / 抽屉切会话 / refreshTick 都会让 `LaunchedEffect` 重启,
+     * 但**已经在飞的 HTTP 请求不会被取消**(OkHttp 的 `call.cancel()` 在
+     * `AgentApi` 里没有贯穿到所有调用点)。旧请求的响应比新请求晚到时,
+     * 会把上一个实例的 transcript / state 写进当前 store。
+     *
+     * 用法:发请求前 `val gen = beginRequest()`,回包后
+     * `if (!isCurrentRequest(gen)) return`。写起来是「取号 + 校验」两行,
+     * 比在每个调用点塞 `withTimeout` 更彻底 —— 超时只是概率性兜底,
+     * 代号是确定性的。
+     *
+     * 手法对齐 Agents-Anywhere 的 `SessionRealtimeController`
+     * (`connectionGeneration` / `runtimeRefreshGeneration`)。
+     */
+    private var requestGeneration = 0
+
+    fun beginRequest(): Int = ++requestGeneration
+
+    fun isCurrentRequest(gen: Int): Boolean = gen == requestGeneration
+
     // ===== hydrate =====
 
     fun hydrate(transcript: Transcript) {
+        // hydrate 本身是「最新真相」,任何在途请求的代号一律作废。
+        requestGeneration++
         title = transcript.meta.title
         cwd = transcript.meta.cwd
         model = transcript.meta.model
@@ -651,6 +675,9 @@ class AgentSessionStore(val sessionId: String) {
      * 游标重置成与 [hydrate] 相同的初始值,让后续流式回复重新开气泡。
      */
     fun clearAll() {
+        // 清屏是服务端确认的事实,同样作废所有在途请求的代号 ——
+        // 否则一个慢响应会把刚清掉的旧消息又灌回来。
+        requestGeneration++
         items.clear()
         curTextIdx = -1
         curThinkIdx = -1

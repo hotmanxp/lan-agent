@@ -1205,8 +1205,13 @@ internal fun ToolGroupCard(
                     modifier = Modifier.size(16.dp),
                 )
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
+                    // 跑中时标题扫光,让「还在执行」一眼可辨(0.22.0)。
+                    // 终态 active=false → ShimmerText 不开动画,长会话里几十个
+                    // 已完成卡片不会各自跑无限循环吃帧。
+                    ShimmerText(
                         text = "工具调用 · ${tools.size} 次",
+                        active = running,
+                        color = accent,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium,
                         maxLines = 1,

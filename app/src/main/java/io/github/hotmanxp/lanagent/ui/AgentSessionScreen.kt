@@ -318,9 +318,20 @@ fun AgentSessionPane(
         val sid = currentSid ?: return@LaunchedEffect
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
             try {
-                store.hydrate(a.readTranscript(sid))
+                // 陈旧回调守卫:hydrate / readState 两个 HTTP 请求在切实例、切会话、
+                // 或者 refreshTick 触发重启时都可能在飞。旧请求回来得比新的早,
+                // 于是会把**上一个实例的 transcript** 写进当前 store —— 症状是切会话
+                // 后消息流闪一下变成旧内容,或者更糟:一个已下线的实例的慢响应
+                // 覆盖了新实例的。
+                // 取号-校验的写法对齐 Agents-Anywhere 的 SessionRealtimeController
+                // (connectionGeneration / runtimeRefreshGeneration 双代号)。
+                val gen = store.beginRequest()
+                val transcript = a.readTranscript(sid)
+                if (!store.isCurrentRequest(gen)) return@repeatOnLifecycle
+                store.hydrate(transcript)
                 // state 是可选增强(cwd / v2Tasks),拿不到不影响对话
-                runCatching { store.hydrateState(a.readState(sid)) }
+                runCatching { a.readState(sid) }
+                    .onSuccess { if (store.isCurrentRequest(gen)) store.hydrateState(it) }
             } catch (t: Throwable) {
                 store.hydrateFailed(t.message ?: t.toString())
             }
@@ -410,7 +421,12 @@ fun AgentSessionPane(
     val busy = store.status == AgentRunStatus.Streaming || store.status == AgentRunStatus.Retrying
 
     fun toast(msg: String) {
-        scope.launch { snackbarHostState.showSnackbar(msg) }
+        scope.launch { snackbarHostState.showToast(msg) }
+    }
+
+    /** 失败提示 —— 红边 + 警示图标(0.22.0)。 */
+    fun toastError(msg: String) {
+        scope.launch { snackbarHostState.showErrorToast(msg) }
     }
 
     /**
@@ -420,7 +436,8 @@ fun AgentSessionPane(
     fun revealOnMac(a: AgentApi, path: String) {
         scope.launch {
             val ok = runCatching { a.revealFile(path) }.getOrDefault(false)
-            toast(if (ok) "已在 Mac 上打开所在目录" else "打开目录失败（Mac 可能没起图形界面）")
+            if (ok) snackbarHostState.showToast("已在 Mac 上打开所在目录")
+            else snackbarHostState.showErrorToast("打开目录失败（Mac 可能没起图形界面）")
         }
     }
 
@@ -448,13 +465,13 @@ fun AgentSessionPane(
                         CMD_TYPE_PROMPT -> {
                             val rendered = res.renderedPrompt().orEmpty()
                             if (rendered.isBlank()) {
-                                toast(context.getString(R.string.agent_cmd_failed, "空 prompt"))
+                                toastError(context.getString(R.string.agent_cmd_failed, "空 prompt"))
                                 return@fold
                             }
                             store.appendLocalUser(rawText)
                             runCatching { a.sendPrompt(sid, rendered) }
                                 .onFailure {
-                                    toast(context.getString(R.string.agent_cmd_failed, it.message ?: "$it"))
+                                    toastError(context.getString(R.string.agent_cmd_failed, it.message ?: "$it"))
                                 }
                         }
 
@@ -496,7 +513,7 @@ fun AgentSessionPane(
                     }
                 },
                 onFailure = {
-                    toast(context.getString(R.string.agent_cmd_failed, it.message ?: "$it"))
+                    toastError(context.getString(R.string.agent_cmd_failed, it.message ?: "$it"))
                 },
             )
         }
@@ -853,12 +870,14 @@ fun AgentSessionPane(
                         },
                     )
                 },
-                // imePadding **必须加**:本页是 edge-to-edge(见 MainActivity 的
-                // setDecorFitsSystemWindows(false))+ adjustResize,窗口不会为键盘
-                // 缩高,而 SnackbarHost 默认贴在**窗口底部** —— 也就是键盘后面。
-                // 表现是「命令执行失败 / 未知命令」这类提示静默消失,只有把键盘
-                // 收起来才看得见。抬手/收键盘时 inset 为 0,不影响原布局。
-                snackbarHost = { SnackbarHost(snackbarHostState, modifier = Modifier.imePadding()) },
+                // 换成 WbToastHost(0.22.0):提示从底部挪到**顶部**、1.6s 自动消失、
+                // 带对勾/警示图标。底部那条会跟输入条(双行白卡)打架,而且 M3 默认
+                // 4s 太长 —— 点完复制早该知道了。
+                // ⚠️ 顶部挂载后 **不再需要 imePadding**:本页是 edge-to-edge +
+                // adjustResize(见 MainActivity),窗口不为键盘缩高,原先底部
+                // SnackbarHost 会藏到键盘后面(「命令执行失败」静默消失),
+                // 挪到顶部就天然避开了这个坑。
+                snackbarHost = { WbToastHost(snackbarHostState) },
             ) { padding ->
                 // 录音动效层（HoldToTalkOverlay）盖在整个内容区上：无 pointerInput，
                 // 不吃触摸，按住手势仍在胶囊上。
@@ -897,6 +916,12 @@ fun AgentSessionPane(
                                     items(
                                         count = blocks.size,
                                         key = { i -> blocks[blocks.size - 1 - i].key },
+                                        // 按渲染类型分组,让 LazyColumn 复用 composition。
+                                        // 5 种 block 的构图成本差一个数量级(正文气泡 /
+                                        // 用户气泡 / 工具卡 / 文件卡 / 产物块),不分组的话
+                                        // 滚动时槽位会按 key 逐个销毁重建,白烧帧。
+                                        // 用 `::class` 而不是变体名 —— 变体增删时这里自动跟上。
+                                        contentType = { i -> blocks[blocks.size - 1 - i]::class },
                                     ) { i ->
                                         AgentBlockView(
                                             block = blocks[blocks.size - 1 - i],

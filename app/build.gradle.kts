@@ -67,8 +67,8 @@ android {
         applicationId = "io.github.hotmanxp.lanagent"
         minSdk = 26
         targetSdk = 34
-        versionCode = 84
-        versionName = "0.22.0"
+        versionCode = 85
+        versionName = "0.23.0"
 
         // 语音识别凭据 / 开关。见文件头注释；空值 = 未配置，走系统 SpeechRecognizer。
         buildConfigField("String", "ASR_APP_ID", asrLiteral(asrAppId))
@@ -127,6 +127,12 @@ dependencies {
     // 保留(下个版本 grep 确认零残留再删),避免编译失败时多一个排查维度。
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.lucide.icons)
+    // commonmark-java:Markdown 解析(替掉原自研 MarkdownParser)。
+    implementation(libs.commonmark)
+    implementation(libs.commonmark.ext.gfm.strikethrough)
+    implementation(libs.commonmark.ext.gfm.tables)
+    implementation(libs.commonmark.ext.autolink)
+    implementation(libs.commonmark.ext.task.list.items)
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.webkit)
     implementation(libs.androidx.datastore.preferences)

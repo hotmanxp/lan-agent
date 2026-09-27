@@ -22,6 +22,11 @@ highlights = "1.0.0"
 # ⚠️ 这库**只有描边版,没有实心版** —— 需要实心效果的图标走 ui/Glyphs.kt 手绘。
 # ⚠️ Lucide 的 ImageVector 不带 autoMirrored 元数据,RTL 翻转统一走 WbMirroredIcon。
 lucideIcons = "1.1.0"
+# commonmark-java(0.23.0 起替掉自研 MarkdownParser)。
+# 纯 JVM、无 Android 依赖,体积小;规范实现意味着「未闭合围栏」这类
+# 流式半截语法由规范本身兜住,不用自己写状态机。
+# 扩展与 AA 官方客户端取同一组:GFM 表格 / 删除线 / autolink / 任务列表。
+commonmark = "0.24.0"
 # Android 单测里 org.json.JSONObject 默认是 stub（方法体抛 RuntimeException("Stub!")），
 # 这里挂真实实现到 test classpath，覆盖 stub。voice 包需要用它测 WorkBuddyApi 响应解析。
 orgJson = "20240303"
@@ -62,6 +67,11 @@ okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhtt
 jsch = { group = "com.jcraft", name = "jsch", version.ref = "jsch" }
 highlights = { group = "dev.snipme", name = "highlights", version.ref = "highlights" }
 lucide-icons = { group = "com.composables", name = "icons-lucide-android", version.ref = "lucideIcons" }
+commonmark = { group = "org.commonmark", name = "commonmark", version.ref = "commonmark" }
+commonmark-ext-gfm-strikethrough = { group = "org.commonmark", name = "commonmark-ext-gfm-strikethrough", version.ref = "commonmark" }
+commonmark-ext-gfm-tables = { group = "org.commonmark", name = "commonmark-ext-gfm-tables", version.ref = "commonmark" }
+commonmark-ext-autolink = { group = "org.commonmark", name = "commonmark-ext-autolink", version.ref = "commonmark" }
+commonmark-ext-task-list-items = { group = "org.commonmark", name = "commonmark-ext-task-list-items", version.ref = "commonmark" }
 org-json = { group = "org.json", name = "json", version.ref = "orgJson" }
 androidx-security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "securityCrypto" }
 zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxingCore" }

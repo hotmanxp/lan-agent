@@ -58,6 +58,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -408,12 +409,16 @@ fun AgentSessionPane(
         buildAgentBlocks(store.items, compactTools, turnArtifacts)
     }
 
-    // reverseLayout=true 时 index 0 在**底部**,所以「贴底」等价于
-    // firstVisibleItemIndex 很小。用户往上翻超过 3 屏就不再抢滚动位置。
-    // 用**块数**而不是条数:聚合段落继续吞新工具时块数不变(视口不用动),
+    // 自动跟随:0.23.0 起不再用「firstVisibleItemIndex <= 3」这种位置快照判
+    // 用户意图 —— 那个判据在用户上滑**不到 3 屏**时仍会被新消息拽回底部,
+    // 正好砸在用户正在回看的区间上。改成由 [userScrollDetection] 捕捉真实手势:
+    // 手指一动就暂停跟随,滑回底部再恢复。
+    val autoFollow = rememberAutoFollowController(listState, scope)
+
+    // 用**块数**而不是条数做 key:聚合段落继续吞新工具时块数不变(视口不用动),
     // 新开一段才需要把视口拉回底部。
     LaunchedEffect(blocks.size) {
-        if (blocks.isNotEmpty() && listState.firstVisibleItemIndex <= 3) {
+        if (blocks.isNotEmpty() && !autoFollow.paused) {
             runCatching { listState.animateScrollToItem(0) }
         }
     }
@@ -909,7 +914,12 @@ fun AgentSessionPane(
                                     // 倒序布局:index 0 贴底,流式追加时视口自动跟住新内容,
                                     // 不需要每帧手动算滚动偏移。
                                     reverseLayout = true,
-                                    modifier = Modifier.fillMaxSize(),
+                                    // 手势检测(0.23.0):用户一碰就暂停自动跟随,
+                                    // 滑回底部再恢复。只在 UserInput 来源时记 ——
+                                    // 内容变高导致的程序性滚动不该算成「用户在看历史」。
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .userScrollDetection(autoFollow),
                                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
                                     verticalArrangement = Arrangement.spacedBy(10.dp),
                                 ) {
@@ -927,6 +937,7 @@ fun AgentSessionPane(
                                             block = blocks[blocks.size - 1 - i],
                                             items = store.items,
                                             api = api,
+                                            listState = listState,
                                             // 用**活跃实例**的 baseUrl(面板能原地切实例,
                                             // 路由参数/首帧实例都会过期)。
                                             onOpenFile = { file ->
@@ -1502,22 +1513,23 @@ private fun statusLabel(status: AgentRunStatus): String = when (status) {
 internal fun AgentItemView(
     item: AgentItem,
     api: AgentApi?,
+    listState: LazyListState,
     onOpenFile: (PresentedFile) -> Unit,
     onReveal: (PresentedFile) -> Unit,
 ) {
     when (item) {
         is AgentItem.UserText -> UserBubble(item)
         is AgentItem.AssistantText -> AssistantBubble(item)
-        is AgentItem.Thinking -> ThinkingBubble(item)
+        is AgentItem.Thinking -> ThinkingBubble(item, listState)
         // `PresentFile` 是**自包含展示类**工具:卡片自己就是内容(图片 / 文本
         // 内联渲染),不进通用工具卡的入参/输出形态 —— 对齐 web 端
         // `presentFileRenderer.skipOuterGroup`。没有文件条时(脏数据 / 旧会话)
         // 由 PresentFileCard 自己退回通用卡。
         is AgentItem.ToolCall ->
             if (item.name == PRESENT_FILE_TOOL) {
-                PresentFileCard(item, api, onOpenFile, onReveal)
+                PresentFileCard(item, api, listState, onOpenFile, onReveal)
             } else {
-                ToolCallCard(item)
+                ToolCallCard(item, listState)
             }
 
         is AgentItem.Note -> NoteRow(item)
@@ -1537,22 +1549,24 @@ private fun AgentBlockView(
     block: AgentBlock,
     items: List<AgentItem>,
     api: AgentApi?,
+    listState: LazyListState,
     onOpenFile: (PresentedFile) -> Unit,
     onReveal: (PresentedFile) -> Unit,
 ) {
     when (block) {
         is AgentBlock.Single ->
-            items.getOrNull(block.index)?.let { AgentItemView(it, api, onOpenFile, onReveal) }
+            items.getOrNull(block.index)?.let { AgentItemView(it, api, listState, onOpenFile, onReveal) }
 
         is AgentBlock.ToolGroup -> ToolGroupCard(
             members = block.indices.mapNotNull { items.getOrNull(it) },
             groupKey = block.key,
             api = api,
+            listState = listState,
             onOpenFile = onOpenFile,
             onReveal = onReveal,
         )
 
         is AgentBlock.Artifacts ->
-            TurnArtifactsBlock(files = block.files, onOpenFile = onOpenFile)
+            TurnArtifactsBlock(files = block.files, listState = listState, onOpenFile = onOpenFile)
     }
 }

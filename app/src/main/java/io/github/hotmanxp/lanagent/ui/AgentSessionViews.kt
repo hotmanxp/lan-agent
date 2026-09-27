@@ -22,6 +22,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -373,8 +374,9 @@ internal fun AssistantBubble(item: AgentItem.AssistantText) {
 // ===== 思考过程(默认折叠) =====
 
 @Composable
-internal fun ThinkingBubble(item: AgentItem.Thinking) {
+internal fun ThinkingBubble(item: AgentItem.Thinking, listState: LazyListState) {
     var expanded by remember(item.key) { mutableStateOf(false) }
+    val anchor = rememberCardTopAnchor()
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         shape = RoundedCornerShape(12.dp),
@@ -382,13 +384,13 @@ internal fun ThinkingBubble(item: AgentItem.Thinking) {
             1.dp,
             MaterialTheme.colorScheme.outlineVariant,
         ),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().anchorCardTop(anchor, listState),
     ) {
         Column {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { expanded = !expanded }
+                    .clickable { anchor.capture(); expanded = !expanded }
                     .padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -439,7 +441,8 @@ internal fun ThinkingBubble(item: AgentItem.Thinking) {
 // ===== 工具调用卡 =====
 
 @Composable
-internal fun ToolCallCard(item: AgentItem.ToolCall) {
+internal fun ToolCallCard(item: AgentItem.ToolCall, listState: LazyListState) {
+    val anchor = rememberCardTopAnchor()
     // 工具卡默认收起是为了压住入参/输出的噪声。`PresentFile` 不走这里 ——
     // 它有自己的卡片(见 [PresentFileCard]),默认展开、内容直接渲染。
     var expanded by remember(item.key) { mutableStateOf(false) }
@@ -459,13 +462,13 @@ internal fun ToolCallCard(item: AgentItem.ToolCall) {
             1.dp,
             MaterialTheme.colorScheme.outlineVariant,
         ),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().anchorCardTop(anchor, listState),
     ) {
         Column {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { expanded = !expanded }
+                    .clickable { anchor.capture(); expanded = !expanded }
                     .padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -550,14 +553,16 @@ internal fun ToolCallCard(item: AgentItem.ToolCall) {
 internal fun PresentFileCard(
     item: AgentItem.ToolCall,
     api: AgentApi?,
+    listState: LazyListState,
     onOpenFile: (PresentedFile) -> Unit,
     onReveal: (PresentedFile) -> Unit,
 ) {
     // 连路径都没解出来(工具还没回 input / 脏数据)→ 退回通用工具卡,至少入参
     // 还看得到,而不是整条消息凭空消失。
-    val file = item.file ?: return ToolCallCard(item)
+    val file = item.file ?: return ToolCallCard(item, listState)
 
     // 与旧的文件卡一致:内容就是「让你看东西」,默认展开,少一次点击。
+    val anchor = rememberCardTopAnchor()
     var expanded by remember(item.key) { mutableStateOf(true) }
 
     Surface(
@@ -567,13 +572,13 @@ internal fun PresentFileCard(
             1.dp,
             MaterialTheme.colorScheme.outlineVariant,
         ),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().anchorCardTop(anchor, listState),
     ) {
         Column {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { expanded = !expanded }
+                    .clickable { anchor.capture(); expanded = !expanded }
                     .padding(start = 12.dp, end = 6.dp, top = 10.dp, bottom = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -924,8 +929,10 @@ private fun isMarkdownPath(path: String): Boolean =
 @Composable
 internal fun TurnArtifactsBlock(
     files: List<ArtifactFile>,
+    listState: LazyListState,
     onOpenFile: (PresentedFile) -> Unit,
 ) {
+    val anchor = rememberCardTopAnchor()
     var open by remember { mutableStateOf(files.size <= ARTIFACTS_AUTO_COLLAPSE) }
 
     Surface(
@@ -935,13 +942,13 @@ internal fun TurnArtifactsBlock(
             1.dp,
             MaterialTheme.colorScheme.outlineVariant,
         ),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().anchorCardTop(anchor, listState),
     ) {
         Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { open = !open },
+                    .clickable { anchor.capture(); open = !open },
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
@@ -1163,9 +1170,11 @@ internal fun ToolGroupCard(
     members: List<AgentItem>,
     groupKey: String,
     api: AgentApi?,
+    listState: LazyListState,
     onOpenFile: (PresentedFile) -> Unit,
     onReveal: (PresentedFile) -> Unit,
 ) {
+    val anchor = rememberCardTopAnchor()
     var expanded by remember(groupKey) { mutableStateOf(false) }
     val tools = members.filterIsInstance<AgentItem.ToolCall>()
     val running = tools.any { it.running }
@@ -1178,7 +1187,7 @@ internal fun ToolGroupCard(
     }
 
     Column(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().anchorCardTop(anchor, listState),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Surface(
@@ -1193,7 +1202,7 @@ internal fun ToolGroupCard(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { expanded = !expanded }
+                    .clickable { anchor.capture(); expanded = !expanded }
                     .padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1247,7 +1256,7 @@ internal fun ToolGroupCard(
         }
         if (expanded) {
             // 按 transcript 原顺序铺开 —— 工具卡与思考卡交错,跟不聚合时的顺序一致。
-            members.forEach { AgentItemView(it, api, onOpenFile, onReveal) }
+            members.forEach { AgentItemView(it, api, listState, onOpenFile, onReveal) }
         }
     }
 }

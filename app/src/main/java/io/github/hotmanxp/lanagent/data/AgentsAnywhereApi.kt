@@ -9,12 +9,16 @@
 //   GET  /sessions/list                                        sessions.py:458
 //   GET  /sessions/{id}/timeline?afterSeq=<int>                sessions.py:827
 //   GET  /sessions/{id}/snapshot                               sessions.py:884
+//   POST /sessions/{id}/attachments   multipart                 sessions_fs.py:106
 //   POST /sessions/{id}/runtime/messages  body=MessageCreate    sessions.py:1351
 //   POST /sessions/{id}/runtime/interrupt                      sessions.py:1386
 //   POST /sessions/{id}/runtime/steer     body=SessionSteer     sessions.py:1420
 //   POST /sessions/{id}/runtime/notices/{nid}/respond          sessions.py:1477
 //   POST /sessions/{id}/takeover                               sessions.py:1146
 //   DELETE /sessions/{id}/takeover                             sessions.py:1178
+//   POST /auth/mobile-login/qr                                 auth.py:433
+//   POST /auth/mobile-login/status  body={loginToken}           auth.py:513
+//   POST /auth/mobile-login/exchange body={userId, loginToken}  auth.py:462
 //
 // 序列化策略跟 AgentApi.kt 对齐:ignoreUnknownKeys + coerceInputValues +
 // explicitNulls=false,这样服务端偶发漏字段 / 字段类型分歧不会让整页崩。
@@ -23,11 +27,13 @@ package io.github.hotmanxp.lanagent.data
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -279,5 +285,85 @@ class AgentsAnywhereApi(
     suspend fun disableTakeover(sessionId: String): JsonObject {
         val req = deleteJson("/sessions/$sessionId/takeover")
         return executeRaw(req)
+    }
+
+    // ── 附件上传(sessions_fs.py:106 `POST /sessions/{id}/attachments`) ───
+    //
+    // server 端走 `files: list[UploadFile] = File(...)` —— multipart/form-data,
+    // 字段名固定 `files`,**一次请求最多 5 个文件 / 单个 25 MiB**,超出后端会
+    // 返 422 / 413。客户端只能传「已读取到内存的字节」;Uri → byte[] 由
+    // UI 层用 ContentResolver 做完再调进来。
+    //
+    // 返回的 `fileId` 是真附件 id,后续 [sendMessage] / [steer] 把它包装成
+    // [AttachmentRef] 投递 —— server 端靠它把附件喂给 connector。
+
+    suspend fun uploadAttachment(
+        sessionId: String,
+        bytes: ByteArray,
+        filename: String,
+        mediaType: String,
+    ): UploadedAttachment {
+        val builder = Request.Builder().url(urlFor("/sessions/$sessionId/attachments"))
+        authHeader(builder)
+        val body = MultipartBody.Builder()
+            .setType(MultipartBody.FORM)
+            .addFormDataPart(
+                "files",
+                filename,
+                bytes.toRequestBody(mediaType.toMediaType()),
+            )
+            .build()
+        return withContext(Dispatchers.IO) {
+            client.newCall(builder.post(body).build()).execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    throw HttpException(resp.code, parseErrorBody(resp.peekBody(4096).string()))
+                }
+                val raw = resp.body?.string().orEmpty()
+                if (raw.isBlank()) {
+                    throw IOException("upload returned empty body")
+                }
+                val parsed = json.decodeFromString(UserUploadResponse.serializer(), raw)
+                parsed.attachments.firstOrNull()
+                    ?: throw IOException("upload returned no attachments")
+            }
+        }
+    }
+
+    // ── Mobile-login(server `auth.py:433 / :513 / :462`) ───────────────
+    //
+    // 流程(对齐 server `routes/api/auth.py`):
+    //   ① qr() → `{userId, loginToken, expiresAt}`,client 把 loginToken 编到
+    //      一个 web URL 里让已登录设备打开 `/auth/mobile-login/confirm`
+    //   ② status(token) → `{status: pending_scan|pending_web_confirm|approved|
+    //      rejected|expired|consumed, …}`,approved 就 exchange
+    //   ③ exchange(userId, token) → `{auth: {accessToken, …}, refreshToken,
+    //      expiresAt}`,client 把 accessToken 落进 EncryptedPrefs(§5),refresh
+    //      先暂存普通 DataStore(无加密 — token 已经过期就用新的 exchange 重
+    //      走一遍 QR,这字段只是触发态载荷,不是凭据)。
+
+    suspend fun mobileLoginQr(): MobileLoginQrResponse {
+        val req = postBody("/auth/mobile-login/qr", "{}")
+        return execute<MobileLoginQrResponse>(req)
+    }
+
+    suspend fun mobileLoginStatus(loginToken: String): MobileLoginStatusResponse {
+        val body = json.encodeToString(
+            MobileLoginStatusBody.serializer(),
+            MobileLoginStatusBody(loginToken),
+        )
+        val req = postBody("/auth/mobile-login/status", body)
+        return execute<MobileLoginStatusResponse>(req)
+    }
+
+    suspend fun mobileLoginExchange(
+        userId: String,
+        loginToken: String,
+    ): MobileLoginExchangeResponse {
+        val body = json.encodeToString(
+            MobileLoginExchangeBody.serializer(),
+            MobileLoginExchangeBody(userId, loginToken),
+        )
+        val req = postBody("/auth/mobile-login/exchange", body)
+        return execute<MobileLoginExchangeResponse>(req)
     }
 }

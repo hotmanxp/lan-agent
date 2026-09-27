@@ -369,3 +369,88 @@ data class ApiErrorBody(
     val detail: String? = null,
     val error: String? = null,
 )
+
+// ── 附件上传(server `core/models.py:1163`) ─────────────────────────────
+
+/**
+ * 单条附件元数据 —— 对齐 server `UploadedAttachment`(见 server
+ * `core/models.py:1163`)。客户端拿到这个之后只把 `fileId` 写进消息请求;
+ * 名字 / 大小 / MIME 是显示用信息。
+ */
+@Serializable
+data class UploadedAttachment(
+    val fileId: String,
+    val sessionId: String,
+    val name: String,
+    val size: Long,
+    val sha256: String,
+    val mediaType: String,
+    val createdAt: String,
+    val downloadUrl: String? = null,
+    val openUrl: String? = null,
+)
+
+/**
+ * `POST /sessions/{id}/attachments` 的响应壳 —— `attachments` 数组里每一项
+ * 对应一个上传的文件(`files: list[UploadFile]`)。
+ */
+@Serializable
+data class UserUploadResponse(
+    val attachments: List<UploadedAttachment> = emptyList(),
+    val serverTime: String? = null,
+)
+
+// ── Mobile-login QR(`POST /auth/mobile-login/qr`,server
+//    `api/auth.py:433`)。返回值没有 `url` 字段 —— client 自行拼 query 串
+//    给 web 端(`{baseUrl}/auth/mobile-login/confirm?loginToken=…&userId=…`)。 ───
+
+@Serializable
+data class MobileLoginQrResponse(
+    val userId: String,
+    val loginToken: String,
+    val expiresAt: String,
+    val serverTime: String? = null,
+)
+
+@Serializable
+data class MobileLoginStatusBody(
+    val loginToken: String,
+)
+
+@Serializable
+data class MobileLoginStatusResponse(
+    /** `pending_scan | pending_web_confirm | approved | rejected | expired | consumed`。 */
+    val status: String,
+    val userId: String? = null,
+    val deviceName: String? = null,
+    val expiresAt: String? = null,
+    val requestedAt: String? = null,
+    val approvedAt: String? = null,
+    val serverTime: String? = null,
+)
+
+@Serializable
+data class MobileLoginExchangeBody(
+    val userId: String,
+    val loginToken: String,
+)
+
+/**
+ * `POST /auth/mobile-login/exchange` 响应 —— 把 `auth.accessToken` 写进
+ * Prefs 作新 accessToken,同时保留 `refreshToken` 以便后续刷新。
+ */
+@Serializable
+data class MobileLoginExchangeResponse(
+    val auth: AuthEnvelope,
+    val refreshToken: String,
+    val expiresAt: String,
+    val serverTime: String? = null,
+)
+
+@Serializable
+data class AuthEnvelope(
+    val userId: String,
+    val accessToken: String,
+    val tokenType: String = "bearer",
+    val serverTime: String? = null,
+)

@@ -378,4 +378,26 @@
     <string name="agents_anywhere_interrupt">中断当前轮次</string>
     <string name="agents_anywhere_notice_input_hint">补充输入(可选)</string>
     <string name="agents_anywhere_notice_cancel">取消</string>
+    <string name="agents_anywhere_takeover_on">接管</string>
+    <string name="agents_anywhere_takeover_off">取消接管</string>
+    <!-- 0.21.0+:扫码登录(已登录设备的浏览器扫码 → server 推送 approved → exchange 拿 token) -->
+    <string name="agents_anywhere_mobile_login">扫码登录</string>
+    <string name="agents_anywhere_mobile_login_title">扫码登录</string>
+    <string name="agents_anywhere_mobile_login_hint">用已在网页/桌面端登录 Agents-Anywhere 的浏览器扫一扫;扫完那边点确认,本机自动拿到新 token。</string>
+    <string name="agents_anywhere_mobile_login_status_pending_scan">等待扫码…</string>
+    <string name="agents_anywhere_mobile_login_status_pending_confirm">已扫码,等待网页端确认…</string>
+    <string name="agents_anywhere_mobile_login_status_approved">已批准,正在交换 token…</string>
+    <string name="agents_anywhere_mobile_login_status_rejected">网页端拒绝</string>
+    <string name="agents_anywhere_mobile_login_status_expired">二维码已过期,请重新生成</string>
+    <string name="agents_anywhere_mobile_login_status_consumed">二维码已被使用</string>
+    <string name="agents_anywhere_mobile_login_status_failed">登录失败:%1$s</string>
+    <string name="agents_anywhere_mobile_login_close">关闭</string>
+    <!-- 0.21.0+:附件上传(ActivityResultContracts.OpenDocument → uploadAttachment → AttachmentRef) -->
+    <string name="agents_anywhere_attach">附件</string>
+    <string name="agents_anywhere_attach_picker">选择附件</string>
+    <string name="agents_anywhere_attach_uploading">上传中…</string>
+    <string name="agents_anywhere_attach_uploaded">已上传</string>
+    <string name="agents_anywhere_attach_failed">上传失败:%1$s</string>
+    <string name="agents_anywhere_attach_remove">移除附件</string>
+    <string name="agents_anywhere_attach_send_blocked">部分附件未上传完成</string>
 </resources>

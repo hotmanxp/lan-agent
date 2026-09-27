@@ -21,6 +21,8 @@
 // 状态本身是 `mutableStateOf`,赋值本身在主线程但只赋值引用,不开销。
 package io.github.hotmanxp.lanagent.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -40,23 +42,16 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.AttachFile
-import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.Construction
-import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material.icons.rounded.Refresh
-import androidx.compose.material.icons.rounded.Send
-import androidx.compose.material.icons.rounded.Stop
-import androidx.compose.material.icons.rounded.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -91,6 +86,8 @@ import io.github.hotmanxp.lanagent.data.AgentsAnywhereEvent
 import io.github.hotmanxp.lanagent.data.AgentsAnywherePrefs
 import io.github.hotmanxp.lanagent.data.AgentsAnywhereSessionState
 import io.github.hotmanxp.lanagent.data.AgentsAnywhereWsClient
+import io.github.hotmanxp.lanagent.data.AttachmentRef
+import io.github.hotmanxp.lanagent.data.SecureTokenStore
 import io.github.hotmanxp.lanagent.data.AaOutgoing
 import io.github.hotmanxp.lanagent.data.NoticeIn
 import io.github.hotmanxp.lanagent.data.OutgoingStatus
@@ -106,6 +103,18 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
+import java.util.UUID
+import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.ArrowUp
+import com.composables.icons.lucide.Check
+import com.composables.icons.lucide.Lock
+import com.composables.icons.lucide.LockOpen
+import com.composables.icons.lucide.Paperclip
+import com.composables.icons.lucide.Play
+import com.composables.icons.lucide.QrCode
+import com.composables.icons.lucide.RefreshCw
+import com.composables.icons.lucide.TriangleAlert
+import com.composables.icons.lucide.X
 
 // ── 顶层屏 ────────────────────────────────────────────────────────────
 
@@ -155,6 +164,8 @@ fun AgentsAnywhereScreen(onBack: () -> Unit) {
     var selectedSessionId by remember { mutableStateOf<String?>(null) }
     var sessionList by remember { mutableStateOf<List<SessionSummary>>(emptyList()) }
     var sessionListError by remember { mutableStateOf<String?>(null) }
+    // mobile-login QR dialog —— 单独一态,避免跟 ConfigCard 的表单态互相干扰。
+    var showMobileLogin by remember { mutableStateOf(false) }
 
     val selectedSession = selectedSessionId?.let { sessionStates[it] }
 
@@ -360,6 +371,7 @@ fun AgentsAnywhereScreen(onBack: () -> Unit) {
                         prefs.setAccessToken(formAccessToken)
                     }
                 },
+                onMobileLogin = { showMobileLogin = true },
             )
             ButtonRow(
                 isInSession = selectedSessionId != null,
@@ -390,6 +402,28 @@ fun AgentsAnywhereScreen(onBack: () -> Unit) {
                 )
             }
         }
+    }
+
+    // Mobile-login QR dialog —— 挂在 Scaffold 外层,确保盖在所有内容之上
+    // (Scaffold 内层会被 imePadding / navigationBarsPadding 折腾)。
+    // 触发条件:用户点 ConfigCard 的「扫码登录」,且 baseUrl 已配。
+    if (showMobileLogin && baseUrl.isNotBlank()) {
+        MobileLoginDialog(
+            api = api,
+            baseUrl = baseUrl,
+            onSuccess = { accessToken, refreshToken ->
+                // exchange 拿到新 token —— 写 encrypted store + DataStore override
+                // flag,然后重连(dashboard / 当前 session 任一)。SecureTokenStore
+                // 持有者是单例,直接通过 prefs.setAccessToken 走,不走原 datastore
+                // 路径 —— 那里现在只写 override flag,token 实体由 SecureTokenStore
+                // 自己管。
+                prefs.setAccessToken(accessToken)
+                SecureTokenStore.get(context).putRefreshToken(refreshToken)
+                formAccessToken = accessToken
+                manualReconnect()
+            },
+            onDismiss = { showMobileLogin = false },
+        )
     }
 }
 
@@ -455,6 +489,7 @@ private fun ConfigCard(
     onBaseUrlChange: (String) -> Unit,
     onAccessTokenChange: (String) -> Unit,
     onSave: () -> Unit,
+    onMobileLogin: () -> Unit,
 ) {
     Surface(
         shape = RoundedCornerShape(12.dp),
@@ -503,6 +538,25 @@ private fun ConfigCard(
                 TextButton(onClick = onSave) {
                     Text(stringResource(R.string.agents_anywhere_save))
                 }
+                // 扫码登录 —— 已登录设备的浏览器扫码 → server 推 approved →
+                // exchange 拿 token。baseUrl 必填,token 这条路 server 端会要求
+                // Bearer,所以这条流**只适用于已登录设备换 token**,不适合全新
+                // 设备首次登录(对话框里有 hint 提示)。
+                TextButton(
+                    onClick = onMobileLogin,
+                    enabled = baseUrl.isNotBlank(),
+                ) {
+                    Icon(
+                        Lucide.QrCode,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        text = stringResource(R.string.agents_anywhere_mobile_login),
+                        fontSize = 12.sp,
+                    )
+                }
                 if (hasBuildConfigDefaults) {
                     Text(
                         text = stringResource(R.string.agents_anywhere_local_props_active),
@@ -536,7 +590,7 @@ private fun ButtonRow(
             enabled = baseUrlConfigured && !isInSession,
             modifier = Modifier.weight(1f),
         ) {
-            Icon(Icons.Rounded.Refresh, contentDescription = null,
+            Icon(Lucide.RefreshCw, contentDescription = null,
                 modifier = Modifier.size(16.dp))
             Spacer(Modifier.width(4.dp))
             Text(stringResource(R.string.agents_anywhere_list_sessions), fontSize = 12.sp)
@@ -720,8 +774,19 @@ private fun SessionPane(
     onBack: () -> Unit,
     onInterrupt: () -> Unit,
 ) {
+    val scope = rememberCoroutineScope()
     Column(modifier = Modifier.fillMaxSize()) {
-        SessionHeader(state = state, onInterrupt = onInterrupt)
+        SessionHeader(
+            state = state,
+            onInterrupt = onInterrupt,
+            onToggleTakeover = {
+                val sid = state.sessionId
+                val on = (state.sessionMeta?.get("takeover") as? JsonPrimitive)?.contentOrNull == "true"
+                scope.launch {
+                    runCatching { if (on) api.disableTakeover(sid) else api.enableTakeover(sid) }
+                }
+            },
+        )
         if (state.openNotices().isNotEmpty()) {
             NoticeStrip(state = state, api = api)
         }
@@ -734,11 +799,14 @@ private fun SessionPane(
 private fun SessionHeader(
     state: AgentsAnywhereSessionState,
     onInterrupt: () -> Unit,
+    onToggleTakeover: () -> Unit,
 ) {
     val meta = state.sessionMeta
     val title = (meta?.get("title") as? JsonPrimitive)?.contentOrNull
         ?: state.sessionId.take(16)
     val status = state.runtimeState?.status ?: "—"
+    val takeoverOn = (meta?.get("takeover") as? JsonPrimitive)?.contentOrNull
+        ?.equals("true", ignoreCase = true) == true
     Surface(
         shape = RoundedCornerShape(10.dp),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
@@ -754,16 +822,37 @@ private fun SessionHeader(
             Column(modifier = Modifier.weight(1f)) {
                 Text(text = title, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
                 Text(
-                    text = "status=$status · sid=${state.sessionId.take(12)}",
+                    text = listOfNotNull(
+                        "status=$status",
+                        if (takeoverOn) "takeover" else null,
+                        "sid=${state.sessionId.take(12)}",
+                    ).joinToString(" · "),
                     fontSize = 10.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                 )
             }
+            // 接管 toggle:对照 opencc-web SessionHeader 的行为 —— 接管中 = 锁住
+            // (`Lucide.Lock` 闭合),未接管 = 锁开(`Lucide.LockOpen`)。
+            // server 端 session.meta.takeover=true 时锁闭 + primary tint 表示
+            // 「已接管」,false 时锁开 + onSurfaceVariant outline 表示「释放」。
+            // 点一下在 POST / DELETE 之间切;server 通过 session.meta.updated
+            // 推回最新值,这里单纯反映。
+            IconButton(onClick = onToggleTakeover) {
+                Icon(
+                    imageVector = if (takeoverOn) Lucide.Lock else Lucide.LockOpen,
+                    contentDescription = stringResource(
+                        if (takeoverOn) R.string.agents_anywhere_takeover_off
+                        else R.string.agents_anywhere_takeover_on
+                    ),
+                    tint = if (takeoverOn) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             if (state.isStreaming) {
                 IconButton(onClick = onInterrupt) {
                     Icon(
-                        Icons.Rounded.Stop,
+                        Glyph.SolidSquare,
                         contentDescription = stringResource(R.string.agents_anywhere_interrupt),
                         tint = MaterialTheme.colorScheme.error,
                     )
@@ -841,6 +930,13 @@ private fun MessageBubble(item: TimelineItem) {
     val textColor = MaterialTheme.colorScheme.onSurface
 
     // content 可能是 string / {text, ...} / 多块内容 —— 简单抽出可见字符串。
+    // 然后**走 Markdown 渲染** —— server 端的 assistant 回复几乎都带 markdown
+    // 格式(代码块 / 列表 / 链接),plain Text 看起来像一坨。
+    // tool / artifact bubble **不渲染 markdown**(任务要求)。
+    // 解析放后台线程:MarkdownParser.parse 是纯 Kotlin 同步函数;真实瓶颈在
+    // CodeBox 里跑的 `highlightCode`(已挪到 Dispatchers.Default,见
+    // ui/CodeHighlight.kt)。MarkdownText 内部已经 `remember(markdown)` 缓存,
+    // 单次消息渲染不会触发重复解析。
     val text = extractMessageText(item.content)
 
     Column(
@@ -857,7 +953,18 @@ private fun MessageBubble(item: TimelineItem) {
         ) {
             Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
                 if (text.isNotBlank()) {
-                    Text(text = text, fontSize = 14.sp, lineHeight = 20.sp)
+                    MarkdownText(
+                        markdown = text,
+                        // 用户气泡短文本偏多,assistant 长文也只过 200dp 不卡。
+                        // 不强制限宽 —— bubble 自身 fillMaxWidth,内部让 Markdown
+                        // 自己走 inline 元素(列表/代码块带横向滚动撑宽度)。
+                        baseStyle = LocalTextStyle.current.copy(
+                            fontSize = 14.sp,
+                            lineHeight = 20.sp,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        ),
+                        compact = isUser,
+                    )
                 } else {
                     Text(
                         text = "(空消息)",
@@ -912,7 +1019,7 @@ private fun ToolBubble(item: TimelineItem) {
         Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    Icons.Rounded.Construction,
+                    Glyph.Hammer,
                     contentDescription = null,
                     tint = accent,
                     modifier = Modifier.size(14.dp),
@@ -957,7 +1064,7 @@ private fun SystemNoteBubble(item: TimelineItem) {
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
         ) {
             Icon(
-                Icons.Rounded.Warning,
+                Lucide.TriangleAlert,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(14.dp),
@@ -999,7 +1106,7 @@ private fun ArtifactBubble(item: TimelineItem) {
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
         ) {
             Icon(
-                Icons.Rounded.AttachFile,
+                Lucide.Paperclip,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(14.dp),
@@ -1028,7 +1135,17 @@ private fun OutgoingBubble(out: AaOutgoing) {
             shape = RoundedCornerShape(14.dp),
         ) {
             Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                Text(text = out.content, fontSize = 14.sp, lineHeight = 20.sp)
+                // 走 Markdown 渲染 —— 见 MessageBubble 内的注释,用户可能粘贴
+                // 带 markdown 的内容进来。
+                MarkdownText(
+                    markdown = out.content,
+                    baseStyle = LocalTextStyle.current.copy(
+                        fontSize = 14.sp,
+                        lineHeight = 20.sp,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    ),
+                    compact = true,
+                )
                 Text(
                     text = when (out.status) {
                         OutgoingStatus.Sending -> "发送中…"
@@ -1045,11 +1162,74 @@ private fun OutgoingBubble(out: AaOutgoing) {
 
 // ── Composer ──────────────────────────────────────────────────────────
 
+/** Composer 内的附件状态机 —— 严格说就是「选好了 / 上传中 / 拿到 fileId / 失败」四态。 */
+private sealed class ComposerAttachment {
+    abstract val uri: android.net.Uri
+    abstract val displayName: String
+    abstract val mime: String
+
+    /** 已选好,等点发送时上传。 */
+    data class Pending(
+        override val uri: android.net.Uri,
+        override val displayName: String,
+        override val mime: String,
+    ) : ComposerAttachment()
+
+    /** 正在上传 —— UI 显示 spinner + tertiary accent。 */
+    data class Uploading(
+        override val uri: android.net.Uri,
+        override val displayName: String,
+        override val mime: String,
+    ) : ComposerAttachment()
+
+    /** 上传完成 —— 持有 fileId,等 send 时塞进 MessageCreateRequest.attachments。 */
+    data class Uploaded(
+        override val uri: android.net.Uri,
+        override val displayName: String,
+        override val mime: String,
+        val fileId: String,
+    ) : ComposerAttachment()
+
+    /** 上传失败 —— chip 红边,允许用户点 X 移除重选。 */
+    data class Failed(
+        override val uri: android.net.Uri,
+        override val displayName: String,
+        override val mime: String,
+        val reason: String,
+    ) : ComposerAttachment()
+}
+
+/** 单次发送最多 5 条附件 — 对齐 server `sessions_fs.py:106`(`max 5 / 25MiB each`)。 */
+private const val MAX_ATTACHMENT_COUNT = 5
+
 @Composable
 private fun Composer(state: AgentsAnywhereSessionState, api: AgentsAnywhereApi) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     var draft by remember(state.sessionId) { mutableStateOf("") }
     var sending by remember(state.sessionId) { mutableStateOf(false) }
+    // 附件 chip 列表 — key 用 sessionId,切会话时整段重置,跟 draft 同步。
+    var attachments by remember(state.sessionId) {
+        mutableStateOf<List<ComposerAttachment>>(emptyList())
+    }
+
+    // 文件选择器 —— `OpenMultipleDocuments` 走 Storage Access Framework(API 19+),
+    // 不要任何存储权限。mime = `*/*` 让用户能选任意类型,跟「附件」语义对齐
+    // (server 端 multipart mime 由 client 在 form-data 里声明,不强校验)。
+    val pickDocuments = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        if (uris.isNullOrEmpty()) return@rememberLauncherForActivityResult
+        val resolver = context.contentResolver
+        val room = MAX_ATTACHMENT_COUNT - attachments.size
+        if (room <= 0) return@rememberLauncherForActivityResult
+        val picked = uris.take(room).map { uri ->
+            val name = queryDisplayName(resolver, uri) ?: uri.lastPathSegment.orEmpty()
+            val mime = resolver.getType(uri) ?: "application/octet-stream"
+            ComposerAttachment.Pending(uri, name, mime)
+        }
+        attachments = attachments + picked
+    }
 
     // **imePadding 挂在 Composer 自己身上**(不是 Column parent),对齐
     // `AgentSessionScreen.kt` 的做法 —— 键盘弹起只让输入区上抬,
@@ -1064,62 +1244,289 @@ private fun Composer(state: AgentsAnywhereSessionState, api: AgentsAnywhereApi) 
             .imePadding()
             .navigationBarsPadding(),
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-        ) {
-            OutlinedTextField(
-                value = draft,
-                onValueChange = { draft = it },
-                placeholder = { Text(stringResource(R.string.agents_anywhere_input_hint)) },
-                enabled = !sending && state.conn != AgentsAnywhereConnState.NotConfigured,
-                modifier = Modifier.weight(1f),
-                maxLines = 3,
-            )
-            Spacer(Modifier.width(8.dp))
-            IconButton(
-                onClick = {
-                    val text = draft.trim()
-                    if (text.isBlank() || sending) return@IconButton
-                    val cmid = "cmid-${System.currentTimeMillis()}"
-                    state.trackOutgoing(cmid, text, OutgoingStatus.Sending)
-                    sending = true
-                    draft = ""
-                    scope.launch {
-                        runCatching {
-                            api.sendMessage(
-                                sessionId = state.sessionId,
-                                content = text,
-                                clientMessageId = cmid,
-                            )
-                        }.onSuccess { resp ->
-                            sending = false
-                            if (resp.ok) {
-                                // 标记"已发送",等 server 回真实 item 后由 timeline.item_created
-                                // 按 cmid 移除;如果 server 推完才收到 ok,这里已经标了 Sent 也无害。
-                                state.updateOutgoingStatus(cmid, OutgoingStatus.Sent)
-                            } else {
-                                state.updateOutgoingStatus(cmid, OutgoingStatus.Failed)
-                            }
-                        }.onFailure {
-                            state.updateOutgoingStatus(cmid, OutgoingStatus.Failed)
-                            sending = false
+        Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
+            // 附件 chip 条 —— 有附件时才渲染,没附件不占行高。
+            if (attachments.isNotEmpty()) {
+                AttachmentChips(
+                    attachments = attachments,
+                    onRemove = { att -> attachments = attachments - att },
+                )
+                Spacer(Modifier.height(4.dp))
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // 附件按钮:挂在输入条左侧,跟发送钮视觉上对称。
+                IconButton(
+                    onClick = { pickDocuments.launch(arrayOf("*/*")) },
+                    enabled = attachments.size < MAX_ATTACHMENT_COUNT &&
+                        !sending &&
+                        state.conn != AgentsAnywhereConnState.NotConfigured,
+                ) {
+                    Icon(
+                        Lucide.Paperclip,
+                        contentDescription = stringResource(R.string.agents_anywhere_attach),
+                        tint = if (attachments.size < MAX_ATTACHMENT_COUNT) {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        } else {
+                            MaterialTheme.colorScheme.outlineVariant
+                        },
+                    )
+                }
+                Spacer(Modifier.width(4.dp))
+                OutlinedTextField(
+                    value = draft,
+                    onValueChange = { draft = it },
+                    placeholder = { Text(stringResource(R.string.agents_anywhere_input_hint)) },
+                    enabled = !sending && state.conn != AgentsAnywhereConnState.NotConfigured,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 3,
+                )
+                Spacer(Modifier.width(8.dp))
+                IconButton(
+                    onClick = {
+                        val text = draft.trim()
+                        // 文本或附件至少一个非空才能发 —— 纯附件(没文字说明)也合法。
+                        if ((text.isBlank() && attachments.isEmpty()) || sending) {
+                            return@IconButton
                         }
+                        val cmid = "cmid-${UUID.randomUUID()}"
+                        state.trackOutgoing(cmid, text, OutgoingStatus.Sending)
+                        sending = true
+                        draft = ""
+                        // **发送时把 attachments 全程保留引用**,失败时还原回
+                        // chip 列表(用户重试不用重选)。
+                        val sentAttachments = attachments
+                        scope.launch {
+                            // ① 先把所有 Pending / Failed 状态的附件上传(Uploaded 直接复用 fileId)。
+                            val refs = mutableListOf<AttachmentRef>()
+                            val failed = mutableListOf<ComposerAttachment>()
+                            for (att in sentAttachments) {
+                                when (att) {
+                                    is ComposerAttachment.Uploaded -> {
+                                        refs += AttachmentRef(fileId = att.fileId)
+                                    }
+                                    is ComposerAttachment.Pending,
+                                    is ComposerAttachment.Failed -> {
+                                        // 标 Uploading —— UI 立刻刷 spinner,
+                                        // 用户能看到「正在上传哪几条」而不是干等。
+                                        val uploading = ComposerAttachment.Uploading(
+                                            uri = att.uri,
+                                            displayName = att.displayName,
+                                            mime = att.mime,
+                                        )
+                                        attachments = attachments.map { existing ->
+                                            if (existing.uri == att.uri) uploading else existing
+                                        }
+                                        runCatching {
+                                            val bytes = context.contentResolver
+                                                .openInputStream(att.uri)
+                                                ?.use { it.readBytes() }
+                                                ?: throw IllegalStateException("无法读取附件字节")
+                                            api.uploadAttachment(
+                                                sessionId = state.sessionId,
+                                                bytes = bytes,
+                                                filename = att.displayName,
+                                                mediaType = att.mime,
+                                            )
+                                        }.onSuccess { uploaded ->
+                                            refs += AttachmentRef(fileId = uploaded.fileId)
+                                            attachments = attachments.map { existing ->
+                                                if (existing.uri == att.uri) ComposerAttachment.Uploaded(
+                                                    uri = att.uri,
+                                                    displayName = att.displayName,
+                                                    mime = att.mime,
+                                                    fileId = uploaded.fileId,
+                                                ) else existing
+                                            }
+                                        }.onFailure { err ->
+                                            failed += att.copyReason(
+                                                err.message ?: err.javaClass.simpleName,
+                                            )
+                                            attachments = attachments.map { existing ->
+                                                if (existing.uri == att.uri) ComposerAttachment.Failed(
+                                                    uri = att.uri,
+                                                    displayName = att.displayName,
+                                                    mime = att.mime,
+                                                    reason = err.message ?: err.javaClass.simpleName,
+                                                ) else existing
+                                            }
+                                        }
+                                    }
+                                    is ComposerAttachment.Uploading -> {
+                                        // 极少触达 —— 同一 chip 在两次连点间跨了状态。
+                                        // 不处理,继续推进 refs(理论上不应有 fileId)。
+                                    }
+                                }
+                            }
+                            // ② 上传全失败 → 不发消息,标记整条 outgoing 失败,
+                            // 让用户能直接看到哪些附件卡住。
+                            if (failed.isNotEmpty()) {
+                                attachments = sentAttachments.map { a ->
+                                    val m = failed.firstOrNull { it.uri == a.uri }
+                                    if (m != null) m else a
+                                }
+                                sending = false
+                                state.updateOutgoingStatus(cmid, OutgoingStatus.Failed)
+                                return@launch
+                            }
+                            // ③ 发消息。
+                            runCatching {
+                                api.sendMessage(
+                                    sessionId = state.sessionId,
+                                    content = text,
+                                    attachments = refs,
+                                    clientMessageId = cmid,
+                                )
+                            }.onSuccess { resp ->
+                                sending = false
+                                if (resp.ok) {
+                                    state.updateOutgoingStatus(cmid, OutgoingStatus.Sent)
+                                    // 整条消息成功 → 清空附件 chip 列表。
+                                    attachments = emptyList()
+                                } else {
+                                    state.updateOutgoingStatus(cmid, OutgoingStatus.Failed)
+                                }
+                            }.onFailure {
+                                state.updateOutgoingStatus(cmid, OutgoingStatus.Failed)
+                                sending = false
+                            }
+                        }
+                    },
+                    enabled = (draft.isNotBlank() || attachments.isNotEmpty()) &&
+                        !sending &&
+                        attachments.none {
+                            it is ComposerAttachment.Pending ||
+                                it is ComposerAttachment.Uploading
+                        },
+                ) {
+                    if (sending) {
+                        Icon(
+                            Glyph.SolidSquare, contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                        )
+                    } else {
+                        Icon(
+                            Lucide.ArrowUp,
+                            contentDescription = stringResource(R.string.agents_anywhere_send),
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
                     }
-                },
-                enabled = draft.isNotBlank() && !sending,
-            ) {
-                if (sending) {
-                    Icon(Icons.Rounded.Stop, contentDescription = null,
-                        tint = MaterialTheme.colorScheme.error)
-                } else {
-                    Icon(Icons.Rounded.Send,
-                        contentDescription = stringResource(R.string.agents_anywhere_send),
-                        tint = MaterialTheme.colorScheme.primary)
                 }
             }
         }
     }
+}
+
+/** 把任意 [ComposerAttachment] 状态转成携带错误信息的 [ComposerAttachment.Failed]。 */
+private fun ComposerAttachment.copyReason(reason: String): ComposerAttachment.Failed =
+    when (this) {
+        is ComposerAttachment.Pending -> ComposerAttachment.Failed(uri, displayName, mime, reason)
+        is ComposerAttachment.Failed -> ComposerAttachment.Failed(uri, displayName, mime, reason)
+        is ComposerAttachment.Uploading -> ComposerAttachment.Failed(uri, displayName, mime, reason)
+        is ComposerAttachment.Uploaded -> ComposerAttachment.Failed(uri, displayName, mime, reason)
+    }
+
+/** 附件 chip 行 —— 横向 LazyRow,溢出可滚。 */
+@Composable
+private fun AttachmentChips(
+    attachments: List<ComposerAttachment>,
+    onRemove: (ComposerAttachment) -> Unit,
+) {
+    LazyRow(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        items(attachments.size) { idx ->
+            val att = attachments[idx]
+            AttachmentChip(att = att, onRemove = { onRemove(att) })
+        }
+    }
+}
+
+@Composable
+private fun AttachmentChip(
+    att: ComposerAttachment,
+    onRemove: () -> Unit,
+) {
+    val accent = when (att) {
+        is ComposerAttachment.Pending -> MaterialTheme.colorScheme.onSurfaceVariant
+        is ComposerAttachment.Uploading -> MaterialTheme.colorScheme.tertiary
+        is ComposerAttachment.Uploaded -> MaterialTheme.colorScheme.primary
+        is ComposerAttachment.Failed -> MaterialTheme.colorScheme.error
+    }
+    val label = when (att) {
+        is ComposerAttachment.Pending -> att.displayName
+        is ComposerAttachment.Uploading ->
+            "${att.displayName} · ${stringResource(R.string.agents_anywhere_attach_uploading)}"
+        is ComposerAttachment.Uploaded ->
+            "${att.displayName} · ${stringResource(R.string.agents_anywhere_attach_uploaded)}"
+        is ComposerAttachment.Failed ->
+            "${att.displayName} · ${
+                stringResource(R.string.agents_anywhere_attach_failed, att.reason)
+            }"
+    }
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, accent.copy(alpha = 0.5f)),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
+        ) {
+            if (att is ComposerAttachment.Uploading) {
+                androidx.compose.material3.CircularProgressIndicator(
+                    modifier = Modifier.size(10.dp),
+                    strokeWidth = 1.5.dp,
+                    color = accent,
+                )
+                Spacer(Modifier.width(4.dp))
+            } else {
+                Icon(
+                    Lucide.Paperclip,
+                    contentDescription = null,
+                    tint = accent,
+                    modifier = Modifier.size(12.dp),
+                )
+                Spacer(Modifier.width(4.dp))
+            }
+            Text(
+                text = label,
+                fontSize = 11.sp,
+                color = accent,
+                maxLines = 1,
+            )
+            Spacer(Modifier.width(4.dp))
+            IconButton(
+                onClick = onRemove,
+                modifier = Modifier.size(20.dp),
+            ) {
+                Icon(
+                    Lucide.X,
+                    contentDescription = stringResource(R.string.agents_anywhere_attach_remove),
+                    tint = accent,
+                    modifier = Modifier.size(12.dp),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 查 SAF 返回 URI 的显示名 —— 大多数 DocumentsProvider 都支持
+ * `OpenableColumns.DISPLAY_NAME`,失败时退到 `lastPathSegment`。
+ */
+private fun queryDisplayName(
+    resolver: android.content.ContentResolver,
+    uri: android.net.Uri,
+): String? {
+    return runCatching {
+        resolver.query(
+            uri,
+            arrayOf(android.provider.OpenableColumns.DISPLAY_NAME),
+            null, null, null,
+        )?.use { c ->
+            if (c.moveToFirst()) c.getString(0) else null
+        }
+    }.getOrNull()
 }
 
 // ── Notice 卡片条 ─────────────────────────────────────────────────────
@@ -1189,7 +1596,7 @@ private fun NoticeCard(
         ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
-                Icons.Rounded.Warning, contentDescription = null,
+                Lucide.TriangleAlert, contentDescription = null,
                 tint = accent, modifier = Modifier.size(16.dp),
             )
             Spacer(Modifier.width(6.dp))
@@ -1207,10 +1614,16 @@ private fun NoticeCard(
             )
         }
         if (!notice.message.isNullOrBlank()) {
-            Text(
-                text = notice.message,
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurface,
+            // notice.message 也走 Markdown —— server 端的 message 经常是
+            // "请选择文件:" + 内嵌文件名 / 路径,plain Text 显示能看但
+            // 不带任何结构。compact=true 让多块之间的间距收紧到 4dp。
+            MarkdownText(
+                markdown = notice.message,
+                baseStyle = LocalTextStyle.current.copy(
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurface,
+                ),
+                compact = true,
             )
         }
 
@@ -1251,7 +1664,7 @@ private fun NoticeCard(
                     },
                 ) {
                     Icon(
-                        if (isPending) Icons.Rounded.Check else Icons.Rounded.PlayArrow,
+                        if (isPending) Lucide.Check else Lucide.Play,
                         contentDescription = null,
                         modifier = Modifier.size(14.dp),
                         tint = if (danger) MaterialTheme.colorScheme.error
@@ -1271,7 +1684,7 @@ private fun NoticeCard(
                     pendingActionId = null
                     inputText = ""
                 }) {
-                    Icon(Icons.Rounded.Close, contentDescription = null,
+                    Icon(Lucide.X, contentDescription = null,
                         modifier = Modifier.size(14.dp))
                     Spacer(Modifier.width(4.dp))
                     Text(

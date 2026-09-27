@@ -33,17 +33,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.Chat
-import androidx.compose.material.icons.automirrored.rounded.OpenInNew
-import androidx.compose.material.icons.rounded.Delete
-import androidx.compose.material.icons.rounded.Favorite
-import androidx.compose.material.icons.rounded.Folder
-import androidx.compose.material.icons.rounded.Memory
-import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material.icons.rounded.Refresh
-import androidx.compose.material.icons.rounded.Schedule
-import androidx.compose.material.icons.rounded.Storage
-import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -71,6 +60,16 @@ import io.github.hotmanxp.lanagent.R
 import io.github.hotmanxp.lanagent.data.InstanceAppProfile
 import io.github.hotmanxp.lanagent.data.InstanceSnapshot
 import io.github.hotmanxp.lanagent.data.InstanceState
+import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.ArrowUpRight
+import com.composables.icons.lucide.Clock
+import com.composables.icons.lucide.Cpu
+import com.composables.icons.lucide.Database
+import com.composables.icons.lucide.Folder
+import com.composables.icons.lucide.MessageCircle
+import com.composables.icons.lucide.Play
+import com.composables.icons.lucide.RefreshCw
+import com.composables.icons.lucide.Trash2
 
 /** 与 web 端 STATE_TAG_COLOR 对齐(默认 / 蓝 / 绿 / 橙 / 红)。 */
 internal fun stateContainer(state: InstanceState): Color = when (state) {
@@ -325,12 +324,12 @@ fun InstanceCard(
                 InfoGrid(
                     cells = listOf(
                         InfoCellSpec(
-                            icon = Icons.Rounded.Storage,
+                            icon = Lucide.Database,
                             label = stringResource(R.string.instances_field_port),
                             value = { TextValue(inst.port?.toString() ?: "-") },
                         ),
                         InfoCellSpec(
-                            icon = Icons.Rounded.Schedule,
+                            icon = Lucide.Clock,
                             label = stringResource(R.string.instances_field_runtime),
                             value = {
                                 TextValue(
@@ -341,28 +340,28 @@ fun InstanceCard(
                             },
                         ),
                         InfoCellSpec(
-                            icon = Icons.Rounded.Favorite,
+                            icon = Glyph.SolidStar,
                             label = stringResource(R.string.instances_field_last_heartbeat),
                             value = { TextValue(formatRelativeAgo(inst.lastHeartbeatAt, now)) },
                         ),
                         InfoCellSpec(
-                            icon = Icons.Rounded.Folder,
+                            icon = Lucide.Folder,
                             label = stringResource(R.string.instances_field_cwd),
                             value = { TextValue(inst.cwd, mono = true) },
                             wide = true,
                         ),
                         InfoCellSpec(
-                            icon = Icons.Rounded.Memory,
+                            icon = Lucide.Cpu,
                             label = stringResource(R.string.instances_field_pid),
                             value = { TextValue(inst.pid?.toString() ?: "-") },
                         ),
                         InfoCellSpec(
-                            icon = Icons.Rounded.Schedule,
+                            icon = Lucide.Clock,
                             label = stringResource(R.string.instances_field_started_at),
                             value = { TextValue(formatTimestamp(inst.startedAt, now)) },
                         ),
                         InfoCellSpec(
-                            icon = Icons.Rounded.Schedule,
+                            icon = Lucide.Clock,
                             label = stringResource(R.string.instances_field_created_at),
                             value = { TextValue(formatTimestamp(inst.createdAt, now)) },
                         ),
@@ -401,25 +400,25 @@ fun InstanceCard(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     ActionIconBtn(
-                        icon = Icons.Rounded.PlayArrow,
+                        icon = Lucide.Play,
                         label = stringResource(R.string.instances_action_start),
                         enabled = canStart,
                         onClick = { onAction(Action.Start) },
                     )
                     ActionIconBtn(
-                        icon = Icons.Rounded.Stop,
+                        icon = Glyph.SolidSquare,
                         label = stringResource(R.string.instances_action_stop),
                         enabled = canStop,
                         onClick = { onAction(Action.Stop) },
                     )
                     ActionIconBtn(
-                        icon = Icons.Rounded.Refresh,
+                        icon = Lucide.RefreshCw,
                         label = stringResource(R.string.instances_action_restart),
                         enabled = canRestart,
                         onClick = { onAction(Action.Restart) },
                     )
                     ActionIconBtn(
-                        icon = Icons.Rounded.Delete,
+                        icon = Lucide.Trash2,
                         label = stringResource(R.string.instances_action_delete),
                         enabled = canDelete,
                         destructive = true,
@@ -430,7 +429,7 @@ fun InstanceCard(
                     // 本身,只要它 --lan 起了)也能看。
                     if (inst.port != null) {
                         ActionIconBtn(
-                            icon = Icons.AutoMirrored.Rounded.Chat,
+                            icon = Lucide.MessageCircle,
                             label = stringResource(R.string.instances_action_sessions),
                             enabled = true,
                             onClick = { onAction(Action.Sessions) },
@@ -438,7 +437,7 @@ fun InstanceCard(
                     }
                     if (showOpen) {
                         ActionIconBtn(
-                            icon = Icons.AutoMirrored.Rounded.OpenInNew,
+                            icon = Lucide.ArrowUpRight,
                             label = stringResource(R.string.instances_action_open),
                             enabled = true,
                             onClick = { onAction(Action.Open) },

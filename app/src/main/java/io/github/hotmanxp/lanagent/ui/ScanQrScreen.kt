@@ -28,7 +28,6 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -58,6 +57,8 @@ import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
 import io.github.hotmanxp.lanagent.R
 import java.util.concurrent.Executors
+import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.ArrowLeft
 
 /**
  * Full-screen QR scanner. Asks for CAMERA on entry; if denied, renders a
@@ -118,7 +119,7 @@ fun ScanQrScreen(
                 .semantics { contentDescription = context.getString(R.string.scan_back_cd) }
         ) {
             Icon(
-                imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                imageVector = Lucide.ArrowLeft,
                 contentDescription = null,
                 tint = Color.White,
             )

@@ -38,9 +38,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.CheckCircle
-import androidx.compose.material.icons.rounded.ContentCopy
-import androidx.compose.material.icons.rounded.RadioButtonUnchecked
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalTextStyle
@@ -68,6 +65,8 @@ import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.Copy
 
 // ============================================================
 // 1. 模型
@@ -491,9 +490,9 @@ private fun ListItemRow(
         when {
             item.checked != null -> Icon(
                 imageVector = if (item.checked) {
-                    Icons.Rounded.CheckCircle
+                    Glyph.SolidCheckCircle
                 } else {
-                    Icons.Rounded.RadioButtonUnchecked
+                    Glyph.SolidCircle
                 },
                 contentDescription = null,
                 tint = if (item.checked) {
@@ -643,7 +642,7 @@ internal fun CodeBox(body: String, lang: String? = null, label: String? = null) 
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Icon(
-                            imageVector = Icons.Rounded.ContentCopy,
+                            imageVector = Lucide.Copy,
                             contentDescription = "复制代码",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(12.dp),

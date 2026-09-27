@@ -24,8 +24,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -58,6 +56,9 @@ import io.github.hotmanxp.lanagent.data.AgentApi
 import io.github.hotmanxp.lanagent.data.AgentSessionMeta
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.ArrowLeft
+import com.composables.icons.lucide.RefreshCw
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -130,7 +131,7 @@ fun AgentSessionsScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                            imageVector = Lucide.ArrowLeft,
                             contentDescription = stringResource(R.string.webview_back_cd),
                         )
                     }
@@ -158,7 +159,7 @@ fun AgentSessionsScreen(
                 actions = {
                     IconButton(onClick = { refreshTick++ }) {
                         Icon(
-                            imageVector = Icons.Rounded.Refresh,
+                            imageVector = Lucide.RefreshCw,
                             contentDescription = stringResource(R.string.agent_sessions_refresh),
                         )
                     }

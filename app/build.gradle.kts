@@ -67,8 +67,8 @@ android {
         applicationId = "io.github.hotmanxp.lanagent"
         minSdk = 26
         targetSdk = 34
-        versionCode = 82
-        versionName = "0.21.0"
+        versionCode = 83
+        versionName = "0.21.1"
 
         // 语音识别凭据 / 开关。见文件头注释；空值 = 未配置，走系统 SpeechRecognizer。
         buildConfigField("String", "ASR_APP_ID", asrLiteral(asrAppId))
@@ -123,7 +123,10 @@ dependencies {
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
+    // 0.21.0:全项目图标已换成 Lucide 线性图标。material-icons-extended 暂时
+    // 保留(下个版本 grep 确认零残留再删),避免编译失败时多一个排查维度。
     implementation(libs.androidx.compose.material.icons.extended)
+    implementation(libs.lucide.icons)
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.webkit)
     implementation(libs.androidx.datastore.preferences)
@@ -136,6 +139,13 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.jsch)
     implementation(libs.highlights)
+    // Agents-Anywhere accessToken / mobile-login refreshToken 用 Keystore 主密钥
+    // 包出来的 EncryptedSharedPreferences(见 data/SecureTokenStore.kt)。**只**
+    // 加密这两类敏感凭据 —— baseUrl / clientId / BuildConfig 兜底走普通 DataStore。
+    implementation(libs.androidx.security.crypto)
+    // QR 生成(mobile-login dialog 用);core 只做编码,不需要 journeyapps 的
+    // 扫码封装。
+    implementation(libs.zxing.core)
 
     testImplementation(kotlin("test"))
     // 真实 org.json 实现，覆盖 Android stub —— voice/WorkBuddyApi 解析用。

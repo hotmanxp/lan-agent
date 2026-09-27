@@ -22,8 +22,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
-import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -40,6 +38,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.hotmanxp.lanagent.R
 import io.github.hotmanxp.lanagent.data.AgentSessionMeta
+import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.ChevronRight
+import com.composables.icons.lucide.Plus
 
 /** 居中容器 — 错误 / 加载占位共用。 */
 @Composable
@@ -82,7 +83,7 @@ internal fun NewSessionPill(busy: Boolean, enabled: Boolean = true, onClick: () 
                 )
             } else {
                 Icon(
-                    imageVector = Icons.Rounded.Add,
+                    imageVector = Lucide.Plus,
                     contentDescription = null,
                     modifier = Modifier.size(18.dp),
                 )
@@ -146,7 +147,7 @@ internal fun SessionRow(meta: AgentSessionMeta, now: Long, onClick: () -> Unit) 
             }
             Spacer(Modifier.size(6.dp))
             Icon(
-                imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                imageVector = Lucide.ChevronRight,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )

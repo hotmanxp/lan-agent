@@ -44,9 +44,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.FolderOpen
-import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -88,6 +85,10 @@ import io.github.hotmanxp.lanagent.service.WebViewFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.FolderOpen
+import com.composables.icons.lucide.RefreshCw
+import com.composables.icons.lucide.X
 
 /**
  * 一次预览的目标。
@@ -171,7 +172,7 @@ private fun FileViewerContent(
                 navigationIcon = {
                     IconButton(onClick = onClose) {
                         Icon(
-                            imageVector = Icons.Rounded.Close,
+                            imageVector = Lucide.X,
                             contentDescription = "关闭预览",
                         )
                     }
@@ -198,13 +199,13 @@ private fun FileViewerContent(
                 actions = {
                     IconButton(onClick = { reloadTick++ }) {
                         Icon(
-                            imageVector = Icons.Rounded.Refresh,
+                            imageVector = Lucide.RefreshCw,
                             contentDescription = "重新加载",
                         )
                     }
                     IconButton(onClick = { reveal() }) {
                         Icon(
-                            imageVector = Icons.Rounded.FolderOpen,
+                            imageVector = Lucide.FolderOpen,
                             contentDescription = "在 Mac 上打开所在目录",
                         )
                     }
@@ -537,7 +538,7 @@ private fun NoticeBody(title: String, detail: String, onReveal: () -> Unit) {
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     Icon(
-                        imageVector = Icons.Rounded.FolderOpen,
+                        imageVector = Lucide.FolderOpen,
                         contentDescription = null,
                         modifier = Modifier.size(18.dp),
                     )

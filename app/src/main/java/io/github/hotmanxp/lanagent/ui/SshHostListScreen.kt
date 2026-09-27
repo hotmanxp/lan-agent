@@ -14,13 +14,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.Delete
-import androidx.compose.material.icons.rounded.Edit
-import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material.icons.rounded.Stop
-import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -58,6 +51,13 @@ import io.github.hotmanxp.lanagent.ssh.ZaiLauncher
 import io.github.hotmanxp.lanagent.ssh.managerUrlForReadyPort
 import io.github.hotmanxp.lanagent.ssh.waitForZaiReadyAnyPort
 import kotlinx.coroutines.launch
+import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.ArrowLeft
+import com.composables.icons.lucide.Pencil
+import com.composables.icons.lucide.Play
+import com.composables.icons.lucide.Plus
+import com.composables.icons.lucide.Terminal
+import com.composables.icons.lucide.Trash2
 
 /**
  * Sheet state machine. Single var drives which sheet content shows.
@@ -111,7 +111,7 @@ fun SshHostListScreen(
                     if (onBack != null) {
                         IconButton(onClick = onBack) {
                             Icon(
-                                imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                                imageVector = Lucide.ArrowLeft,
                                 contentDescription = stringResource(R.string.webview_back_cd),
                             )
                         }
@@ -120,7 +120,7 @@ fun SshHostListScreen(
                 actions = {
                     IconButton(onClick = { adding = true }) {
                         Icon(
-                            imageVector = Icons.Rounded.Add,
+                            imageVector = Lucide.Plus,
                             contentDescription = stringResource(R.string.ssh_add_cd),
                         )
                     }
@@ -247,7 +247,7 @@ private fun SshHostRow(
                 )
                 // 整卡可点(进终端)的可见提示 —— 只靠"能点"没人会去点。
                 Icon(
-                    imageVector = Icons.Rounded.Terminal,
+                    imageVector = Lucide.Terminal,
                     contentDescription = stringResource(R.string.ssh_terminal_cd_open),
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(18.dp),
@@ -271,25 +271,25 @@ private fun SshHostRow(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Button(onClick = onStart, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Rounded.PlayArrow, contentDescription = null)
+                    Icon(Lucide.Play, contentDescription = null)
                     androidx.compose.foundation.layout.Spacer(Modifier.padding(horizontal = 4.dp))
                     Text(stringResource(R.string.ssh_action_start))
                 }
                 IconButton(onClick = onStop) {
                     Icon(
-                        imageVector = Icons.Rounded.Stop,
+                        imageVector = Glyph.SolidSquare,
                         contentDescription = stringResource(R.string.ssh_action_stop),
                     )
                 }
                 IconButton(onClick = onEdit) {
                     Icon(
-                        imageVector = Icons.Rounded.Edit,
+                        imageVector = Lucide.Pencil,
                         contentDescription = stringResource(R.string.ssh_action_edit),
                     )
                 }
                 IconButton(onClick = onDelete) {
                     Icon(
-                        imageVector = Icons.Rounded.Delete,
+                        imageVector = Lucide.Trash2,
                         contentDescription = stringResource(R.string.ssh_action_delete),
                         tint = MaterialTheme.colorScheme.error,
                     )

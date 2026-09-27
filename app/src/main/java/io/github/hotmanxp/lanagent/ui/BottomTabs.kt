@@ -6,17 +6,23 @@
 //   2. **选中态用「深色图标 + 深色文字」**表达,不用 M3 的 indicator 药丸
 //      (`NavigationBarItem` 那颗灰底胶囊在浅色主题下很抢眼,和 WorkBuddy
 //      的克制风格不搭)。
-//   3. **图标一律 `Icons.Rounded`**(Material Symbols Rounded 那一套):
-//      转角和笔画端点全圆。最早这里是 Filled + Outlined 两套,23dp 下
-//      描边版的直角太重、不像 WorkBuddy —— 现在整个 App 都统一到 Rounded,
-//      底栏因此不再需要"实心 / 描边"两套 ImageVector:选中态完全由
+//   3. **图标一律 Lucide 线性描边**(0.21.0 起全项目换掉 Material Symbols)。
+//      更早经历过 Filled + Outlined 两套 → 统一 Rounded → 统一 Lucide 三轮:
+//      底栏**始终不需要**"实心 / 描边"两套 ImageVector,选中态完全由
 //      **颜色 + 字重**区分。顺带解决一个体感问题:换形状会让选中瞬间
 //      "跳"一下,同形状只变色就平滑。
 //   4. 顶部一条 0.5dp hairline —— WorkBuddy 底栏和内容之间靠这根线分隔,
 //      而不是靠阴影。
 //
-// 图标全部取自 material-icons-extended(已在依赖里);`Settings` 在 core 包里。
-// 名称都是对着 1.7.4 的 classes.jar 核过的,别随手换未验证的名字。
+// ⚠️ **Lucide 的两个坑**(改动前必读):
+//   - Lucide 是 24dp 网格 / **2px 描边**,比 Material 的可变字重细。23dp 下
+//     尚可,但 20dp 以下会灰掉 —— 小尺寸站点已在各屏单独调过。
+//   - Lucide 的 `ImageVector` **不带 autoMirrored 元数据**,方向性图标在 RTL
+//     locale 下不会自动翻转。需要翻转的走 `WbMirroredIcon(autoMirror = true)`。
+//
+// 图标名对着 `com.composables:icons-lucide-android:1.1.0` 的 classes.jar
+// 核过(1521 个图标),`AlertTriangle` / `CheckCircle` 这类 2024 前的旧名
+// **已不存在**,别用。
 package io.github.hotmanxp.lanagent.ui
 
 import androidx.annotation.StringRes
@@ -33,12 +39,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.Chat
-import androidx.compose.material.icons.rounded.Dns
-import androidx.compose.material.icons.rounded.Hub
-import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material.icons.rounded.Terminal
+import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.MessageCircle
+import com.composables.icons.lucide.Network
+import com.composables.icons.lucide.Server
+import com.composables.icons.lucide.Settings
+import com.composables.icons.lucide.Terminal
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -71,27 +77,28 @@ enum class TabDestination(
     Tasks(
         route = "tab/tasks",
         labelRes = R.string.tab_tasks,
-        icon = Icons.AutoMirrored.Rounded.Chat,
+        icon = Lucide.MessageCircle,
     ),
     Instances(
         route = "tab/instances",
         labelRes = R.string.tab_instances,
-        icon = Icons.Rounded.Dns,
+        icon = Lucide.Server,
     ),
     Ssh(
         route = "tab/ssh",
         labelRes = R.string.tab_ssh,
-        icon = Icons.Rounded.Terminal,
+        icon = Lucide.Terminal,
     ),
     Services(
         route = "tab/services",
         labelRes = R.string.tab_services,
-        icon = Icons.Rounded.Hub,
+        // Lucide 没有 Hub(多层节点枢纽);HubGlyph 手绘的「三节点互连」语义更准。
+        icon = Lucide.Network,
     ),
     Settings(
         route = "tab/settings",
         labelRes = R.string.tab_settings,
-        icon = Icons.Rounded.Settings,
+        icon = Lucide.Settings,
     ),
     ;
 
@@ -105,8 +112,11 @@ enum class TabDestination(
 /**
  * 未选中态的图标不透明度。低于 1 是为了让"没选中"更轻 —— 颜色本身
  * (onSurfaceVariant vs onSurface)在深色主题下差异偏小,补一点透明度更稳。
+ *
+ * 0.72 而不是上一版的 0.78:换 Lucide 后线条是 2px 描边,再叠 0.78 的 alpha 会
+ * 让未选中的格子整体偏淡偏糊。降一档补回对比(AGENTS.md §16 已同步)。
  */
-private const val INACTIVE_ICON_ALPHA = 0.78f
+private const val INACTIVE_ICON_ALPHA = 0.72f
 
 /** 底栏本体。永远渲染(详情页也有),`current` 是当前高亮的 tab。 */
 @Composable
@@ -160,15 +170,9 @@ private fun WbBottomBarItem(
     val tint by animateColorAsState(target, label = "tabTint")
 
     // 去掉水波纹:底栏是高频点按区,涟漪在 56dp 的窄条上会溢到相邻格子。
-    val interaction = remember { MutableInteractionSource() }
-
     Column(
         modifier = modifier
-            .clickable(
-                interactionSource = interaction,
-                indication = null,
-                onClick = onClick,
-            )
+            .noRippleClickable(onClick = onClick)
             .padding(vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,

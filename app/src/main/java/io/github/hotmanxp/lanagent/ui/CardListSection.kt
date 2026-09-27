@@ -32,14 +32,6 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.Chat
-import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material.icons.rounded.Delete
-import androidx.compose.material.icons.rounded.Edit
-import androidx.compose.material.icons.rounded.Language
-import androidx.compose.material.icons.rounded.Menu
-import androidx.compose.material.icons.rounded.QrCodeScanner
 import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -73,6 +65,15 @@ import io.github.hotmanxp.lanagent.data.extractBaseUrl
 import io.github.hotmanxp.lanagent.data.saveCards
 import io.github.hotmanxp.lanagent.model.Card
 import kotlinx.coroutines.launch
+import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.Check
+import com.composables.icons.lucide.Globe
+import com.composables.icons.lucide.Menu
+import com.composables.icons.lucide.MessageCircle
+import com.composables.icons.lucide.Pencil
+import com.composables.icons.lucide.Plus
+import com.composables.icons.lucide.QrCode
+import com.composables.icons.lucide.Trash2
 
 /**
  * 卡片列表主体。**自包含**:自己读 DataStore、自己管编辑态、自己弹增改对话框,
@@ -139,26 +140,26 @@ fun CardListSection(
             if (editMode) {
                 IconButton(onClick = { editMode = false }) {
                     Icon(
-                        imageVector = Icons.Rounded.Check,
+                        imageVector = Lucide.Check,
                         contentDescription = stringResource(R.string.home_done_cd),
                     )
                 }
             } else {
                 IconButton(onClick = onScan) {
                     Icon(
-                        imageVector = Icons.Rounded.QrCodeScanner,
+                        imageVector = Lucide.QrCode,
                         contentDescription = stringResource(R.string.home_scan_cd),
                     )
                 }
                 IconButton(onClick = { editMode = true }) {
                     Icon(
-                        imageVector = Icons.Rounded.Edit,
+                        imageVector = Lucide.Pencil,
                         contentDescription = stringResource(R.string.home_edit_mode_cd),
                     )
                 }
                 IconButton(onClick = { showAddDialog = true }) {
                     Icon(
-                        imageVector = Icons.Rounded.Add,
+                        imageVector = Lucide.Plus,
                         contentDescription = stringResource(R.string.home_add_cd),
                     )
                 }
@@ -342,13 +343,13 @@ private fun DraggableCardItem(
             if (editMode) {
                 IconButton(onClick = onDelete) {
                     Icon(
-                        imageVector = Icons.Rounded.Delete,
+                        imageVector = Lucide.Trash2,
                         contentDescription = stringResource(R.string.home_delete_cd),
                         tint = MaterialTheme.colorScheme.error
                     )
                 }
                 Icon(
-                    imageVector = Icons.Rounded.Menu,
+                    imageVector = Lucide.Menu,
                     contentDescription = stringResource(R.string.home_drag_cd),
                     modifier = Modifier.padding(start = 4.dp)
                 )
@@ -356,14 +357,14 @@ private fun DraggableCardItem(
                 if (hasNative) {
                     IconButton(onClick = onNativeClick) {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Rounded.Chat,
+                            imageVector = Lucide.MessageCircle,
                             contentDescription = stringResource(R.string.home_card_native_cd),
                             tint = MaterialTheme.colorScheme.primary,
                         )
                     }
                     IconButton(onClick = onWebClick) {
                         Icon(
-                            imageVector = Icons.Rounded.Language,
+                            imageVector = Lucide.Globe,
                             contentDescription = stringResource(R.string.home_card_web_cd),
                         )
                     }

@@ -48,35 +48,6 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowRight
-import androidx.compose.material.icons.automirrored.rounded.InsertDriveFile
-import androidx.compose.material.icons.automirrored.rounded.OpenInNew
-import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.AddPhotoAlternate
-import androidx.compose.material.icons.rounded.ArrowUpward
-import androidx.compose.material.icons.rounded.Article
-import androidx.compose.material.icons.rounded.AutoAwesome
-import androidx.compose.material.icons.rounded.Bolt
-import androidx.compose.material.icons.rounded.Build
-import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.ContentPaste
-import androidx.compose.material.icons.rounded.Description
-import androidx.compose.material.icons.rounded.ExpandLess
-import androidx.compose.material.icons.rounded.ExpandMore
-import androidx.compose.material.icons.rounded.FolderOpen
-import androidx.compose.material.icons.rounded.GraphicEq
-import androidx.compose.material.icons.rounded.Html
-import androidx.compose.material.icons.rounded.Keyboard
-import androidx.compose.material.icons.rounded.KeyboardArrowDown
-import androidx.compose.material.icons.rounded.Photo
-import androidx.compose.material.icons.rounded.PictureAsPdf
-import androidx.compose.material.icons.rounded.Psychology
-import androidx.compose.material.icons.rounded.Slideshow
-import androidx.compose.material.icons.rounded.SmartToy
-import androidx.compose.material.icons.rounded.Stop
-import androidx.compose.material.icons.rounded.TableChart
-import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -169,6 +140,32 @@ import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.ArrowRight
+import com.composables.icons.lucide.ArrowUp
+import com.composables.icons.lucide.ArrowUpRight
+import com.composables.icons.lucide.AudioLines
+import com.composables.icons.lucide.Bot
+import com.composables.icons.lucide.Check
+import com.composables.icons.lucide.ChevronDown
+import com.composables.icons.lucide.ChevronDown
+import com.composables.icons.lucide.ChevronUp
+import com.composables.icons.lucide.ClipboardPaste
+import com.composables.icons.lucide.Code
+import com.composables.icons.lucide.File
+import com.composables.icons.lucide.FileText
+import com.composables.icons.lucide.FileText
+import com.composables.icons.lucide.FileText
+import com.composables.icons.lucide.FolderOpen
+import com.composables.icons.lucide.Image
+import com.composables.icons.lucide.ImagePlus
+import com.composables.icons.lucide.Keyboard
+import com.composables.icons.lucide.Plus
+import com.composables.icons.lucide.Sparkles
+import com.composables.icons.lucide.Table
+import com.composables.icons.lucide.Terminal
+import com.composables.icons.lucide.X
+import com.composables.icons.lucide.Zap
 
 private val CLOCK = SimpleDateFormat("HH:mm", Locale.getDefault())
 
@@ -350,7 +347,7 @@ private fun FullScreenImageViewer(
                     .navigationBarsPadding(),
             ) {
                 Icon(
-                    imageVector = Icons.Rounded.Close,
+                    imageVector = Lucide.X,
                     contentDescription = stringResource(android.R.string.cancel),
                     tint = Color.White,
                 )
@@ -397,7 +394,7 @@ internal fun ThinkingBubble(item: AgentItem.Thinking) {
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 Icon(
-                    imageVector = Icons.Rounded.Psychology,
+                    imageVector = Glyph.Brain,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(15.dp),
@@ -415,7 +412,7 @@ internal fun ThinkingBubble(item: AgentItem.Thinking) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                 )
                 Icon(
-                    imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                    imageVector = if (expanded) Lucide.ChevronUp else Lucide.ChevronDown,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(16.dp),
@@ -474,7 +471,7 @@ internal fun ToolCallCard(item: AgentItem.ToolCall) {
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Icon(
-                    imageVector = Icons.Rounded.Build,
+                    imageVector = Glyph.Hammer,
                     contentDescription = null,
                     tint = accent,
                     modifier = Modifier.size(16.dp),
@@ -501,7 +498,7 @@ internal fun ToolCallCard(item: AgentItem.ToolCall) {
                     )
                 }
                 Icon(
-                    imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                    imageVector = if (expanded) Lucide.ChevronUp else Lucide.ChevronDown,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(16.dp),
@@ -629,20 +626,20 @@ internal fun PresentFileCard(
                 }
                 if (file.viewable && api != null) {
                     CardIconAction(
-                        icon = Icons.AutoMirrored.Rounded.OpenInNew,
+                        icon = Lucide.ArrowUpRight,
                         description = "大尺寸预览",
                         onClick = { onOpenFile(file) },
                     )
                 }
                 if (!file.failed && api != null) {
                     CardIconAction(
-                        icon = Icons.Rounded.FolderOpen,
+                        icon = Lucide.FolderOpen,
                         description = "在 Mac 上打开所在目录",
                         onClick = { onReveal(file) },
                     )
                 }
                 Icon(
-                    imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                    imageVector = if (expanded) Lucide.ChevronUp else Lucide.ChevronDown,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(16.dp),
@@ -949,7 +946,7 @@ internal fun TurnArtifactsBlock(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 Icon(
-                    imageVector = Icons.Rounded.AutoAwesome,
+                    imageVector = Lucide.Sparkles,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(15.dp),
@@ -961,7 +958,7 @@ internal fun TurnArtifactsBlock(
                     modifier = Modifier.weight(1f),
                 )
                 Icon(
-                    imageVector = if (open) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                    imageVector = if (open) Lucide.ChevronUp else Lucide.ChevronDown,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(15.dp),
@@ -1064,15 +1061,15 @@ private fun fileSubtitle(file: PresentedFile): String {
 }
 
 private fun fileKindIcon(kind: FileKind) = when (kind) {
-    FileKind.Image -> Icons.Rounded.Photo
-    FileKind.Html -> Icons.Rounded.Html
-    FileKind.Text -> Icons.Rounded.Description
-    FileKind.Docx -> Icons.Rounded.Article
-    FileKind.Sheet -> Icons.Rounded.TableChart
-    FileKind.Ppt -> Icons.Rounded.Slideshow
-    FileKind.Pdf -> Icons.Rounded.PictureAsPdf
-    FileKind.LegacyOffice -> Icons.AutoMirrored.Rounded.InsertDriveFile
-    FileKind.Binary -> Icons.AutoMirrored.Rounded.InsertDriveFile
+    FileKind.Image -> Lucide.Image
+    FileKind.Html -> Lucide.Code
+    FileKind.Text -> Lucide.FileText
+    FileKind.Docx -> Lucide.FileText
+    FileKind.Sheet -> Lucide.Table
+    FileKind.Ppt -> Glyph.Slide
+    FileKind.Pdf -> Lucide.FileText
+    FileKind.LegacyOffice -> Lucide.File
+    FileKind.Binary -> Lucide.File
 }
 
 /** 字节数。小数固定用 `.`(默认 Locale 会在部分地区给逗号)。 */
@@ -1202,7 +1199,7 @@ internal fun ToolGroupCard(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Icon(
-                    imageVector = Icons.Rounded.Build,
+                    imageVector = Glyph.Hammer,
                     contentDescription = null,
                     tint = accent,
                     modifier = Modifier.size(16.dp),
@@ -1236,7 +1233,7 @@ internal fun ToolGroupCard(
                     )
                 }
                 Icon(
-                    imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                    imageVector = if (expanded) Lucide.ChevronUp else Lucide.ChevronDown,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(16.dp),
@@ -1400,7 +1397,7 @@ internal fun TaskDockStrip(
                     // 只有后台任务 → header 标题就是「后台任务」,否则整行没有
                     // 任何说明文字,用户不知道这栏是什么。
                     Icon(
-                        imageVector = Icons.Rounded.Bolt,
+                        imageVector = Lucide.Zap,
                         contentDescription = null,
                         tint = if (runningCount > 0) {
                             MaterialTheme.colorScheme.tertiary
@@ -1424,7 +1421,7 @@ internal fun TaskDockStrip(
                     // 出现(否则「任务清单」旁边的第二组数字只是噪声)。
                     if (runningCount > 0) {
                         Icon(
-                            imageVector = Icons.Rounded.Bolt,
+                            imageVector = Lucide.Zap,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.tertiary,
                             modifier = Modifier.size(14.dp),
@@ -1443,7 +1440,7 @@ internal fun TaskDockStrip(
                     )
                 }
                 Icon(
-                    imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                    imageVector = if (expanded) Lucide.ChevronUp else Lucide.ChevronDown,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(16.dp),
@@ -1457,7 +1454,7 @@ internal fun TaskDockStrip(
                         if (bothSections) SectionLabel("后台任务")
                         runningAgents.take(BG_RUNNING_ROWS).forEach { t ->
                             BgTaskRow(
-                                icon = Icons.Rounded.SmartToy,
+                                icon = Lucide.Bot,
                                 title = t.displayName,
                                 detail = t.displayDetail,
                                 status = t.status,
@@ -1466,7 +1463,7 @@ internal fun TaskDockStrip(
                         }
                         runningBash.take(BG_RUNNING_ROWS).forEach { t ->
                             BgTaskRow(
-                                icon = Icons.Rounded.Terminal,
+                                icon = Lucide.Terminal,
                                 title = "",
                                 detail = t.displayDetail,
                                 status = t.status,
@@ -1475,7 +1472,7 @@ internal fun TaskDockStrip(
                         }
                         recentAgents.take(BG_RECENT_ROWS).forEach { t ->
                             BgTaskRow(
-                                icon = Icons.Rounded.SmartToy,
+                                icon = Lucide.Bot,
                                 title = t.displayName,
                                 detail = t.displayDetail,
                                 status = t.status,
@@ -1484,7 +1481,7 @@ internal fun TaskDockStrip(
                         }
                         recentBash.take(BG_RECENT_ROWS).forEach { t ->
                             BgTaskRow(
-                                icon = Icons.Rounded.Terminal,
+                                icon = Lucide.Terminal,
                                 title = "",
                                 detail = t.displayDetail,
                                 status = t.status,
@@ -1501,7 +1498,7 @@ internal fun TaskDockStrip(
                                 modifier = Modifier.padding(vertical = 2.dp),
                             ) {
                                 Icon(
-                                    imageVector = if (isDone) Icons.Rounded.Check else Icons.AutoMirrored.Rounded.ArrowRight,
+                                    imageVector = if (isDone) Lucide.Check else Lucide.ArrowRight,
                                     contentDescription = null,
                                     tint = if (isDone) {
                                         MaterialTheme.colorScheme.primary
@@ -1630,7 +1627,7 @@ internal fun QueueStrip(
                     }
                     IconButton(onClick = { onCancel(q) }, modifier = Modifier.size(28.dp)) {
                         Icon(
-                            imageVector = Icons.Rounded.Close,
+                            imageVector = Lucide.X,
                             contentDescription = "取消",
                             modifier = Modifier.size(14.dp),
                         )
@@ -1791,7 +1788,7 @@ private fun AskOptionRow(
             }
             if (selected) {
                 Icon(
-                    imageVector = Icons.Rounded.Check,
+                    imageVector = Lucide.Check,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(15.dp),
@@ -2524,7 +2521,7 @@ internal fun AgentInputBar(
                         // 既可以接着按说话,也可以点这个键盘图标切回打字。
                         if (voiceMode) {
                             InputBarIcon(
-                                icon = Icons.Rounded.Keyboard,
+                                icon = Lucide.Keyboard,
                                 contentDescription = stringResource(R.string.agent_input_keyboard),
                                 tint = MaterialTheme.colorScheme.primary,
                                 onClick = { voiceMode = false },
@@ -2533,7 +2530,7 @@ internal fun AgentInputBar(
                             // 云 ASR:点语音图标进入语音模式(输入框变「按住 说话」大胶囊),
                             // 不依赖系统识别服务,国行无 Google 服务的 ROM 上也照常能用。
                             InputBarIcon(
-                                icon = Icons.Rounded.GraphicEq,
+                                icon = Lucide.AudioLines,
                                 contentDescription = stringResource(R.string.agent_input_voice),
                                 tint = MaterialTheme.colorScheme.onSurface,
                                 onClick = { voiceMode = true },
@@ -2541,7 +2538,7 @@ internal fun AgentInputBar(
                         } else if (voice.available) {
                             // 系统 SpeechRecognizer 兜底:点按切换录音,识别结果回填输入框。
                             InputBarIcon(
-                                icon = Icons.Rounded.GraphicEq,
+                                icon = Lucide.AudioLines,
                                 contentDescription = stringResource(R.string.agent_input_voice),
                                 tint = if (voice.listening) {
                                     MaterialTheme.colorScheme.primary
@@ -2567,7 +2564,7 @@ internal fun AgentInputBar(
                         // `+` 与发送钮**并存**(WorkBuddy 行为)。附件/粘贴收进
                         // 这个面板,所以卡下方不再需要 icon row。
                         InputBarIcon(
-                            icon = Icons.Rounded.Add,
+                            icon = Lucide.Plus,
                             contentDescription = stringResource(R.string.agent_input_more),
                             tint = MaterialTheme.colorScheme.onSurface,
                             onClick = { showMoreMenu = true },
@@ -2575,7 +2572,7 @@ internal fun AgentInputBar(
 
                         if (busy) {
                             InputBarCircle(
-                                icon = Icons.Rounded.Stop,
+                                icon = Glyph.SolidSquare,
                                 contentDescription = stringResource(R.string.agent_input_stop),
                                 container = MaterialTheme.colorScheme.error,
                                 content = MaterialTheme.colorScheme.onError,
@@ -2584,7 +2581,7 @@ internal fun AgentInputBar(
                             )
                         } else {
                             InputBarCircle(
-                                icon = Icons.Rounded.ArrowUpward,
+                                icon = Lucide.ArrowUp,
                                 contentDescription = stringResource(R.string.agent_input_send),
                                 container = MaterialTheme.colorScheme.primary,
                                 // 禁用态:浅灰底 + 白箭头(对齐 WorkBuddy 空输入时的样子)
@@ -2607,7 +2604,7 @@ internal fun AgentInputBar(
         ) {
             Column(modifier = Modifier.navigationBarsPadding()) {
                 InputSheetAction(
-                    icon = Icons.Rounded.AddPhotoAlternate,
+                    icon = Lucide.ImagePlus,
                     title = stringResource(R.string.agent_input_add_image),
                     subtitle = stringResource(R.string.agent_input_add_image_sub),
                     onClick = {
@@ -2616,7 +2613,7 @@ internal fun AgentInputBar(
                     },
                 )
                 InputSheetAction(
-                    icon = Icons.Rounded.ContentPaste,
+                    icon = Lucide.ClipboardPaste,
                     title = stringResource(R.string.agent_input_paste),
                     subtitle = stringResource(R.string.agent_input_paste_sub),
                     onClick = {
@@ -2687,7 +2684,7 @@ private fun ModelChip(
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Icon(
-            imageVector = Icons.Rounded.Psychology,
+            imageVector = Glyph.Brain,
             contentDescription = null,
             tint = tint,
             modifier = Modifier.size(18.dp),
@@ -2705,7 +2702,7 @@ private fun ModelChip(
             modifier = Modifier.weight(1f, fill = true),
         )
         Icon(
-            imageVector = Icons.Rounded.KeyboardArrowDown,
+            imageVector = Lucide.ChevronDown,
             contentDescription = null,
             tint = tint,
             modifier = Modifier.size(16.dp),
@@ -2771,7 +2768,7 @@ private fun ModelPickerSheetContent(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Icon(
-                        imageVector = Icons.Rounded.Psychology,
+                        imageVector = Glyph.Brain,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(20.dp),
@@ -2789,7 +2786,7 @@ private fun ModelPickerSheetContent(
                     )
                     if (isCurrent) {
                         Icon(
-                            imageVector = Icons.Rounded.Check,
+                            imageVector = Lucide.Check,
                             contentDescription = stringResource(R.string.agent_input_model_current),
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(20.dp),
@@ -2917,7 +2914,7 @@ private fun AttachmentChip(image: AttachedImage, onRemove: () -> Unit) {
             contentAlignment = Alignment.Center,
         ) {
             Icon(
-                imageVector = Icons.Rounded.Close,
+                imageVector = Lucide.X,
                 contentDescription = stringResource(R.string.agent_input_remove_attachment),
                 tint = MaterialTheme.colorScheme.surface,
                 modifier = Modifier.size(14.dp),

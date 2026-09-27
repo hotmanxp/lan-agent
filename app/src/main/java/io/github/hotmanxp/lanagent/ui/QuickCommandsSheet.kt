@@ -16,12 +16,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.ArrowDownward
-import androidx.compose.material.icons.rounded.ArrowUpward
-import androidx.compose.material.icons.rounded.Delete
-import androidx.compose.material.icons.rounded.Edit
-import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -52,6 +46,13 @@ import androidx.compose.ui.unit.sp
 import io.github.hotmanxp.lanagent.R
 import io.github.hotmanxp.lanagent.model.QuickCommand
 import java.util.UUID
+import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.ArrowDown
+import com.composables.icons.lucide.ArrowUp
+import com.composables.icons.lucide.Pencil
+import com.composables.icons.lucide.Play
+import com.composables.icons.lucide.Plus
+import com.composables.icons.lucide.Trash2
 
 /**
  * 快捷命令管理半屏。列表是全局的(所有主机共用一份),顺序即 chip 行里的
@@ -131,7 +132,7 @@ internal fun QuickCommandsSheet(
                 onClick = { adding = true },
                 modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
             ) {
-                Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                Icon(Lucide.Plus, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.size(6.dp))
                 Text(stringResource(R.string.ssh_quick_add))
             }
@@ -237,7 +238,7 @@ private fun QuickCommandRow(
                 }
                 IconButton(onClick = onRun, modifier = Modifier.size(36.dp)) {
                     Icon(
-                        imageVector = Icons.Rounded.PlayArrow,
+                        imageVector = Lucide.Play,
                         contentDescription = stringResource(R.string.ssh_quick_run),
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(20.dp),
@@ -250,25 +251,25 @@ private fun QuickCommandRow(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 MiniIconAction(
-                    icon = Icons.Rounded.ArrowUpward,
+                    icon = Lucide.ArrowUp,
                     contentDescription = stringResource(R.string.ssh_quick_move_up),
                     enabled = canMoveUp,
                     onClick = onMoveUp,
                 )
                 MiniIconAction(
-                    icon = Icons.Rounded.ArrowDownward,
+                    icon = Lucide.ArrowDown,
                     contentDescription = stringResource(R.string.ssh_quick_move_down),
                     enabled = canMoveDown,
                     onClick = onMoveDown,
                 )
                 MiniIconAction(
-                    icon = Icons.Rounded.Edit,
+                    icon = Lucide.Pencil,
                     contentDescription = stringResource(R.string.ssh_action_edit),
                     enabled = true,
                     onClick = onEdit,
                 )
                 MiniIconAction(
-                    icon = Icons.Rounded.Delete,
+                    icon = Lucide.Trash2,
                     contentDescription = stringResource(R.string.ssh_action_delete),
                     enabled = true,
                     tint = MaterialTheme.colorScheme.error,

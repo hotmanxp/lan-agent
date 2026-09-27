@@ -32,11 +32,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.Delete
-import androidx.compose.material.icons.rounded.Edit
-import androidx.compose.material.icons.rounded.Language
-import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -78,6 +73,12 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.Globe
+import com.composables.icons.lucide.Pencil
+import com.composables.icons.lucide.Plus
+import com.composables.icons.lucide.RefreshCw
+import com.composables.icons.lucide.Trash2
 
 private const val PROBE_INTERVAL_MS = 10_000L
 
@@ -128,7 +129,7 @@ fun RemoteServicesScreen(
                 actions = {
                     IconButton(onClick = { adding = true }) {
                         Icon(
-                            imageVector = Icons.Rounded.Add,
+                            imageVector = Lucide.Plus,
                             contentDescription = stringResource(R.string.svc_add_cd),
                         )
                     }
@@ -272,7 +273,7 @@ private fun RemoteServiceRow(
             ) {
                 TextButton(onClick = onOpen) {
                     Icon(
-                        imageVector = Icons.Rounded.Language,
+                        imageVector = Lucide.Globe,
                         contentDescription = null,
                         modifier = Modifier.size(16.dp),
                     )
@@ -282,14 +283,14 @@ private fun RemoteServiceRow(
                 Spacer(Modifier.weight(1f))
                 IconButton(onClick = onEdit) {
                     Icon(
-                        imageVector = Icons.Rounded.Edit,
+                        imageVector = Lucide.Pencil,
                         contentDescription = stringResource(R.string.svc_action_edit),
                         modifier = Modifier.size(18.dp),
                     )
                 }
                 IconButton(onClick = onDelete) {
                     Icon(
-                        imageVector = Icons.Rounded.Delete,
+                        imageVector = Lucide.Trash2,
                         contentDescription = stringResource(R.string.svc_action_delete),
                         tint = MaterialTheme.colorScheme.error,
                         modifier = Modifier.size(18.dp),

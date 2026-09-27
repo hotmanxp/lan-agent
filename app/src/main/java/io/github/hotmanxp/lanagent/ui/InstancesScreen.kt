@@ -19,10 +19,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.Refresh
-import androidx.compose.material.icons.rounded.RocketLaunch
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -59,6 +55,11 @@ import io.github.hotmanxp.lanagent.data.InstancesApi
 import io.github.hotmanxp.lanagent.data.PatchValue
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.ArrowLeft
+import com.composables.icons.lucide.Plus
+import com.composables.icons.lucide.RefreshCw
+import com.composables.icons.lucide.Rocket
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -205,7 +206,7 @@ fun InstancesScreen(
                     if (onBack != null) {
                         IconButton(onClick = onBack) {
                             Icon(
-                                imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                                imageVector = Lucide.ArrowLeft,
                                 contentDescription = stringResource(R.string.webview_back_cd),
                             )
                         }
@@ -221,13 +222,13 @@ fun InstancesScreen(
                         createOpen = true
                     }) {
                         Icon(
-                            imageVector = Icons.Rounded.RocketLaunch,
+                            imageVector = Lucide.Rocket,
                             contentDescription = stringResource(R.string.instances_create_task_factory),
                         )
                     }
                     IconButton(onClick = { scope.launch { refresh() } }) {
                         Icon(
-                            imageVector = Icons.Rounded.Refresh,
+                            imageVector = Lucide.RefreshCw,
                             contentDescription = stringResource(R.string.instances_refresh),
                         )
                     }
@@ -242,7 +243,7 @@ fun InstancesScreen(
                     createInitialApp = null
                     createOpen = true
                 },
-                icon = { Icon(Icons.Rounded.Add, contentDescription = null) },
+                icon = { Icon(Lucide.Plus, contentDescription = null) },
                 text = { Text(stringResource(R.string.instances_create)) },
             )
         },

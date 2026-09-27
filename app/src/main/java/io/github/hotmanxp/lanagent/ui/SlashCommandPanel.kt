@@ -30,8 +30,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.AutoAwesome
-import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
@@ -46,6 +44,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.hotmanxp.lanagent.R
 import io.github.hotmanxp.lanagent.data.SlashItem
+import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.Sparkles
+import com.composables.icons.lucide.Terminal
 
 /** 面板可见行数上限 —— 再多就滚动,别把消息区挤没了。 */
 private const val VISIBLE_ROWS = 6
@@ -141,7 +142,7 @@ private fun SlashRow(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Icon(
-            imageVector = if (item.isSkill) Icons.Rounded.AutoAwesome else Icons.Rounded.Terminal,
+            imageVector = if (item.isSkill) Lucide.Sparkles else Lucide.Terminal,
             contentDescription = null,
             tint = if (selected) {
                 MaterialTheme.colorScheme.primary

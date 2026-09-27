@@ -31,7 +31,6 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.Icon
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -63,6 +62,8 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.RefreshCw
 
 @Composable
 fun WebViewScreen(url: String, onBack: () -> Unit) {
@@ -403,7 +404,7 @@ fun WebViewScreen(url: String, onBack: () -> Unit) {
             contentAlignment = Alignment.Center,
         ) {
             Icon(
-                imageVector = Icons.Rounded.Refresh,
+                imageVector = Lucide.RefreshCw,
                 contentDescription = "刷新页面",
                 tint = Color(0xFF1F2937),
                 modifier = Modifier.size(16.dp),

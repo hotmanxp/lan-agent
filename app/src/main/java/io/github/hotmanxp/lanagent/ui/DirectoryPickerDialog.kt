@@ -19,9 +19,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Home
-import androidx.compose.material.icons.rounded.KeyboardArrowUp
-import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -49,6 +46,10 @@ import io.github.hotmanxp.lanagent.R
 import io.github.hotmanxp.lanagent.data.FsPickerList
 import io.github.hotmanxp.lanagent.data.InstancesApi
 import kotlinx.coroutines.launch
+import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.ChevronUp
+import com.composables.icons.lucide.House
+import com.composables.icons.lucide.RefreshCw
 
 @Composable
 fun DirectoryPickerDialog(
@@ -101,7 +102,7 @@ fun DirectoryPickerDialog(
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                     ) {
                         Icon(
-                            imageVector = Icons.Rounded.Home,
+                            imageVector = Lucide.House,
                             contentDescription = null,
                             modifier = Modifier.size(16.dp),
                         )
@@ -117,7 +118,7 @@ fun DirectoryPickerDialog(
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                     ) {
                         Icon(
-                            imageVector = Icons.Rounded.KeyboardArrowUp,
+                            imageVector = Lucide.ChevronUp,
                             contentDescription = null,
                             modifier = Modifier.size(16.dp),
                         )
@@ -133,7 +134,7 @@ fun DirectoryPickerDialog(
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                     ) {
                         Icon(
-                            imageVector = Icons.Rounded.Refresh,
+                            imageVector = Lucide.RefreshCw,
                             contentDescription = null,
                             modifier = Modifier.size(16.dp),
                         )

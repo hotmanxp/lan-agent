@@ -28,12 +28,6 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.Bolt
-import androidx.compose.material.icons.rounded.DeleteSweep
-import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material.icons.rounded.Stop
-import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
@@ -77,6 +71,12 @@ import io.github.hotmanxp.lanagent.data.sshHostsFlow
 import io.github.hotmanxp.lanagent.model.QuickCommand
 import io.github.hotmanxp.lanagent.model.SshHost
 import kotlinx.coroutines.launch
+import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.ArrowLeft
+import com.composables.icons.lucide.Play
+import com.composables.icons.lucide.Terminal
+import com.composables.icons.lucide.Trash
+import com.composables.icons.lucide.Zap
 
 /**
  * 手机上的 SSH 工作台。两种形态刻意分开,因为它们的取舍完全不同:
@@ -172,7 +172,7 @@ private fun SshTerminalContent(host: SshHost, onBack: () -> Unit) {
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                            imageVector = Lucide.ArrowLeft,
                             contentDescription = stringResource(R.string.webview_back_cd),
                         )
                     }
@@ -185,7 +185,7 @@ private fun SshTerminalContent(host: SshHost, onBack: () -> Unit) {
                         },
                     ) {
                         Icon(
-                            imageVector = Icons.Rounded.Terminal,
+                            imageVector = Lucide.Terminal,
                             contentDescription = stringResource(
                                 if (store.interactive) R.string.ssh_terminal_cd_to_command
                                 else R.string.ssh_terminal_cd_to_interactive
@@ -196,7 +196,7 @@ private fun SshTerminalContent(host: SshHost, onBack: () -> Unit) {
                     }
                     IconButton(onClick = { manageOpen = true }) {
                         Icon(
-                            imageVector = Icons.Rounded.Bolt,
+                            imageVector = Lucide.Zap,
                             contentDescription = stringResource(R.string.ssh_quick_manage_title),
                         )
                     }
@@ -207,7 +207,7 @@ private fun SshTerminalContent(host: SshHost, onBack: () -> Unit) {
                         },
                     ) {
                         Icon(
-                            imageVector = Icons.Rounded.DeleteSweep,
+                            imageVector = Lucide.Trash,
                             contentDescription = stringResource(R.string.ssh_terminal_cd_clear),
                         )
                     }
@@ -542,7 +542,7 @@ private fun QuickCommandStrip(
                 leadingIcon = if (qc.confirm) {
                     {
                         Icon(
-                            imageVector = Icons.Rounded.Bolt,
+                            imageVector = Lucide.Zap,
                             contentDescription = stringResource(R.string.ssh_quick_cd_confirm),
                             modifier = Modifier.size(14.dp),
                             tint = MaterialTheme.colorScheme.tertiary,
@@ -564,7 +564,7 @@ private fun QuickCommandStrip(
             },
             leadingIcon = {
                 Icon(
-                    imageVector = Icons.Rounded.Bolt,
+                    imageVector = Lucide.Zap,
                     contentDescription = null,
                     modifier = Modifier.size(16.dp),
                     tint = MaterialTheme.colorScheme.primary,
@@ -636,7 +636,7 @@ private fun CommandInputRow(
                 )
             }
             CircleButton(
-                icon = if (running && showStop) Icons.Rounded.Stop else Icons.Rounded.PlayArrow,
+                icon = if (running && showStop) Glyph.SolidSquare else Lucide.Play,
                 contentDescription = stringResource(
                     if (running && showStop) R.string.ssh_terminal_stop else R.string.ssh_terminal_send_line
                 ),

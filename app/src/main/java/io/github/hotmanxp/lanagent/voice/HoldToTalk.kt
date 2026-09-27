@@ -46,7 +46,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
@@ -77,6 +76,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.AudioLines
 
 enum class HoldPhase { Idle, Recording, Recognizing }
 
@@ -424,7 +425,7 @@ fun HoldToTalkButton(
                 ),
         )
         Icon(
-            imageVector = Icons.Rounded.GraphicEq,
+            imageVector = Lucide.AudioLines,
             contentDescription = "按住说话",
             tint = accent.copy(alpha = alpha),
             modifier = Modifier.size(21.dp),

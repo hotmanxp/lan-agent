@@ -17,9 +17,26 @@ jsch = "0.1.55"
 # ⚠️ 只能用 1.0.0:它依赖 kotlin-stdlib 2.0.20,与本项目 Kotlin 2.0.21 对齐。
 # 1.1.0 把 stdlib 抬到 2.2.0,编译器会直接报 kotlin metadata 版本不兼容。
 highlights = "1.0.0"
+# Lucide 线性图标(0.21.0 起全项目替换 Material Symbols Rounded)。
+# 24dp 网格 / 2px 描边,比 Material 的可变字重在深色底上更克制。
+# ⚠️ 这库**只有描边版,没有实心版** —— 需要实心效果的图标走 ui/Glyphs.kt 手绘。
+# ⚠️ Lucide 的 ImageVector 不带 autoMirrored 元数据,RTL 翻转统一走 WbMirroredIcon。
+lucideIcons = "1.1.0"
 # Android 单测里 org.json.JSONObject 默认是 stub（方法体抛 RuntimeException("Stub!")），
 # 这里挂真实实现到 test classpath，覆盖 stub。voice 包需要用它测 WorkBuddyApi 响应解析。
 orgJson = "20240303"
+# AndroidX EncryptedSharedPreferences:Android Keystore 主密钥包装的加密
+# SharedPreferences,落 Agents-Anywhere accessToken / mobile-login refreshToken
+# 等敏感字段。1.1.0-alpha06 是 1.x 系列当前稳定 alpha(超过 alpha05 的 Tink
+# 9.x 兼容性回滚 —— alpha05 拉的 Tink 11.x 在 Android 14 部分设备上报
+# "JCE cannot authenticate the provider",稳定程度仍可接受,等 1.1.0 stable
+# 出来再升)。
+securityCrypto = "1.1.0-alpha06"
+# ZXing core:QR 码生成。mobile-login QR 流程需要把
+# `{baseUrl}/auth/mobile-login/confirm?loginToken=…&userId=…` 编码成 QR Bitmap。
+# **只要 core** —— journeyapps 那套 zxing-android-embedded 是扫码的(相机 +
+# ActivityResult),我们不扫,只生成。
+zxingCore = "3.5.3"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -44,7 +61,10 @@ mlkit-barcode-scanning = { group = "com.google.mlkit", name = "barcode-scanning"
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 jsch = { group = "com.jcraft", name = "jsch", version.ref = "jsch" }
 highlights = { group = "dev.snipme", name = "highlights", version.ref = "highlights" }
+lucide-icons = { group = "com.composables", name = "icons-lucide-android", version.ref = "lucideIcons" }
 org-json = { group = "org.json", name = "json", version.ref = "orgJson" }
+androidx-security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "securityCrypto" }
+zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxingCore" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

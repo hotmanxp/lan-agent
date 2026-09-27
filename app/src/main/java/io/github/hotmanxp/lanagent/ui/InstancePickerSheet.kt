@@ -41,11 +41,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.Computer
-import androidx.compose.material.icons.rounded.Dns
-import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -67,6 +62,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.hotmanxp.lanagent.R
 import io.github.hotmanxp.lanagent.data.AgentInstance
+import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.Check
+import com.composables.icons.lucide.ChevronDown
+import com.composables.icons.lucide.Monitor
+import com.composables.icons.lucide.Server
+import com.composables.icons.lucide.X
 
 /** 与实例栏 `stateContent` 的 running 绿同源(#52C41A),在线态全 App 一个绿。 */
 private val OnlineGreen = Color(0xFF52C41A)
@@ -108,7 +109,7 @@ internal fun InstancePickerSheet(
                 Spacer(Modifier.weight(1f))
                 IconButton(onClick = onDismiss) {
                     Icon(
-                        imageVector = Icons.Rounded.Close,
+                        imageVector = Lucide.X,
                         contentDescription = stringResource(R.string.dialog_cancel),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -208,7 +209,7 @@ private fun InstancePickerRow(
     ) {
         Icon(
             // 本机 supervisor 与子实例区分一下图标,扫一眼就知道点的是哪个。
-            imageVector = if (instance.isCurrent) Icons.Rounded.Dns else Icons.Rounded.Computer,
+            imageVector = if (instance.isCurrent) Lucide.Server else Lucide.Monitor,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(20.dp),
@@ -228,7 +229,7 @@ private fun InstancePickerRow(
         Spacer(Modifier.weight(1f))
         if (selected) {
             Icon(
-                imageVector = Icons.Rounded.Check,
+                imageVector = Lucide.Check,
                 contentDescription = stringResource(R.string.agent_pick_instance_current),
                 tint = OnlineGreen,
                 modifier = Modifier.size(20.dp),
@@ -273,7 +274,7 @@ internal fun InstanceSwitcherRow(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Icon(
-            imageVector = Icons.Rounded.Computer,
+            imageVector = Lucide.Monitor,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.size(22.dp),
@@ -301,7 +302,7 @@ internal fun InstanceSwitcherRow(
             )
         }
         Icon(
-            imageVector = Icons.Rounded.ExpandMore,
+            imageVector = Lucide.ChevronDown,
             contentDescription = stringResource(R.string.agent_pick_instance_title),
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(20.dp),

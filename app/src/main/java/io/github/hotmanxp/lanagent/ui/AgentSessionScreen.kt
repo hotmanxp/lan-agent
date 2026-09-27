@@ -63,13 +63,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
-import androidx.compose.material.icons.automirrored.rounded.OpenInNew
-import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.Folder
-import androidx.compose.material.icons.rounded.Menu
-import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -145,6 +138,14 @@ import io.github.hotmanxp.lanagent.voice.HoldToTalkOverlay
 import io.github.hotmanxp.lanagent.voice.rememberHoldToTalk
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.ArrowLeft
+import com.composables.icons.lucide.ArrowUpRight
+import com.composables.icons.lucide.ChevronRight
+import com.composables.icons.lucide.Folder
+import com.composables.icons.lucide.Menu
+import com.composables.icons.lucide.Plus
+import com.composables.icons.lucide.RefreshCw
 
 /** 会话详情路由的薄包装 —— 从实例栏 / 卡片进来时实例与会话都是已知的。 */
 @Composable
@@ -774,7 +775,7 @@ fun AgentSessionPane(
                             Row {
                                 IconButton(onClick = { scope.launch { drawerState.open() } }) {
                                     Icon(
-                                        imageVector = Icons.Rounded.Menu,
+                                        imageVector = Lucide.Menu,
                                         contentDescription = stringResource(
                                             R.string.agent_session_open_sessions_cd
                                         ),
@@ -783,7 +784,7 @@ fun AgentSessionPane(
                                 if (onBack != null) {
                                     IconButton(onClick = onBack) {
                                         Icon(
-                                            imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                                            imageVector = Lucide.ArrowLeft,
                                             contentDescription = stringResource(R.string.webview_back_cd),
                                         )
                                     }
@@ -817,7 +818,7 @@ fun AgentSessionPane(
                                     horizontalArrangement = Arrangement.spacedBy(3.dp),
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Rounded.Folder,
+                                        imageVector = Lucide.Folder,
                                         contentDescription = null,
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.size(13.dp),
@@ -831,7 +832,7 @@ fun AgentSessionPane(
                                         modifier = Modifier.weight(1f, fill = false),
                                     )
                                     Icon(
-                                        imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                                        imageVector = Lucide.ChevronRight,
                                         contentDescription = stringResource(R.string.agent_session_info_title),
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.size(14.dp),
@@ -845,7 +846,7 @@ fun AgentSessionPane(
                                 enabled = api != null,
                             ) {
                                 Icon(
-                                    imageVector = Icons.Rounded.Add,
+                                    imageVector = Lucide.Plus,
                                     contentDescription = stringResource(R.string.agent_session_new_cd),
                                 )
                             }
@@ -1371,12 +1372,12 @@ private fun SessionInfoSheet(
         Spacer(Modifier.height(4.dp))
 
         InfoActionRow(
-            icon = Icons.Rounded.Refresh,
+            icon = Lucide.RefreshCw,
             label = stringResource(R.string.agent_sessions_refresh),
             onClick = onRefresh,
         )
         InfoActionRow(
-            icon = Icons.AutoMirrored.Rounded.OpenInNew,
+            icon = Lucide.ArrowUpRight,
             label = stringResource(R.string.agent_session_open_web),
             onClick = onOpenWeb,
         )

@@ -64,6 +64,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -79,6 +80,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -109,6 +111,7 @@ import io.github.hotmanxp.lanagent.data.AgentApi
 import io.github.hotmanxp.lanagent.data.AgentInstance
 import io.github.hotmanxp.lanagent.data.AgentSessionMeta
 import io.github.hotmanxp.lanagent.data.AttachedImage
+import io.github.hotmanxp.lanagent.data.InstancesApi
 import io.github.hotmanxp.lanagent.data.CMD_TYPE_CLEARED
 import io.github.hotmanxp.lanagent.data.CMD_TYPE_COMPACTED
 import io.github.hotmanxp.lanagent.data.CMD_TYPE_ERROR
@@ -217,6 +220,10 @@ fun AgentSessionPane(
     }
     var bootstrapDone by remember { mutableStateOf(initialSessionId != null) }
     var showInstancePicker by remember { mutableStateOf(false) }
+    /** 正在重启的实例 id(面板里那行转圈);非 null 时禁掉其它行的重启按钮。 */
+    var restartingId by remember { mutableStateOf<String?>(null) }
+    /** 待确认的重启目标 —— 确认弹窗的入参,确认后清空。 */
+    var restartConfirm by remember { mutableStateOf<AgentInstance?>(null) }
 
     // ===== 会话 =====
     var currentSid by remember { mutableStateOf(initialSessionId) }
@@ -615,6 +622,60 @@ fun AgentSessionPane(
             scope.launch {
                 currentSid = pickLatestSession(inst.baseUrl, null)
                 sessionResolving = false
+            }
+        }
+    }
+
+    /**
+     * 重启子实例(`POST /api/instances/{id}/restart`,对齐 web 端 Instances 页的
+     * 「重启」)。三段式,和 AgentInstances.canRestart 的注释对得上:
+     *
+     *   1. **POST** —— 服务端做 `doStop` + `doStart`。子进程不理 SIGINT 时
+     *      这一步最长 11.5s(InstancesApi 的 actionClient 专门放宽了读超时)。
+     *   2. **轮询到在线** —— POST 的响应只代表 supervisor 已经 spawn 出子进程,
+     *      那时 `state` 还是 `starting`;`running` 要等子进程发 ready IPC
+     *      (opencc-web `instanceSupervisor.ts` 的 attachChild)。端口也是那会儿
+     *      才定的,自动扫端口时**可能换**,所以必须重拉目录,不能信响应里的快照。
+     *   3. **重挂** —— 被重启的就是当前实例时,SSE 已被 SIGINT 掐断,
+     *      `refreshTick++` 让 hydrate + eventStream 整条 effect 重启。
+     *
+     * 弹层**不自动关**:让用户看着那一行从转圈变回「在线」,比弹层一关、
+     * 目录悄悄变绿更有反馈。currentSid 不动 —— transcript 落在实例 cwd 的
+     * ~/.zai/tasks/ 下,重启不换 cwd,原会话照样在。
+     */
+    fun performRestart(target: AgentInstance) {
+        val manager = target.managerBaseUrl ?: return
+        if (restartingId != null) return
+        restartingId = target.id
+        val wasActive = target.id == active?.id
+        scope.launch {
+            val posted = runCatching { InstancesApi(manager).restartInstance(target.id) }
+            if (posted.isFailure) {
+                restartingId = null
+                toastError(
+                    context.getString(
+                        R.string.agent_instance_restart_failed,
+                        posted.exceptionOrNull()?.message ?: posted.toString(),
+                    )
+                )
+                return@launch
+            }
+
+            val online = context.awaitInstanceOnline(target.id)
+            instances = runCatching { context.resolveAgentInstances() }
+                .getOrDefault(instances)
+            restartingId = null
+
+            if (online == null) {
+                toastError(context.getString(R.string.agent_instance_restart_timeout, target.name))
+                return@launch
+            }
+            toast(context.getString(R.string.agent_instance_restart_done, target.name))
+            // 端口变了 → `active` 的 baseUrl 得换,`remember(instanceBaseUrl)`
+            // 自然造出新 AgentApi;没变也要刷 —— SSE 那条连接已经死了。
+            if (wasActive) {
+                active = online
+                refreshTick++
             }
         }
     }
@@ -1162,8 +1223,40 @@ fun AgentSessionPane(
             instances = instances,
             currentBaseUrl = instanceBaseUrl,
             loading = directoryLoading,
+            restartingId = restartingId,
             onPick = { switchInstance(it) },
+            onRestart = { restartConfirm = it },
             onDismiss = { showInstancePicker = false },
+        )
+    }
+
+    // 重启确认 —— 重启会 SIGINT 掉子进程,当前会话的 SSE 随之断开(下面会自动
+    // 重挂),但正在跑的 agent 任务确实会丢。破坏性动作,先问一句。
+    restartConfirm?.let { target ->
+        AlertDialog(
+            onDismissRequest = { restartConfirm = null },
+            title = { Text(stringResource(R.string.agent_instance_restart_confirm_title)) },
+            text = {
+                Text(
+                    stringResource(
+                        R.string.agent_instance_restart_confirm_desc,
+                        target.name,
+                    )
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    restartConfirm = null
+                    performRestart(target)
+                }) {
+                    Text(stringResource(R.string.agent_instance_restart))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { restartConfirm = null }) {
+                    Text(stringResource(R.string.dialog_cancel))
+                }
+            },
         )
     }
 
@@ -1209,6 +1302,35 @@ private suspend fun pickLatestSession(baseUrl: String, preferredSid: String?): S
     if (sessions.isEmpty()) return null
     return preferredSid?.takeIf { sid -> sessions.any { it.sessionId == sid } }
         ?: sessions.maxByOrNull { it.updatedAt }?.sessionId
+}
+
+/**
+ * 轮询实例目录直到 [id] 那条变成在线,返回最终快照(超时返回 null)。
+ *
+ * **为什么必须轮询而不是用 POST 的响应**:服务端的 `restartInstance` 是
+ * `await doStop(); return doStart()`(opencc-web `instanceSupervisor.ts:511`),
+ * 而 `doStart` 在 `spawn` 之后**立刻**返回 —— `state` 要等子进程通过 IPC 发来
+ * `{type:'ready', port}` 才翻成 `running`(同文件的 `attachChild`)。所以 POST
+ * 回来的快照永远是 `starting` + 可能过期的端口。
+ *
+ * 轮询窗口 [timeoutMs] 要盖住 doStop 最坏情况之外的启动时间:doStop 自身最长
+ * 11.5s(10s SIGINT 超时 + 1.5s grace)已经花在 POST 里了,这里只需要等子进程
+ * 起来 —— 但 Node 冷启动 + 监听端口在慢盘/低端机上仍可能几秒,给 40s 余量。
+ */
+private suspend fun Context.awaitInstanceOnline(
+    id: String,
+    timeoutMs: Long = 40_000L,
+    intervalMs: Long = 1_200L,
+): AgentInstance? {
+    val deadline = System.currentTimeMillis() + timeoutMs
+    while (System.currentTimeMillis() < deadline) {
+        val hit = runCatching { resolveAgentInstances() }
+            .getOrNull()
+            ?.firstOrNull { it.id == id }
+        if (hit?.online == true) return hit
+        delay(intervalMs)
+    }
+    return null
 }
 
 @Composable

@@ -38,6 +38,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -54,6 +55,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -62,10 +64,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.hotmanxp.lanagent.R
 import io.github.hotmanxp.lanagent.data.AgentInstance
+import io.github.hotmanxp.lanagent.data.canRestart
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.Check
 import com.composables.icons.lucide.ChevronDown
 import com.composables.icons.lucide.Monitor
+import com.composables.icons.lucide.RefreshCw
 import com.composables.icons.lucide.Server
 import com.composables.icons.lucide.X
 
@@ -82,7 +86,10 @@ internal fun InstancePickerSheet(
     /** 当前绑定的实例 baseUrl —— 它那行右侧打勾。 */
     currentBaseUrl: String?,
     loading: Boolean,
+    /** 正在重启的实例 id(同时只有一个);该行显示转圈并禁掉按钮。 */
+    restartingId: String?,
     onPick: (AgentInstance) -> Unit,
+    onRestart: (AgentInstance) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -147,7 +154,9 @@ internal fun InstancePickerSheet(
                             InstancePickerRow(
                                 instance = inst,
                                 selected = inst.baseUrl == currentBaseUrl,
+                                restarting = inst.id == restartingId,
                                 onClick = { onPick(inst) },
+                                onRestart = { onRestart(inst) },
                             )
                             if (index != instances.lastIndex) {
                                 HorizontalDivider(
@@ -198,7 +207,10 @@ private fun PickerPlaceholder(text: String, showSpinner: Boolean, hint: String? 
 private fun InstancePickerRow(
     instance: AgentInstance,
     selected: Boolean,
+    /** 本行正在重启(整个面板同一时刻只会有一个)。 */
+    restarting: Boolean,
     onClick: () -> Unit,
+    onRestart: () -> Unit,
 ) {
     Row(
         modifier = Modifier
@@ -227,12 +239,52 @@ private fun InstancePickerRow(
         Spacer(Modifier.width(8.dp))
         OnlineTag(online = instance.online)
         Spacer(Modifier.weight(1f))
+        // 重启按钮放在对勾**左边**:对勾是「当前选中」的标记,永远在最后一位,
+        // 重启插在它前面才不会让选中行的图标位置随着别的行有没有按钮而跳。
+        if (instance.canRestart()) {
+            RestartButton(restarting = restarting, onClick = onRestart)
+            Spacer(Modifier.width(4.dp))
+        }
         if (selected) {
             Icon(
                 imageVector = Lucide.Check,
                 contentDescription = stringResource(R.string.agent_pick_instance_current),
                 tint = OnlineGreen,
                 modifier = Modifier.size(20.dp),
+            )
+        }
+    }
+}
+
+/**
+ * 行内「重启」——不是 IconButton:M3 的 `minimumInteractiveComponentSize` 会把它
+ * 撑到 48dp,而整行只有 ~48dp 高,IconButton 会把行高顶开、每行节奏不一致
+ * (同 `WebViewScreen` 浮刷新按钮那个坑)。用 40dp 的 Box 自己管点击区。
+ *
+ * 重启中的那一行换成 spinner —— 服务端的 restart 是 doStop + doStart,
+ * 子进程起来之前没有任何中间事件可推,只能靠这个转圈表示「在等」。
+ */
+@Composable
+private fun RestartButton(restarting: Boolean, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .size(40.dp)
+            .clip(CircleShape)
+            .clickable(enabled = !restarting, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (restarting) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(16.dp),
+                strokeWidth = 1.8.dp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
+            Icon(
+                imageVector = Lucide.RefreshCw,
+                contentDescription = stringResource(R.string.agent_instance_restart),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp),
             )
         }
     }

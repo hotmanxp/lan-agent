@@ -41,6 +41,21 @@ class InstancesApi(private val baseUrl: String) {
         .writeTimeout(10, TimeUnit.SECONDS)
         .build()
 
+    /**
+     * 生命周期动作(启动/停止/重启)专用 client —— 读超时必须比 [client] 长。
+     *
+     * 服务端的 restart = `doStop` + `doStart`(opencc-web
+     * `instanceSupervisor.ts:511`),而 `doStop` 对不理 SIGINT 的子进程会
+     * **等满 STOP_TIMEOUT_MS(10s) 再 SIGKILL,再等 1.5s grace**(见同文件
+     * `doStop`)。也就是说一次「不听话的实例」的重启,响应要 11.5s+ 才回来 ——
+     * 用 10s 的 readTimeout 会**先在客户端超时**,UI 报「失败」而实例其实正在重启。
+     */
+    private val actionClient = OkHttpClient.Builder()
+        .connectTimeout(5, TimeUnit.SECONDS)
+        .readTimeout(45, TimeUnit.SECONDS)
+        .writeTimeout(10, TimeUnit.SECONDS)
+        .build()
+
     private val json = Json {
         ignoreUnknownKeys = true
         isLenient = true
@@ -59,22 +74,27 @@ class InstancesApi(private val baseUrl: String) {
             (obj?.get("error") as? kotlinx.serialization.json.JsonPrimitive)?.content
         }.getOrNull() ?: body.take(200)
 
-    private suspend inline fun <reified T> execute(req: Request): T = withContext(Dispatchers.IO) {
-        client.newCall(req).execute().use { resp ->
-            if (!resp.isSuccessful) {
-                throw HttpException(resp.code, parseErrorBody(resp.peekBody(2048).string()))
+    private suspend inline fun <reified T> execute(req: Request, http: OkHttpClient = client): T =
+        withContext(Dispatchers.IO) {
+            http.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    throw HttpException(resp.code, parseErrorBody(resp.peekBody(2048).string()))
+                }
+                val raw = resp.body?.string().orEmpty()
+                if (raw.isBlank()) {
+                    @Suppress("UNCHECKED_CAST")
+                    return@use Unit as T
+                }
+                json.decodeFromString<T>(raw)
             }
-            val raw = resp.body?.string().orEmpty()
-            if (raw.isBlank()) {
-                @Suppress("UNCHECKED_CAST")
-                return@use Unit as T
-            }
-            json.decodeFromString<T>(raw)
         }
-    }
 
-    private suspend fun executeObject(req: Request, key: String): JsonObject {
-        val wrapper = execute<JsonObject>(req)
+    private suspend fun executeObject(
+        req: Request,
+        key: String,
+        http: OkHttpClient = client,
+    ): JsonObject {
+        val wrapper = execute<JsonObject>(req, http)
         val obj = wrapper[key] as? JsonObject
             ?: throw IOException("missing '$key' (object) in response: ${wrapper.keys}")
         return obj
@@ -149,7 +169,7 @@ class InstancesApi(private val baseUrl: String) {
 
     private suspend fun actionWithResponse(path: String): InstanceSnapshot {
         val req = Request.Builder().url(urlFor(path)).post(EMPTY_BODY).build()
-        return decodeInstance(executeObject(req, "instance"))
+        return decodeInstance(executeObject(req, "instance", actionClient))
     }
 
     suspend fun deleteInstance(id: String) {

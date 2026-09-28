@@ -380,6 +380,12 @@
     <string name="agent_pick_instance_empty">没有发现可用的 opencc 实例</string>
     <string name="agent_pick_instance_empty_hint">先在「实例」栏创建并启动一个实例</string>
     <string name="agent_pick_instance_current">当前实例</string>
+    <string name="agent_instance_restart">重启实例</string>
+    <string name="agent_instance_restart_confirm_title">重启该实例?</string>
+    <string name="agent_instance_restart_confirm_desc">「%1$s」会先停止再重新启动,正在跑的任务会中断,当前会话也会重新连接。</string>
+    <string name="agent_instance_restart_done">「%1$s」已重启</string>
+    <string name="agent_instance_restart_failed">重启失败:%1$s</string>
+    <string name="agent_instance_restart_timeout">「%1$s」迟迟没有上线,去「实例」栏看看状态</string>
     <string name="agent_instance_online">在线</string>
     <string name="agent_instance_offline">离线</string>
     <string name="agent_instance_none">还没有可用实例</string>

@@ -42,7 +42,34 @@ data class AgentInstance(
     val isCurrent: Boolean,
     /** 实例启动 profile(标准 / task-factory / weixin),选择面板用来补 tag。 */
     val app: InstanceAppProfile? = null,
+    /**
+     * supervisor 自己的 baseUrl —— 生命周期动作(启动 / 停止 / 重启)只认它,
+     * 不是子实例的 baseUrl。卡片回落路径下没有 supervisor,这里是 null,
+     * 于是 [canRestart] 恒 false(那条路上根本没有能重启的接口)。
+     */
+    val managerBaseUrl: String? = null,
 )
+
+/**
+ * 能不能对这一个实例发 `POST /api/instances/{id}/restart`。
+ *
+ * 两条约束,都来自服务端而不是本地猜测:
+ *   - **必须是 supervisor 管出来的实例** —— 生命周期路由挂在 manager 上,
+ *     子实例自己(`/api/instances` 在它那儿不是 supervisor 角色)会被
+ *     `ensureNotInstanceChild` 挡掉。卡片回落路径压根没有 manager。
+ *   - **不能是 supervisor 自己** —— route 对 `__current__` 直接 400
+ *     `cannot restart current instance`,supervisor 内部 `ensureNotCurrent`
+ *     也再拦一道(见 opencc-web `instanceSupervisor.ts:511`)。
+ *
+ * 离线实例**也允许**重启:服务端的 restart = `doStop` + `doStart`,而 `doStop`
+ * 对没有活子进程的条目是 no-op(直接置 stopped),所以「重启一个停掉的实例」
+ * 实际等价于把它拉起来 —— 这正是从选择面板救一个崩掉的实例最想做的事。
+ *
+ * 判 `isNullOrBlank` 而不是 `!= null`:`AgentInstance` 有好几处是手工 new 出来的
+ * (路由参数摊的临时实例等),空串当「没有 manager」比 null 更符合本意 ——
+ * 对着空 baseUrl 发请求,UI 上就是个点了没反应的重启按钮。
+ */
+fun AgentInstance.canRestart(): Boolean = !managerBaseUrl.isNullOrBlank() && !isCurrent
 
 /** 单实例探活/拉会话的墙钟上限(卡片回落路径用,见 AgentApi 的 callTimeoutMs)。 */
 private const val PROBE_TIMEOUT_MS = 1_500L
@@ -83,6 +110,7 @@ private fun List<InstanceSnapshot>.toAgentInstances(managerBaseUrl: String): Lis
             online = snap.state == InstanceState.running && snap.port != null,
             isCurrent = snap.isCurrent,
             app = snap.app,
+            managerBaseUrl = managerBaseUrl,
         )
     }
 }

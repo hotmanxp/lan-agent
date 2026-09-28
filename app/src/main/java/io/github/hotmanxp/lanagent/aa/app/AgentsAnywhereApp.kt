@@ -480,401 +480,401 @@ fun AgentsAnywhereApp(
         onOAuthCallbackConsumed()
     }
 
-    // 0.24.5:production 路径里必须把 NavHost + 升级弹窗包进 AgentsAnywhereTheme,
+    // 0.24.6:production 路径里必须把 NavHost + 升级弹窗包进 AgentsAnywhereTheme,
     // 否则 LocalAAColors 永远 fallback 到默认 LightAgentsAnywhereColors,跟 lan-agent
     // 自身的深色不一致 —— @Preview 已经在 Theme.kt:947 那里写对了,这里漏了。
     AgentsAnywhereTheme(appearanceMode = appearanceMode) {
-    AgentsAnywhereNavHost(
-        currentDestination = currentDestination,
-        sessionsState = sessionsState,
-        isRefreshingSessions = isRefreshingSessions,
-        selectedSessionId = selectedSessionId,
-        preparedSessionDraft = preparedSessionDraft,
-        selectedDeviceId = selectedDeviceId,
-        deviceDetailReturnDestination = AppDestination.valueOf(deviceDetailReturnDestinationName),
-        deviceSetupReturnDestination = AppDestination.valueOf(deviceSetupReturnDestinationName),
-        selectedHomeTab = HomeTab.valueOf(selectedHomeTabName),
-        userId = authController.savedUserId(),
-        role = authController.savedRole(),
-        serverUrl = authController.savedServerUrl(),
-        appearanceMode = appearanceMode,
-        languageMode = languageMode,
-        sidebarViewMode = sidebarViewMode,
-        projectSessionsById = projectSessionsById,
-        loadingProjectRequests = loadingProjectRequests,
-        projectSessionErrors = projectSessionErrors,
-        initialNewSessionProjectId = initialNewSessionProjectId,
-        sessionDetailController = sessionDetailController,
-        sessionRealtimeController = sessionRealtimeController,
-        filesController = filesController,
-        pendingMobileLoginQr = pendingMobileLoginQr,
-        webLoginViewModel = webLoginViewModel,
-        appUpdateViewModel = appUpdateViewModel,
-        navigate = navigate,
-        onRefreshSessions = {
-            if (!hasAuthSession || isRefreshingSessions) return@AgentsAnywhereNavHost
-            scope.launch {
-                refreshSessions(
-                    showInitialLoading = false,
-                    showRefreshIndicator = true,
-                )
-                val previousRequests = projectSessionsLoadedAt.keys + projectSessionErrors.keys + loadingProjectRequests
-                projectSessionsLoadedAt = emptyMap()
-                if (sidebarViewMode == io.github.hotmanxp.lanagent.aa.ui.screens.home.HomeSidebarViewMode.Project) {
-                    val loaded = (projectSessionsById.values.flatten() + sessionsState.sessions + sessionsState.archivedSessions)
-                        .associateBy { it.id }.values
-                    sessionsState.projects.filter { projectHasActiveSessions(it, loaded) }.forEach { loadProjectSessions(it.id) }
-                    previousRequests.filter { key -> sessionsState.projects.any { it.id == key.projectId } }.forEach { key ->
-                        loadProjectSessions(key.projectId, if (key.archived) ProjectSessionStatusFilter.Archived else ProjectSessionStatusFilter.Active)
-                    }
-                }
-            }
-        },
-        onLoadMoreSessions = ::loadMoreSessions,
-        onOpenSession = { session ->
-            preparedSessionDraft = null
-            selectedSessionId = session.id
-            destinationName = AppDestination.SessionDetail.name
-            if (session.unread) {
-                val request = sessionsState.beginSessionRequest(listOf(session.id))
-                sessionsState = request.state
+        AgentsAnywhereNavHost(
+            currentDestination = currentDestination,
+            sessionsState = sessionsState,
+            isRefreshingSessions = isRefreshingSessions,
+            selectedSessionId = selectedSessionId,
+            preparedSessionDraft = preparedSessionDraft,
+            selectedDeviceId = selectedDeviceId,
+            deviceDetailReturnDestination = AppDestination.valueOf(deviceDetailReturnDestinationName),
+            deviceSetupReturnDestination = AppDestination.valueOf(deviceSetupReturnDestinationName),
+            selectedHomeTab = HomeTab.valueOf(selectedHomeTabName),
+            userId = authController.savedUserId(),
+            role = authController.savedRole(),
+            serverUrl = authController.savedServerUrl(),
+            appearanceMode = appearanceMode,
+            languageMode = languageMode,
+            sidebarViewMode = sidebarViewMode,
+            projectSessionsById = projectSessionsById,
+            loadingProjectRequests = loadingProjectRequests,
+            projectSessionErrors = projectSessionErrors,
+            initialNewSessionProjectId = initialNewSessionProjectId,
+            sessionDetailController = sessionDetailController,
+            sessionRealtimeController = sessionRealtimeController,
+            filesController = filesController,
+            pendingMobileLoginQr = pendingMobileLoginQr,
+            webLoginViewModel = webLoginViewModel,
+            appUpdateViewModel = appUpdateViewModel,
+            navigate = navigate,
+            onRefreshSessions = {
+                if (!hasAuthSession || isRefreshingSessions) return@AgentsAnywhereNavHost
                 scope.launch {
-                    sessionsController.markSessionRead(session.id, sessionsState.devices)
-                        .onSuccess { updated ->
-                            sessionsState = sessionsState.withPatchedSession(updated, request.generation)
+                    refreshSessions(
+                        showInitialLoading = false,
+                        showRefreshIndicator = true,
+                    )
+                    val previousRequests = projectSessionsLoadedAt.keys + projectSessionErrors.keys + loadingProjectRequests
+                    projectSessionsLoadedAt = emptyMap()
+                    if (sidebarViewMode == io.github.hotmanxp.lanagent.aa.ui.screens.home.HomeSidebarViewMode.Project) {
+                        val loaded = (projectSessionsById.values.flatten() + sessionsState.sessions + sessionsState.archivedSessions)
+                            .associateBy { it.id }.values
+                        sessionsState.projects.filter { projectHasActiveSessions(it, loaded) }.forEach { loadProjectSessions(it.id) }
+                        previousRequests.filter { key -> sessionsState.projects.any { it.id == key.projectId } }.forEach { key ->
+                            loadProjectSessions(key.projectId, if (key.archived) ProjectSessionStatusFilter.Archived else ProjectSessionStatusFilter.Active)
                         }
-                        .onFailure { error ->
-                            Toast.makeText(
-                                context,
-                                error.message ?: "Could not mark this session as read.",
-                                Toast.LENGTH_SHORT,
-                            ).show()
+                    }
+                }
+            },
+            onLoadMoreSessions = ::loadMoreSessions,
+            onOpenSession = { session ->
+                preparedSessionDraft = null
+                selectedSessionId = session.id
+                destinationName = AppDestination.SessionDetail.name
+                if (session.unread) {
+                    val request = sessionsState.beginSessionRequest(listOf(session.id))
+                    sessionsState = request.state
+                    scope.launch {
+                        sessionsController.markSessionRead(session.id, sessionsState.devices)
+                            .onSuccess { updated ->
+                                sessionsState = sessionsState.withPatchedSession(updated, request.generation)
+                            }
+                            .onFailure { error ->
+                                Toast.makeText(
+                                    context,
+                                    error.message ?: "Could not mark this session as read.",
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            }
+                    }
+                }
+            },
+            onOpenDevice = { device ->
+                deviceDetailReturnDestinationName = destinationName
+                selectedDeviceId = device.id
+                destinationName = AppDestination.DeviceDetail.name
+            },
+            onHomeTabSelected = { tab ->
+                selectedHomeTabName = tab.name
+            },
+            onAppearanceModeChange = onAppearanceModeChange,
+            onLanguageModeChange = onLanguageModeChange,
+            onSidebarViewModeChange = onSidebarViewModeChange,
+            onLoadAccount = { authController.me() },
+            onLoadAccountAuthConfig = { authController.accountAuthConfig() },
+            onUpdateDisplayName = { displayName -> authController.updateDisplayName(displayName) },
+            onSendEmailCode = { email -> authController.sendEmailCode(email) },
+            onBindEmail = { email, code -> authController.bindEmail(email, code) },
+            onUpdateAvatar = { avatar -> authController.updateAvatar(avatar) },
+            onClearAvatar = { authController.clearAvatar() },
+            onChangePassword = { password -> authController.changePassword(password) },
+            onSignOut = {
+                clearSessionAndReturnToLogin()
+            },
+            onRenameDevice = { connectorId, name ->
+                if (!hasAuthSession) {
+                    Result.failure(IllegalStateException("Sign in again to rename this device."))
+                } else {
+                    devicesController.renameDevice(connectorId, name)
+                        .onSuccess { device ->
+                            sessionsState = sessionsState.withPatchedDevice(device)
                         }
                 }
-            }
-        },
-        onOpenDevice = { device ->
-            deviceDetailReturnDestinationName = destinationName
-            selectedDeviceId = device.id
-            destinationName = AppDestination.DeviceDetail.name
-        },
-        onHomeTabSelected = { tab ->
-            selectedHomeTabName = tab.name
-        },
-        onAppearanceModeChange = onAppearanceModeChange,
-        onLanguageModeChange = onLanguageModeChange,
-        onSidebarViewModeChange = onSidebarViewModeChange,
-        onLoadAccount = { authController.me() },
-        onLoadAccountAuthConfig = { authController.accountAuthConfig() },
-        onUpdateDisplayName = { displayName -> authController.updateDisplayName(displayName) },
-        onSendEmailCode = { email -> authController.sendEmailCode(email) },
-        onBindEmail = { email, code -> authController.bindEmail(email, code) },
-        onUpdateAvatar = { avatar -> authController.updateAvatar(avatar) },
-        onClearAvatar = { authController.clearAvatar() },
-        onChangePassword = { password -> authController.changePassword(password) },
-        onSignOut = {
-            clearSessionAndReturnToLogin()
-        },
-        onRenameDevice = { connectorId, name ->
-            if (!hasAuthSession) {
-                Result.failure(IllegalStateException("Sign in again to rename this device."))
-            } else {
-                devicesController.renameDevice(connectorId, name)
-                    .onSuccess { device ->
-                        sessionsState = sessionsState.withPatchedDevice(device)
-                    }
-            }
-        },
-        onDeleteDevice = { connectorId ->
-            if (!hasAuthSession) {
-                Result.failure(IllegalStateException("Sign in again to delete this device."))
-            } else {
-                devicesController.deleteDevice(connectorId)
-                    .onSuccess {
-                        sessionsState = sessionsState.withDeletedDevice(connectorId)
-                        if (selectedDeviceId == connectorId) selectedDeviceId = null
-                        destinationName = AppDestination.Devices.name
-                    }
-            }
-        },
-        onPrepareDeviceSetup = { connectorId ->
-            if (!hasAuthSession) {
-                Result.failure(IllegalStateException("Sign in again to set up this device."))
-            } else {
-                devicesController.prepareDeviceSetup(connectorId)
-                    .onSuccess { credential ->
-                        sessionsState = sessionsState.withPatchedDevice(credential.device)
-                    }
-            }
-        },
-        onCreateDeviceSetup = { name ->
-            if (!hasAuthSession) {
-                Result.failure(IllegalStateException("Sign in again to pair a new device."))
-            } else {
-                devicesController.createDeviceSetup(name)
-                    .onSuccess { credential ->
-                        sessionsState = sessionsState.withPatchedDevice(credential.device)
-                    }
-            }
-        },
-        onClaimDevicePairCode = { credential, code ->
-            if (!hasAuthSession) {
-                Result.failure(IllegalStateException("Sign in again to claim this pair code."))
-            } else {
-                devicesController.claimDevicePairCode(credential, code)
-                    .onSuccess { device ->
-                        sessionsState = sessionsState.withPatchedDevice(device)
-                    }
-            }
-        },
-        devicePairingStates = devicePairingStates,
-        onWaitForPairingDevice = devicePairingMonitor::waitForDevice,
-        onClearDevicePairing = devicePairingMonitor::clear,
-        onDevicePairingComplete = {
-            if (hasAuthSession) scope.launch {
-                refreshSessions(showInitialLoading = false, showRefreshIndicator = false)
-            }
-        },
-        onListDeviceRuntimes = { connectorId ->
-            if (!hasAuthSession) {
-                Result.failure(IllegalStateException("Sign in again to load runtimes."))
-            } else {
-                devicesController.listDeviceRuntimes(connectorId)
-            }
-        },
-        onSetDeviceRuntimeActive = { connectorId, runtime, active ->
-            if (!hasAuthSession) {
-                Result.failure(IllegalStateException("Sign in again to update this runtime."))
-            } else {
-                devicesController.setDeviceRuntimeActive(connectorId, runtime, active)
-            }
-        },
-        onDeleteDeviceRuntimeConfig = { connectorId, runtime ->
-            if (!hasAuthSession) {
-                Result.failure(IllegalStateException("Sign in again to delete runtime configuration."))
-            } else {
-                devicesController.deleteDeviceRuntimeConfig(connectorId, runtime)
-            }
-        },
-        onBulkSetSessionsArchived = { ids, archived ->
-            if (!hasAuthSession) {
-                Result.failure(IllegalStateException("Sign in again to update sessions."))
-            } else {
+            },
+            onDeleteDevice = { connectorId ->
+                if (!hasAuthSession) {
+                    Result.failure(IllegalStateException("Sign in again to delete this device."))
+                } else {
+                    devicesController.deleteDevice(connectorId)
+                        .onSuccess {
+                            sessionsState = sessionsState.withDeletedDevice(connectorId)
+                            if (selectedDeviceId == connectorId) selectedDeviceId = null
+                            destinationName = AppDestination.Devices.name
+                        }
+                }
+            },
+            onPrepareDeviceSetup = { connectorId ->
+                if (!hasAuthSession) {
+                    Result.failure(IllegalStateException("Sign in again to set up this device."))
+                } else {
+                    devicesController.prepareDeviceSetup(connectorId)
+                        .onSuccess { credential ->
+                            sessionsState = sessionsState.withPatchedDevice(credential.device)
+                        }
+                }
+            },
+            onCreateDeviceSetup = { name ->
+                if (!hasAuthSession) {
+                    Result.failure(IllegalStateException("Sign in again to pair a new device."))
+                } else {
+                    devicesController.createDeviceSetup(name)
+                        .onSuccess { credential ->
+                            sessionsState = sessionsState.withPatchedDevice(credential.device)
+                        }
+                }
+            },
+            onClaimDevicePairCode = { credential, code ->
+                if (!hasAuthSession) {
+                    Result.failure(IllegalStateException("Sign in again to claim this pair code."))
+                } else {
+                    devicesController.claimDevicePairCode(credential, code)
+                        .onSuccess { device ->
+                            sessionsState = sessionsState.withPatchedDevice(device)
+                        }
+                }
+            },
+            devicePairingStates = devicePairingStates,
+            onWaitForPairingDevice = devicePairingMonitor::waitForDevice,
+            onClearDevicePairing = devicePairingMonitor::clear,
+            onDevicePairingComplete = {
+                if (hasAuthSession) scope.launch {
+                    refreshSessions(showInitialLoading = false, showRefreshIndicator = false)
+                }
+            },
+            onListDeviceRuntimes = { connectorId ->
+                if (!hasAuthSession) {
+                    Result.failure(IllegalStateException("Sign in again to load runtimes."))
+                } else {
+                    devicesController.listDeviceRuntimes(connectorId)
+                }
+            },
+            onSetDeviceRuntimeActive = { connectorId, runtime, active ->
+                if (!hasAuthSession) {
+                    Result.failure(IllegalStateException("Sign in again to update this runtime."))
+                } else {
+                    devicesController.setDeviceRuntimeActive(connectorId, runtime, active)
+                }
+            },
+            onDeleteDeviceRuntimeConfig = { connectorId, runtime ->
+                if (!hasAuthSession) {
+                    Result.failure(IllegalStateException("Sign in again to delete runtime configuration."))
+                } else {
+                    devicesController.deleteDeviceRuntimeConfig(connectorId, runtime)
+                }
+            },
+            onBulkSetSessionsArchived = { ids, archived ->
+                if (!hasAuthSession) {
+                    Result.failure(IllegalStateException("Sign in again to update sessions."))
+                } else {
+                    val request = sessionsState.beginSessionRequest(ids)
+                    sessionsState = request.state
+                    sessionsController.bulkSetSessionsArchived(ids, archived, sessionsState.devices)
+                        .onSuccess { update ->
+                            sessionsState = sessionsState
+                                .withPatchedSessions(update.sessions, request.generation)
+                                .withMissingSessionsRemoved(update.notFound, request.generation)
+                            reloadProjects()
+                        }
+                }
+            },
+            onArchiveAllDeviceSessions = { connectorId, archived, scope ->
+                if (!hasAuthSession) {
+                    Result.failure(IllegalStateException("Sign in again to update sessions."))
+                } else {
+                    val targetIds = (sessionsState.sessions + sessionsState.archivedSessions)
+                        .filter { session ->
+                            session.connectorId == connectorId && when (scope) {
+                                "active" -> !session.archived
+                                "archived" -> session.archived
+                                else -> true
+                            }
+                        }
+                        .map { it.id }
+                    val request = sessionsState.beginSessionRequest(targetIds)
+                    sessionsState = request.state
+                    sessionsController.archiveAllDeviceSessions(connectorId, archived, scope, sessionsState.devices)
+                        .onSuccess { sessions ->
+                            sessionsState = sessionsState.withPatchedSessions(sessions, request.generation)
+                            reloadProjects()
+                        }
+                }
+            },
+            onRenameSession = { sessionId, title ->
+                if (!hasAuthSession) {
+                    Result.failure(IllegalStateException("Sign in again to update this session."))
+                } else {
+                    val request = sessionsState.beginSessionRequest(listOf(sessionId))
+                    sessionsState = request.state
+                    sessionsController.renameSession(sessionId, title, sessionsState.devices)
+                        .onSuccess { session ->
+                            sessionsState = sessionsState.withPatchedSession(session, request.generation)
+                        }
+                }
+            },
+            onSetSessionPinned = { sessionId, pinned ->
+                if (!hasAuthSession) {
+                    Result.failure(IllegalStateException("Sign in again to update this session."))
+                } else {
+                    val request = sessionsState.beginSessionRequest(listOf(sessionId))
+                    sessionsState = request.state
+                    sessionsController.setSessionPinned(sessionId, pinned, sessionsState.devices)
+                        .onSuccess { session ->
+                            sessionsState = sessionsState.withPatchedSession(session, request.generation)
+                            reloadProjects()
+                        }
+                }
+            },
+            onSetSessionArchived = { sessionId, archived ->
+                if (!hasAuthSession) {
+                    Result.failure(IllegalStateException("Sign in again to update this session."))
+                } else {
+                    val request = sessionsState.beginSessionRequest(listOf(sessionId))
+                    sessionsState = request.state
+                    sessionsController.setSessionArchived(sessionId, archived, sessionsState.devices)
+                        .onSuccess { session ->
+                            sessionsState = sessionsState.withPatchedSession(session, request.generation)
+                            reloadProjects()
+                        }
+                }
+            },
+            onLoadProjectSessions = ::loadProjectSessions,
+            onLoadProjects = ::reloadProjects,
+            onLoadArchivedPage = { projectId, cursor ->
+                sessionsController.loadArchivedSessionPage(projectId, cursor, sessionsState.devices)
+            },
+            onRestoreProject = { projectId ->
+                val ids = sessionsState.archivedSessions.filter { it.projectId == projectId }.map { it.id }
                 val request = sessionsState.beginSessionRequest(ids)
                 sessionsState = request.state
-                sessionsController.bulkSetSessionsArchived(ids, archived, sessionsState.devices)
-                    .onSuccess { update ->
-                        sessionsState = sessionsState
-                            .withPatchedSessions(update.sessions, request.generation)
-                            .withMissingSessionsRemoved(update.notFound, request.generation)
-                        reloadProjects()
-                    }
-            }
-        },
-        onArchiveAllDeviceSessions = { connectorId, archived, scope ->
-            if (!hasAuthSession) {
-                Result.failure(IllegalStateException("Sign in again to update sessions."))
-            } else {
-                val targetIds = (sessionsState.sessions + sessionsState.archivedSessions)
-                    .filter { session ->
-                        session.connectorId == connectorId && when (scope) {
-                            "active" -> !session.archived
-                            "archived" -> session.archived
-                            else -> true
-                        }
-                    }
-                    .map { it.id }
-                val request = sessionsState.beginSessionRequest(targetIds)
-                sessionsState = request.state
-                sessionsController.archiveAllDeviceSessions(connectorId, archived, scope, sessionsState.devices)
-                    .onSuccess { sessions ->
-                        sessionsState = sessionsState.withPatchedSessions(sessions, request.generation)
-                        reloadProjects()
-                    }
-            }
-        },
-        onRenameSession = { sessionId, title ->
-            if (!hasAuthSession) {
-                Result.failure(IllegalStateException("Sign in again to update this session."))
-            } else {
-                val request = sessionsState.beginSessionRequest(listOf(sessionId))
-                sessionsState = request.state
-                sessionsController.renameSession(sessionId, title, sessionsState.devices)
-                    .onSuccess { session ->
-                        sessionsState = sessionsState.withPatchedSession(session, request.generation)
-                    }
-            }
-        },
-        onSetSessionPinned = { sessionId, pinned ->
-            if (!hasAuthSession) {
-                Result.failure(IllegalStateException("Sign in again to update this session."))
-            } else {
-                val request = sessionsState.beginSessionRequest(listOf(sessionId))
-                sessionsState = request.state
-                sessionsController.setSessionPinned(sessionId, pinned, sessionsState.devices)
-                    .onSuccess { session ->
-                        sessionsState = sessionsState.withPatchedSession(session, request.generation)
-                        reloadProjects()
-                    }
-            }
-        },
-        onSetSessionArchived = { sessionId, archived ->
-            if (!hasAuthSession) {
-                Result.failure(IllegalStateException("Sign in again to update this session."))
-            } else {
-                val request = sessionsState.beginSessionRequest(listOf(sessionId))
-                sessionsState = request.state
-                sessionsController.setSessionArchived(sessionId, archived, sessionsState.devices)
-                    .onSuccess { session ->
-                        sessionsState = sessionsState.withPatchedSession(session, request.generation)
-                        reloadProjects()
-                    }
-            }
-        },
-        onLoadProjectSessions = ::loadProjectSessions,
-        onLoadProjects = ::reloadProjects,
-        onLoadArchivedPage = { projectId, cursor ->
-            sessionsController.loadArchivedSessionPage(projectId, cursor, sessionsState.devices)
-        },
-        onRestoreProject = { projectId ->
-            val ids = sessionsState.archivedSessions.filter { it.projectId == projectId }.map { it.id }
-            val request = sessionsState.beginSessionRequest(ids)
-            sessionsState = request.state
-            sessionsController.archiveProjectSessions(projectId, sessionsState.devices, archived = false, scope = "archived")
-                .mapCatching { sessions ->
-                    check(sessions.isNotEmpty() && sessions.none { it.archived }) { "Could not restore all sessions in this project." }
-                    sessions
-                }.onSuccess { sessions ->
-                    sessionsState = sessionsState.withPatchedSessions(sessions, request.generation)
-                    projectSessionsById = projectSessionsById + (projectId to
-                        (sessions + projectSessionsById[projectId].orEmpty()).distinctBy { it.id })
-                    reloadProjects()
-                }
-        },
-        onUpdateProject = { projectId, name, pinned ->
-            if (!hasAuthSession) {
-                Result.failure(IllegalStateException("Sign in again to update this project."))
-            } else {
-                sessionsController.updateProject(projectId, name, pinned)
-                    .onSuccess { project ->
-                        projectsRequestVersion++
-                        sessionsState = sessionsState.withPatchedProject(project)
-                    }
-            }
-        },
-        onArchiveProjectSessions = { projectId ->
-            if (!hasAuthSession) {
-                Result.failure(IllegalStateException("Sign in again to archive project sessions."))
-            } else {
-                val targetIds = (projectSessionsById[projectId].orEmpty() + sessionsState.sessions)
-                    .filter { it.projectId == projectId && !it.archived }
-                    .map(AgentSession::id)
-                    .distinct()
-                val request = sessionsState.beginSessionRequest(targetIds)
-                sessionsState = request.state
-                sessionsController.archiveProjectSessions(projectId, sessionsState.devices, scope = "all")
-                    .onSuccess { sessions ->
+                sessionsController.archiveProjectSessions(projectId, sessionsState.devices, archived = false, scope = "archived")
+                    .mapCatching { sessions ->
+                        check(sessions.isNotEmpty() && sessions.none { it.archived }) { "Could not restore all sessions in this project." }
+                        sessions
+                    }.onSuccess { sessions ->
                         sessionsState = sessionsState.withPatchedSessions(sessions, request.generation)
                         projectSessionsById = projectSessionsById + (projectId to
-                            (projectSessionsById[projectId].orEmpty() + sessions).associateBy { it.id }.values.toList())
-                        projectSessionsLoadedAt = projectSessionsLoadedAt.filterKeys { it.projectId != projectId }
+                            (sessions + projectSessionsById[projectId].orEmpty()).distinctBy { it.id })
                         reloadProjects()
                     }
-            }
-        },
-        onCreateProject = { name, connectorId, workspacePath ->
-            if (!hasAuthSession) {
-                Result.failure(IllegalStateException("Sign in again to create a project."))
-            } else {
-                sessionsController.createProject(name, connectorId, workspacePath)
-                    .onSuccess { project ->
-                        projectsRequestVersion++
-                        sessionsState = sessionsState.withPatchedProject(project)
+            },
+            onUpdateProject = { projectId, name, pinned ->
+                if (!hasAuthSession) {
+                    Result.failure(IllegalStateException("Sign in again to update this project."))
+                } else {
+                    sessionsController.updateProject(projectId, name, pinned)
+                        .onSuccess { project ->
+                            projectsRequestVersion++
+                            sessionsState = sessionsState.withPatchedProject(project)
+                        }
+                }
+            },
+            onArchiveProjectSessions = { projectId ->
+                if (!hasAuthSession) {
+                    Result.failure(IllegalStateException("Sign in again to archive project sessions."))
+                } else {
+                    val targetIds = (projectSessionsById[projectId].orEmpty() + sessionsState.sessions)
+                        .filter { it.projectId == projectId && !it.archived }
+                        .map(AgentSession::id)
+                        .distinct()
+                    val request = sessionsState.beginSessionRequest(targetIds)
+                    sessionsState = request.state
+                    sessionsController.archiveProjectSessions(projectId, sessionsState.devices, scope = "all")
+                        .onSuccess { sessions ->
+                            sessionsState = sessionsState.withPatchedSessions(sessions, request.generation)
+                            projectSessionsById = projectSessionsById + (projectId to
+                                (projectSessionsById[projectId].orEmpty() + sessions).associateBy { it.id }.values.toList())
+                            projectSessionsLoadedAt = projectSessionsLoadedAt.filterKeys { it.projectId != projectId }
+                            reloadProjects()
+                        }
+                }
+            },
+            onCreateProject = { name, connectorId, workspacePath ->
+                if (!hasAuthSession) {
+                    Result.failure(IllegalStateException("Sign in again to create a project."))
+                } else {
+                    sessionsController.createProject(name, connectorId, workspacePath)
+                        .onSuccess { project ->
+                            projectsRequestVersion++
+                            sessionsState = sessionsState.withPatchedProject(project)
+                        }
+                }
+            },
+            onNewSessionInProject = { project ->
+                initialNewSessionProjectId = project.id
+                destinationName = AppDestination.NewSession.name
+            },
+            onCreateSession = { draft ->
+                if (!hasAuthSession) {
+                    NewSessionCreateOutcome.Failed(IllegalStateException("Sign in again to create a session."))
+                } else {
+                    val refresh = sessionsState.beginSessionRequest()
+                    sessionsState = refresh.state
+                    NewSessionPreferenceStore(context, sessionStore.readServerUrl(), sessionStore.readUserId()).save(
+                        connectorId = draft.connectorId,
+                        runtimeId = draft.runtimeId,
+                        selections = draft.selections,
+                    )
+                    val outcome = sessionsController.createAndStartSession(
+                        draft = draft,
+                        devices = sessionsState.devices,
+                        projects = sessionsState.projects,
+                    )
+                    val refreshedState = when (outcome) {
+                        is NewSessionCreateOutcome.Created -> outcome.refreshedState
+                        is NewSessionCreateOutcome.Failed -> outcome.refreshedState
                     }
-            }
-        },
-        onNewSessionInProject = { project ->
-            initialNewSessionProjectId = project.id
-            destinationName = AppDestination.NewSession.name
-        },
-        onCreateSession = { draft ->
-            if (!hasAuthSession) {
-                NewSessionCreateOutcome.Failed(IllegalStateException("Sign in again to create a session."))
-            } else {
-                val refresh = sessionsState.beginSessionRequest()
-                sessionsState = refresh.state
-                NewSessionPreferenceStore(context, sessionStore.readServerUrl(), sessionStore.readUserId()).save(
-                    connectorId = draft.connectorId,
-                    runtimeId = draft.runtimeId,
-                    selections = draft.selections,
-                )
-                val outcome = sessionsController.createAndStartSession(
-                    draft = draft,
-                    devices = sessionsState.devices,
-                    projects = sessionsState.projects,
-                )
-                val refreshedState = when (outcome) {
-                    is NewSessionCreateOutcome.Created -> outcome.refreshedState
-                    is NewSessionCreateOutcome.Failed -> outcome.refreshedState
+                    if (refreshedState != null) {
+                        sessionsState = sessionsState.mergedWithRefresh(refreshedState, refresh.generation)
+                    }
+                    if (outcome is NewSessionCreateOutcome.Created) {
+                        sessionsState = sessionsState.withPatchedSession(outcome.session.copy(optimisticTopUntil = System.currentTimeMillis() + 1_000), refresh.generation)
+                        reloadProjects()
+                    }
+                    outcome
                 }
-                if (refreshedState != null) {
-                    sessionsState = sessionsState.mergedWithRefresh(refreshedState, refresh.generation)
+            },
+            onPrepareSession = { draft ->
+                preparedSessionDraft = draft
+                selectedSessionId = null
+                destinationName = AppDestination.SessionDetail.name
+            },
+            onPreparedSessionCreated = { session ->
+                sessionsState = sessionsState.withPatchedSession(session)
+                preparedSessionDraft = null
+                selectedSessionId = session.id
+            },
+            onListDirectory = { connectorId, root, path ->
+                if (!hasAuthSession) {
+                    Result.failure(IllegalStateException("Sign in again to browse files."))
+                } else {
+                    sessionsController.listNewSessionDirectory(
+                        connectorId = connectorId,
+                        root = root,
+                        path = path,
+                    )
                 }
-                if (outcome is NewSessionCreateOutcome.Created) {
-                    sessionsState = sessionsState.withPatchedSession(outcome.session.copy(optimisticTopUntil = System.currentTimeMillis() + 1_000), refresh.generation)
-                    reloadProjects()
-                }
-                outcome
-            }
-        },
-        onPrepareSession = { draft ->
-            preparedSessionDraft = draft
-            selectedSessionId = null
-            destinationName = AppDestination.SessionDetail.name
-        },
-        onPreparedSessionCreated = { session ->
-            sessionsState = sessionsState.withPatchedSession(session)
-            preparedSessionDraft = null
-            selectedSessionId = session.id
-        },
-        onListDirectory = { connectorId, root, path ->
-            if (!hasAuthSession) {
-                Result.failure(IllegalStateException("Sign in again to browse files."))
-            } else {
-                sessionsController.listNewSessionDirectory(
-                    connectorId = connectorId,
-                    root = root,
-                    path = path,
-                )
-            }
-        },
-        onListNewSessionRuntimes = { connectorId ->
-            sessionsController.listNewSessionRuntimes(connectorId)
-        },
-        onLoadNewSessionRuntimeCapabilities = { connectorId, runtime ->
-            sessionsController.loadNewSessionRuntimeCapabilities(connectorId, runtime)
-        },
-        onLoadNewSessionModelCatalog = { connectorId, runtime ->
-            sessionsController.loadNewSessionModelCatalog(connectorId, runtime)
-        },
-        onLoadNewSessionPermissionCatalog = { connectorId, runtime ->
-            sessionsController.loadNewSessionPermissionCatalog(connectorId, runtime)
-        },
-        onSessionChanged = { session ->
-            sessionsState = sessionsState.withPatchedSession(session)
-        },
-        onMobileLoginQrRequested = { payload ->
-            pendingMobileLoginQr = payload
-            destinationName = AppDestination.QrWaiting.name
-        },
-    )
-    if (updatesAllowed) {
-        AppUpdatePromptDialog(
-            state = appUpdateViewModel.state,
-            onUpdate = appUpdateViewModel::downloadUpdate,
-            onIgnore = appUpdateViewModel::ignoreVersion,
+            },
+            onListNewSessionRuntimes = { connectorId ->
+                sessionsController.listNewSessionRuntimes(connectorId)
+            },
+            onLoadNewSessionRuntimeCapabilities = { connectorId, runtime ->
+                sessionsController.loadNewSessionRuntimeCapabilities(connectorId, runtime)
+            },
+            onLoadNewSessionModelCatalog = { connectorId, runtime ->
+                sessionsController.loadNewSessionModelCatalog(connectorId, runtime)
+            },
+            onLoadNewSessionPermissionCatalog = { connectorId, runtime ->
+                sessionsController.loadNewSessionPermissionCatalog(connectorId, runtime)
+            },
+            onSessionChanged = { session ->
+                sessionsState = sessionsState.withPatchedSession(session)
+            },
+            onMobileLoginQrRequested = { payload ->
+                pendingMobileLoginQr = payload
+                destinationName = AppDestination.QrWaiting.name
+            },
         )
-    }
+        if (updatesAllowed) {
+            AppUpdatePromptDialog(
+                state = appUpdateViewModel.state,
+                onUpdate = appUpdateViewModel::downloadUpdate,
+                onIgnore = appUpdateViewModel::ignoreVersion,
+            )
+        }
     }
     LaunchedEffect(updatesAllowed, appUpdateViewModel.state.installFile) {
         if (updatesAllowed) appUpdateViewModel.state.installFile?.let(onInstallUpdate)

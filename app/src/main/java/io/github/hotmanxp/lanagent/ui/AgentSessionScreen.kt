@@ -560,16 +560,24 @@ fun AgentSessionPane(
 
     /**
      * 「新建会话」统一入口(Pill / 顶栏 + / 空态按钮共用)。流程:
-     *   1. POST /api/agent/sessions 拿新 sid
+     *   1. POST /api/agent/sessions 拿新 sid(body 带上当前模型 → 新会话同款)
      *   2. drawerRefreshTick++ 立刻把新会话刷进抽屉列表
      *   3. 关抽屉,currentSid → 新 sid(LaunchedEffect 自动切 hydrate + SSE)
      */
     fun startNewSession() {
         if (creating) return
         val a = api ?: return
+        // 必须在 create 之前取:create 成功后 currentSid 换新,transcript hydrate
+        // 会用新会话的 meta 重算 currentModel,那时已经读不到旧值了。
+        // 走 `currentModel` 而不是 `store.model` —— 前者是用户 picker 选完
+        // 之后的乐观态(见下面的 onModelChange),正是「上一个会话的模型选择」;
+        // store.model 只是 hydrate 时那一瞬的服务端原值。
+        // 没会话 / 模型未知(空串 / 'unknown')时为 null → body 不带 model,
+        // 新会话回落服务端默认模型,维持旧行为。
+        val inherited = currentModel
         creating = true
         scope.launch {
-            val res = runCatching { a.createSession() }
+            val res = runCatching { a.createSession(inherited?.model, inherited?.providerId) }
             creating = false
             res.fold(
                 onSuccess = { newSid ->

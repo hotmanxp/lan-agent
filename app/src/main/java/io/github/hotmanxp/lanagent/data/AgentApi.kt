@@ -154,9 +154,25 @@ class AgentApi(
     suspend fun listSessions(): List<AgentSessionMeta> =
         execute<AgentSessionsResponse>(request("/api/agent/sessions").getJson()).sessions
 
-    /** 新建一条空会话,立即返回 sessionId(对齐 web 端 sidebar 的 + 按钮)。 */
-    suspend fun createSession(): String =
-        execute<CreateSessionResponse>(request("/api/agent/sessions").postEmpty()).sessionId
+    /**
+     * 新建一条空会话,立即返回 sessionId(对齐 web 端 sidebar 的 + 按钮)。
+     *
+     * [model] / [providerId] 是「让新会话继承上一个会话的模型」的通道 ——
+     * 服务端 `routes/agent.ts` 的 POST /agent/sessions 早就接受这两个可选
+     * 字段(见该路由里 requested / requestedProviderId 的解析),web 端
+     * `createNewSession` 也是这么带的。空串 / 'unknown' / null 一律不进 body,
+     * 服务端维持 'unknown' 并回落 `runtime.defaultModel` —— 不传参时行为与
+     * 之前完全一致。
+     */
+    suspend fun createSession(model: String? = null, providerId: String? = null): String =
+        execute<CreateSessionResponse>(
+            request("/api/agent/sessions").postJson(
+                buildJsonObject {
+                    model?.takeIf { it.isNotBlank() && it != "unknown" }?.let { put("model", it) }
+                    providerId?.takeIf { it.isNotBlank() }?.let { put("providerId", it) }
+                }
+            )
+        ).sessionId
 
     suspend fun readTranscript(sessionId: String): Transcript =
         execute<TranscriptResponse>(

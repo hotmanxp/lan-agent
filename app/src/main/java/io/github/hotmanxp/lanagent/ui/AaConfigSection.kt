@@ -78,6 +78,15 @@ fun AaConfigSection(
     var me by remember { mutableStateOf<AaMeResponse?>(null) }
     var meError by remember { mutableStateOf<String?>(null) }
 
+    // **首帧 prefs 还没回来** —— baseUrlFlow 是异步的,`remember` 初始化时拿到的
+    // 是空串。不补这一下,输入框会一直空着而「保存」按钮因为
+    // `"" != 实际值` 一直可点 —— 用户手一抖就把服务器地址存成空的了
+    // (0.24.1 真机截图里就是这个状态)。
+    // 只在表单为空时回填,用户正在敲的内容不会被冲掉。
+    LaunchedEffect(rt.baseUrl) {
+        if (formBaseUrl.isBlank() && rt.baseUrl.isNotBlank()) formBaseUrl = rt.baseUrl
+    }
+
     // 登录态:token 一变就重新问一次 server。`meError` 非空 = 拿不到权威信息,
     // 展示层据此说明「显示的是本地快照」。
     LaunchedEffect(rt.accessToken, rt.baseUrl) {

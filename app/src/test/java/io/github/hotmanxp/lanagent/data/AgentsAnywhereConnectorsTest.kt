@@ -102,6 +102,30 @@ class AgentsAnywhereConnectorsTest {
         assertNull(t.refreshToken)
     }
 
+    // ── /api/v2 前缀(0.24.0 真机闪退的根因) ─────────────────────────
+    //
+    // 漏前缀不会 404 —— 官方 server 前的 web 前端会把未知路径兜成 index.html
+    // 且状态码 200,于是错误信息变成「JSON 解析失败」,完全指不到地址上。
+    // 这组用例把「所有路径都必须过 /api/v2」钉死。
+
+    @Test
+    fun `apiV2Path 补前缀`() {
+        assertEquals("/api/v2/connectors", apiV2Path("/connectors"))
+        assertEquals("/api/v2/ws-ticket", apiV2Path("/ws-ticket"))
+    }
+
+    @Test
+    fun `apiV2Path 容忍不带前导斜杠的路径`() {
+        assertEquals("/api/v2/sessions/list", apiV2Path("sessions/list"))
+    }
+
+    @Test
+    fun `apiV2Path 对已带前缀的路径不会重复加`() {
+        // 拼接点只传根相对路径;真要传已经带前缀的会变成 /api/v2/api/v2/...,
+        // 这里显式说明「不要这么做」,避免有人以为它是幂等的。
+        assertEquals("/api/v2/api/v2/connectors", apiV2Path(apiV2Path("/connectors")))
+    }
+
     @Test
     fun `配对请求体字段名与服务端一致`() {
         val body = json.encodeToString(

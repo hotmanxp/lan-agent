@@ -119,6 +119,11 @@ object AaSessionHolder {
                 }
             } catch (ce: CancellationException) {
                 throw ce
+            } catch (err: Exception) {
+                // 订阅层的兜底已在 [AgentsAnywhereClient] 里做了一层,但 snapshot
+                // 之后的任何意外都不该掀翻 App —— 这是组合作用域里的协程,
+                // 未捕获异常会直接终止进程。转成状态条上的错误文案。
+                st.setConn(AgentsAnywhereConnState.Error, err.message ?: err.javaClass.simpleName)
             }
         }
     }

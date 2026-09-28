@@ -76,10 +76,14 @@ class AgentsAnywhereApi(
         coerceInputValues = true
     }
 
+    /**
+     * 拼完整 URL。**所有路径都过 [apiV2Path] 补 `/api/v2` 前缀** —— 漏了不会
+     * 404,会被 web 前端的 SPA fallback 吞成 index.html(200),报错还指向
+     * JSON 解析,极难定位。见 [apiV2Path] 的注释。
+     */
     private fun urlFor(path: String): String {
         val base = baseUrl.trimEnd('/')
-        val normalized = if (path.startsWith("/")) path else "/$path"
-        return "$base$normalized"
+        return "$base${apiV2Path(path)}"
     }
 
     private fun authHeader(builder: Request.Builder): Request.Builder {
@@ -105,7 +109,28 @@ class AgentsAnywhereApi(
                 @Suppress("UNCHECKED_CAST")
                 return@use Unit as T
             }
+            rejectHtml(resp.request.url.toString(), raw)
             json.decodeFromString<T>(raw)
+        }
+    }
+
+    /**
+     * 响应是 HTML 而不是 JSON 时,给一条**指向真正原因**的错误。
+     *
+     * 官方 server 前面坐着 web 前端,任何未知路径都会被 SPA fallback 返回
+     * `index.html`(而且状态码是 200)。少了 `/api/v2` 前缀、或者把服务器地址
+     * 填成了 web 前端地址,都会走到这里。放任 kotlinx.serialization 报
+     * `Expected start of the object '{', but had '<'` 的话,报错完全指不到
+     * 「地址/前缀错了」这件事上 —— 0.24.0 真机就是这么排查了半天。
+     */
+    private fun rejectHtml(url: String, body: String) {
+        val head = body.trimStart().take(16)
+        if (head.startsWith("<")) {
+            throw IOException(
+                "服务器返回的是 HTML 页面而不是 JSON(地址 $url)。" +
+                    "请检查服务器地址是否填成了 web 前端地址;AA 的 API 挂在 /api/v2 前缀下。" +
+                    "响应开头: ${body.take(60)}"
+            )
         }
     }
 
@@ -116,6 +141,7 @@ class AgentsAnywhereApi(
             }
             val raw = resp.body?.string().orEmpty()
             if (raw.isBlank()) return@use JsonObject(emptyMap())
+            rejectHtml(resp.request.url.toString(), raw)
             json.parseToJsonElement(raw) as? JsonObject
                 ?: throw IOException("expected JSON object, got: ${raw.take(80)}")
         }

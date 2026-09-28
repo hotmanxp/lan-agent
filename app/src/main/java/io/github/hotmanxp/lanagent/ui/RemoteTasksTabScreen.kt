@@ -55,6 +55,7 @@ import io.github.hotmanxp.lanagent.data.AgentsAnywhereDashboardState
 import io.github.hotmanxp.lanagent.data.AgentsAnywhereEvent
 import io.github.hotmanxp.lanagent.data.SessionSummary
 import io.github.hotmanxp.lanagent.data.dispatchDashboardFrame
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
@@ -76,22 +77,34 @@ fun RemoteTasksTabScreen(
         if (!rt.configured) return
         dashboardState.setConn(AgentsAnywhereConnState.Connecting, "拉 ticket + 开 WS")
         dashboardJob = rt.scope.launch {
-            rt.client.subscribeDashboard(
-                baseUrl = rt.baseUrl.trim(),
-                accessToken = rt.accessToken.trim(),
-            ).collect { ev ->
-                when (ev) {
-                    is AgentsAnywhereEvent.Incoming ->
-                        if (dispatchDashboardFrame(ev.parsed, dashboardState)) {
-                            dashboardState.setConn(
-                                AgentsAnywhereConnState.Connected,
-                                "dashboard · 已连接",
-                            )
-                        }
-                    is AgentsAnywhereEvent.Lifecycle ->
-                        dashboardState.setConn(ev.kind.toConnState(), ev.message)
-                    is AgentsAnywhereEvent.Unparseable -> Unit
+            try {
+                rt.client.subscribeDashboard(
+                    baseUrl = rt.baseUrl.trim(),
+                    accessToken = rt.accessToken.trim(),
+                ).collect { ev ->
+                    when (ev) {
+                        is AgentsAnywhereEvent.Incoming ->
+                            if (dispatchDashboardFrame(ev.parsed, dashboardState)) {
+                                dashboardState.setConn(
+                                    AgentsAnywhereConnState.Connected,
+                                    "dashboard · 已连接",
+                                )
+                            }
+                        is AgentsAnywhereEvent.Lifecycle ->
+                            dashboardState.setConn(ev.kind.toConnState(), ev.message)
+                        is AgentsAnywhereEvent.Unparseable -> Unit
+                    }
                 }
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (err: Exception) {
+                // 这是**组合作用域**里的协程 —— 未捕获异常会终止整个进程。
+                // 0.24.0 真机闪退过一次(错误路径 → 拉 ticket 抛异常直接掀翻 App)。
+                // 任何意外都降级成状态条上的错误文案。
+                dashboardState.setConn(
+                    AgentsAnywhereConnState.Error,
+                    err.message ?: err.javaClass.simpleName,
+                )
             }
         }
     }

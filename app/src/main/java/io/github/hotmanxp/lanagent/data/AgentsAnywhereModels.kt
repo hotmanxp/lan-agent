@@ -30,6 +30,30 @@ import kotlinx.serialization.json.JsonObject
 /** `ProtocolVersion = Literal["1.0"]`。 */
 const val AGENTS_ANYWHERE_PROTOCOL_VERSION: String = "1.0"
 
+// ── API 路径前缀 ─────────────────────────────────────────────────────
+
+/**
+ * AA server 把**所有** router 挂在 `/api/v2` 下(REST 与 WebSocket 都在内)——
+ * 见 `server/agent_server/app.py` 的 `include_router(..., prefix=API_V2_PREFIX)`
+ * 与 `core/api_namespace.py` 的 `API_V2_PREFIX = "/api/v2"`。
+ *
+ * ⚠️ **漏掉前缀的后果特别隐蔽**:官方 server 前面还坐着 web 前端,未知路径会被
+ * SPA fallback 返回 `index.html`,而且 **HTTP 状态码是 200**。所以少写
+ * `/api/v2` 不会得到 404,而是拿到一段 HTML,再被 kotlinx.serialization 报成
+ * `Unexpected JSON token at offset 0: Expected start of the object '{',
+ * but had '<'` —— 报错完全指不到「路径写错了」这件事上。
+ *
+ * REST 走 [AgentsAnywhereApi] 的 `urlFor`,WebSocket 走
+ * [AgentsAnywhereClient],两边都用这里的 [apiV2Path]。
+ */
+const val AA_API_V2_PREFIX = "/api/v2"
+
+/** 把 `/connectors` 这类根相对路径补成 `/api/v2/connectors`。 */
+fun apiV2Path(path: String): String {
+    val normalized = if (path.startsWith("/")) path else "/$path"
+    return "$AA_API_V2_PREFIX$normalized"
+}
+
 // ── Ticket 鉴权 ─────────────────────────────────────────────────────────
 
 @Serializable

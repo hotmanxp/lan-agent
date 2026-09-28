@@ -45,11 +45,13 @@ private const val TAG = "LanAgentTerm"
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 internal fun SshTerminalWebView(
-    store: SshTerminalStore,
+    // 0.24.2:从 SshTerminalStore 抽成 [TerminalTransport] —— 渲染器只管字节
+    // 管道,SSH 与 AA 远程终端各实现一份(SshTerminalTransport / AaTerminalTransport)。
+    transport: TerminalTransport,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
-    val bridge = remember(store) { TerminalJsBridge(store, context) }
+    val bridge = remember(transport) { TerminalJsBridge(transport, context) }
 
     AndroidView(
         modifier = modifier,
@@ -59,7 +61,7 @@ internal fun SshTerminalWebView(
         onRelease = { view ->
             // 顺序要紧:先摘注入口(store 不再往里打 JS),再 destroy。
             bridge.view = null
-            store.onWebViewGone()
+            transport.onReleased()
             view.destroy()
         },
     )
@@ -150,7 +152,7 @@ private fun createTerminalWebView(context: Context, bridge: TerminalJsBridge): W
  *  - Kotlin → JS 用 `evaluateJavascript` 拼源码,同样 base64 保证安全。
  */
 internal class TerminalJsBridge(
-    private val store: SshTerminalStore,
+    private val transport: TerminalTransport,
     private val context: Context,
 ) {
     @Volatile
@@ -161,7 +163,7 @@ internal class TerminalJsBridge(
     fun ready() {
         val v = view ?: return
         v.post {
-            store.onWebViewReady { js -> v.evaluateJavascript(js, null) }
+            transport.onSinkReady { js -> v.evaluateJavascript(js, null) }
             // 视口尺寸不能盲信:把 View 的真实尺寸显式推给页面(页面会写死
             // html/body/#root 的高度再 refit)。addOnLayoutChangeListener 只在
             // **变化**时触发,进交互模式时尺寸没变过,所以这里必须补一次。
@@ -175,13 +177,13 @@ internal class TerminalJsBridge(
     /** 用户按键 / 粘贴 → pty 输入。 */
     @JavascriptInterface
     fun send(b64: String) {
-        store.sendToShell(bytesOfB64(b64))
+        transport.onInput(bytesOfB64(b64))
     }
 
     /** xterm 量出的行列数 → window-change。 */
     @JavascriptInterface
     fun resize(cols: Int, rows: Int) {
-        store.onPtyResize(cols, rows)
+        transport.onResize(cols, rows)
     }
 
     /** 终端「复制全部」→ 系统剪贴板。 */

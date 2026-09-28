@@ -49,6 +49,7 @@ import com.composables.icons.lucide.ChevronRight
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.Network
 import com.composables.icons.lucide.Server
+import com.composables.icons.lucide.SquareTerminal
 import com.composables.icons.lucide.Terminal
 import io.github.hotmanxp.lanagent.R
 import io.github.hotmanxp.lanagent.data.AgentInstance
@@ -62,6 +63,7 @@ fun ServiceHubScreen(
     onOpenInstances: () -> Unit,
     onOpenSsh: () -> Unit,
     onOpenRemoteServices: () -> Unit,
+    onOpenAaTerminal: () -> Unit,
 ) {
     val context = LocalContext.current
 
@@ -98,6 +100,16 @@ fun ServiceHubScreen(
                     title = stringResource(R.string.service_ssh_title),
                     subtitle = stringResource(R.string.service_ssh_summary, hosts.size),
                     onClick = onOpenSsh,
+                )
+            }
+            item("aa-terminal") {
+                ServiceCard(
+                    // 0.24.2:AA 远程终端与局域网 SSH 并排。两处终端共用同一个
+                    // xterm.js 渲染器,只换数据源(见 AaTerminalScreen.kt 文件头)。
+                    icon = Lucide.SquareTerminal,
+                    title = stringResource(R.string.service_aa_terminal_title),
+                    subtitle = stringResource(R.string.service_aa_terminal_summary),
+                    onClick = onOpenAaTerminal,
                 )
             }
             item("remote") {

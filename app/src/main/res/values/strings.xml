@@ -16,6 +16,8 @@
     <string name="service_remote_title">转码服务</string>
     <string name="service_remote_summary">%1$d 个服务</string>
     <string name="service_loading">…</string>
+    <string name="service_aa_terminal_title">AA 远程终端</string>
+    <string name="service_aa_terminal_summary">在远程设备的工作区里开终端</string>
     <!-- 远程任务栏(AA,0.24.0) -->
     <string name="aa_not_logged_in">还没登录 Agents Anywhere\n先去设置里完成登录</string>
     <string name="aa_no_server">还没配置服务器地址\n先去设置里填 Agents Anywhere server</string>
@@ -45,6 +47,17 @@
     <string name="aa_web_login_exchanging">正在换取凭据…</string>
     <string name="aa_web_login_done">登录成功</string>
     <string name="aa_web_login_failed">登录失败:%1$s</string>
+    <!-- AA 远程终端(0.24.2) -->
+    <string name="aa_terminal_need_login">还没登录 Agents Anywhere\n请先在「远程」栏完成登录</string>
+    <string name="aa_terminal_no_session">没有可开终端的会话\n(AA 的终端挂在会话工作区上)</string>
+    <string name="aa_terminal_pick_session">选一个会话,终端会开在它的工作区里</string>
+    <string name="aa_terminal_open_for">%1$s 的终端</string>
+    <string name="aa_terminal_change_session">换会话</string>
+    <string name="aa_terminal_idle">未连接</string>
+    <string name="aa_terminal_connecting">正在连接远程设备…</string>
+    <string name="aa_terminal_open">已连接 · %1$s</string>
+    <string name="aa_terminal_exited">远端已退出(code=%1$d)</string>
+    <string name="aa_terminal_failed">连接失败:%1$s</string>
     <string name="aa_web_login_hint">在下方网页完成登录,授权后会自动跳回并保存凭据。</string>
     <string name="aa_manual_token">手动粘贴 token</string>
     <string name="aa_qr_swap_token">扫码换 token</string>

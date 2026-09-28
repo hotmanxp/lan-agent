@@ -230,7 +230,7 @@ private fun SshTerminalContent(host: SshHost, onBack: () -> Unit) {
                 // 屏幕上只剩 WebView 自己的背景色(实测:键盘弹出瞬间终端整片变白,
                 // 收起键盘又恢复)。
                 SshTerminalWebView(
-                    store = store,
+                    transport = SshTerminalTransport(store),
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f),

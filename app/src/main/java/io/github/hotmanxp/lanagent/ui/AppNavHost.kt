@@ -79,6 +79,7 @@ fun AppNavHost(
                 onOpenInstances = { navController.navigate("service/instances") },
                 onOpenSsh = { navController.navigate("service/ssh") },
                 onOpenRemoteServices = { navController.navigate("service/remote") },
+                onOpenAaTerminal = { navController.navigate("service/aa-terminal") },
             )
         }
         composable(TabDestination.Settings.route) {
@@ -126,6 +127,9 @@ fun AppNavHost(
                     navController.navigate("ssh-terminal/${Uri.encode(host.id)}")
                 },
             )
+        }
+        composable("service/aa-terminal") {
+            AaTerminalScreen(onBack = { navController.popBackStack() })
         }
         composable("service/remote") {
             RemoteServicesScreen(

@@ -1701,7 +1701,8 @@ fun SessionDetailScreen(
                             modifier = Modifier.align(Alignment.TopCenter),
                         )
                         SessionDetailHeader(
-                            title = state.session?.title ?: stringResource(R.string.session_title_fallback),
+                            title = state.session?.title?.takeIf { it.isNotBlank() }
+                                ?: stringResource(R.string.session_title_fallback),
                             darkMode = darkMode,
                             onLeftClick = {
                                 showRuntimeSettings = true

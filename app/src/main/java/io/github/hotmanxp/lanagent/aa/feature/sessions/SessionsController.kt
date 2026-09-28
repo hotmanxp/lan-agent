@@ -170,7 +170,8 @@ class SessionsController(
                         connectorId = draft.connectorId,
                         projectId = resolved.projectId,
                         runtime = draft.runtimeType,
-                        title = draft.title?.trim()?.takeIf(String::isNotBlank),
+                        title = draft.title?.trim()?.takeIf(String::isNotBlank)
+                            ?: deriveSessionTitleFromContent(draft.content),
                         cwd = resolved.cwd,
                         content = draft.content.trim(),
                         selections = draft.selections.toMap(),

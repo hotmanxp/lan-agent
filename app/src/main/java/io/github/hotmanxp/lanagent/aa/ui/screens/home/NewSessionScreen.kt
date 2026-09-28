@@ -132,6 +132,9 @@ fun NewSessionScreen(
     }
     var title by rememberSaveable { mutableStateOf(defaultTitle) }
     var editingTitle by rememberSaveable { mutableStateOf(false) }
+    // 标题栏里那个「新建会话」只是占位提示,用户没动过就不能当成真标题发出去,
+    // 否则服务端会把它当会话标题存下来,列表里每条都叫「新建会话」。
+    var titleEdited by rememberSaveable { mutableStateOf(false) }
     var selectedProjectId by rememberSaveable(initialProjectId) { mutableStateOf(initialProjectId) }
     var pendingInitialProjectId by rememberSaveable(initialProjectId) { mutableStateOf(initialProjectId) }
     var selectedDeviceId by rememberSaveable {
@@ -664,7 +667,7 @@ fun NewSessionScreen(
                 connectorId = device.id,
                 projectId = project?.id.orEmpty(),
                 runtime = runtime.type,
-                title = title.trim().takeIf(String::isNotBlank),
+                title = title.trim().takeIf { titleEdited && it.isNotBlank() },
                 cwd = effectiveWorkspacePath.trim().takeIf(String::isNotBlank),
                 deviceName = device.name,
                 runtimeLabel = runtime.labels.primary,
@@ -878,7 +881,7 @@ fun NewSessionScreen(
                 editing = editingTitle,
                 darkMode = darkMode,
                 focusRequester = focusRequester,
-                onTitleChange = { title = it },
+                onTitleChange = { titleEdited = true; title = it },
                 onSubmitTitle = ::submitTitle,
                 onClose = { navigate(AppDestination.Sessions) },
                 onEditToggle = {

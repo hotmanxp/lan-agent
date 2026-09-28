@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Agents-Anywhere 官方客户端的 FileProvider 路径(0.24.2 移植)。
+     只放开会话附件的下载缓存目录;AA 原样搬过来,没多暴露任何东西。 -->
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <cache-path
+        name="session_attachments"
+        path="session-attachments/" />
+</paths>

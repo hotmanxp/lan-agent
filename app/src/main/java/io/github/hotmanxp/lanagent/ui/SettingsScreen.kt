@@ -74,9 +74,6 @@ fun SettingsScreen(
     onScan: () -> Unit = {},
     onOpenUrl: (String) -> Unit = {},
     onOpenSession: (baseUrl: String, instanceName: String, sid: String) -> Unit = { _, _, _ -> },
-    onOpenAaWebLogin: () -> Unit = {},
-    onOpenAaDevices: () -> Unit = {},
-    onOpenAaPairing: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -125,17 +122,6 @@ fun SettingsScreen(
                         onCheckedChange = { on -> scope.launch { context.saveCompactTools(on) } },
                     )
                 }
-            }
-
-            // Agents-Anywhere 登录配置(0.24.0)。0.21.0~0.23.0 这里只有一个
-            // 「打开调试屏」按钮;底栏加了「远程」栏之后,配置面就该常驻设置栏
-            // —— 否则用户要先进「远程」栏看到「还没登录」,再被弹回设置。
-            item("agents_anywhere") {
-                AaConfigSection(
-                    onOpenWebLogin = onOpenAaWebLogin,
-                    onOpenDevices = onOpenAaDevices,
-                    onOpenPairing = onOpenAaPairing,
-                )
             }
 
             // 入口卡片(0.15.0 从任务栏搬来)。放在外观后面、数据前面 ——

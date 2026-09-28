@@ -108,6 +108,17 @@ class SecureTokenStore private constructor(context: Context) {
         backend.edit().clear().apply()
     }
 
+    /**
+     * 加密 SharedPreferences 后端本身,给**外部**模块存自己的凭据用。
+     *
+     * 0.24.2 移植 AA 官方客户端后,它的 `AuthSessionStore` 原本是
+     * `getSharedPreferences("agents_anywhere_auth", MODE_PRIVATE)` —— **明文**,
+     * accessToken / refreshToken 直接躺在磁盘上。lan-agent 这边早就有加密实现,
+     * 所以不去搬一份新的明文存储,而是让它指到这里:key 名全部不变,只有 backend
+     * 从明文换成 Keystore 包装的加密 prefs。
+     */
+    fun encryptedPrefs(): SharedPreferences = backend
+
     companion object {
         private const val TAG = "SecureTokenStore"
         private const val FILE_NAME = "lan_agent_secure_tokens"

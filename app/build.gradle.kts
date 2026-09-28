@@ -61,14 +61,17 @@ val agentsAnywhereToken = asrCfg("agentsAnywhereToken")
 
 android {
     namespace = "io.github.hotmanxp.lanagent"
-    compileSdk = 34
+    // 34 → 35(0.24.2 移植 AA 官方客户端):coil 3.3 / sora editor / termux
+    // terminal-view 这些依赖要求 compileSdk ≥ 35。compileSdk 只决定「能编译
+    // 哪些 API」,不改运行时行为 —— targetSdk 仍保持 34,系统行为不变。
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "io.github.hotmanxp.lanagent"
         minSdk = 26
         targetSdk = 34
-        versionCode = 87
-        versionName = "0.24.1"
+        versionCode = 88
+        versionName = "0.24.2"
 
         // 语音识别凭据 / 开关。见文件头注释；空值 = 未配置，走系统 SpeechRecognizer。
         buildConfigField("String", "ASR_APP_ID", asrLiteral(asrAppId))
@@ -87,6 +90,11 @@ android {
         // Agents-Anywhere server 默认值(local.properties 兜底,UI 优先级更高)
         buildConfigField("String", "AGENTS_ANYWHERE_BASE_URL", asrLiteral(agentsAnywhereBaseUrl))
         buildConfigField("String", "AGENTS_ANYWHERE_TOKEN", asrLiteral(agentsAnywhereToken))
+        // 移植进来的 AA 官方客户端用这个字段当官方 server 兜底(原 OFFICIAL_SERVER_URL)。
+        // 默认值对齐 Agents-Anywhere/android 的 officialServerUrl —— 之前接的是
+        // local.properties 里的 agentsAnywhereBaseUrl(默认空),导致 AA 登录页
+        // 不知道官方地址,连「Sign in to Agents Anywhere Cloud」都点不动。
+        buildConfigField("String", "AA_SERVER_URL", asrLiteral(agentsAnywhereBaseUrl.ifBlank { "https://web.agents-anywhere.com" }))
     }
 
     buildTypes {
@@ -114,6 +122,22 @@ android {
 }
 
 dependencies {
+    // ── AA 官方客户端(0.24.2 移植)所需的依赖 ──
+    // 终端(terminal-view)与代码编辑器(sora)看着重,但 AA 的
+    // SessionDetailScreen 入口就注入了 terminalPool,删不掉;
+    // 编译通过后会回头按实际引用再剪一轮。
+    implementation(platform(libs.sora.bom))
+    implementation(libs.coil.compose)
+    implementation(libs.coil.network.okhttp)
+    implementation(libs.compose.shimmer)
+    implementation(libs.telephoto.zoomable.image.coil3)
+    implementation(libs.sora.editor)
+    implementation(libs.sora.language.textmate)
+    implementation(libs.sora.oniguruma.native)
+    implementation(libs.androidx.camera.mlkit.vision)
+    implementation(libs.androidx.compose.animation)
+    implementation(libs.androidx.compose.foundation)
+
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.runtime.compose)

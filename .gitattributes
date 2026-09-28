@@ -1,0 +1,7 @@
+# Agents-Anywhere 官方客户端整份移植自 /Users/ethan/code/Agents-Anywhere/android,
+# 只有 6 个文件被本地改过(摘掉远程终端)。标记为 linguist-generated,
+# 免得后续 diff / code review 被 4 万行第三方代码淹没。
+app/src/main/java/io/github/hotmanxp/lanagent/aa/** linguist-generated=true
+app/src/main/res/values/aa_*.xml linguist-generated=true
+app/src/main/res/values-v27/aa_*.xml linguist-generated=true
+app/src/main/res/values-zh-rCN/aa_*.xml linguist-generated=true

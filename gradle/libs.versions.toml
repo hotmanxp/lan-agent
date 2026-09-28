@@ -1,9 +1,9 @@
 [versions]
-agp = "8.6.1"
-kotlin = "2.0.21"
+agp = "8.7.3"
+kotlin = "2.2.0"
 coreKtx = "1.13.1"
 activityCompose = "1.9.3"
-composeBom = "2024.10.00"
+composeBom = "2024.12.01"
 navigationCompose = "2.8.4"
 webkit = "1.12.1"
 lifecycleRuntimeKtx = "2.8.7"
@@ -14,8 +14,8 @@ mlkitBarcode = "17.3.0"
 okhttp = "4.12.0"
 jsch = "0.1.55"
 # 代码块语法高亮(纯 Kotlin 的 highlight.js 内核)。
-# ⚠️ 只能用 1.0.0:它依赖 kotlin-stdlib 2.0.20,与本项目 Kotlin 2.0.21 对齐。
-# 1.1.0 把 stdlib 抬到 2.2.0,编译器会直接报 kotlin metadata 版本不兼容。
+# 0.24.2 起项目 Kotlin 升到 2.2.0(为了跑 AA 官方客户端的 coil / sora),
+# 1.0.0 与 1.1.0 都能编了 —— 暂时仍钉 1.0.0,等确认无回归再考虑升 1.1.0。
 highlights = "1.0.0"
 # Lucide 线性图标(0.21.0 起全项目替换 Material Symbols Rounded)。
 # 24dp 网格 / 2px 描边,比 Material 的可变字重在深色底上更克制。
@@ -42,6 +42,16 @@ securityCrypto = "1.1.0-alpha06"
 # **只要 core** —— journeyapps 那套 zxing-android-embedded 是扫码的(相机 +
 # ActivityResult),我们不扫,只生成。
 zxingCore = "3.5.3"
+
+# ── 以下为移植 AA 官方客户端(0.24.2)所需,版本对齐 Agents-Anywhere/android ──
+coil = "3.3.0"
+composeShimmer = "1.3.1"
+soraEditor = "0.24.0"
+telephoto = "0.19.0"
+desugarJdkLibs = "2.1.4"
+# camera-mlkit-vision 在 cameraX 1.3.x 里还没有(AA 用 1.4.1),单独一个版本号,
+# 不动本项目现有的 cameraX 1.3.4(语音拍照等既有功能在用)。
+cameraMlkitVision = "1.4.1"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -76,8 +86,23 @@ org-json = { group = "org.json", name = "json", version.ref = "orgJson" }
 androidx-security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "securityCrypto" }
 zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxingCore" }
 
+# ── AA 官方客户端依赖(见上) ──
+androidx-camera-mlkit-vision = { module = "androidx.camera:camera-mlkit-vision", version.ref = "cameraMlkitVision" }
+androidx-compose-animation = { module = "androidx.compose.animation:animation" }
+androidx-compose-foundation = { module = "androidx.compose.foundation:foundation" }
+coil-compose = { module = "io.coil-kt.coil3:coil-compose", version.ref = "coil" }
+coil-network-okhttp = { module = "io.coil-kt.coil3:coil-network-okhttp", version.ref = "coil" }
+compose-shimmer = { module = "com.valentinilk.shimmer:compose-shimmer", version.ref = "composeShimmer" }
+desugar-jdk-libs = { module = "com.android.tools:desugar_jdk_libs", version.ref = "desugarJdkLibs" }
+sora-bom = { module = "io.github.rosemoe:editor-bom", version.ref = "soraEditor" }
+sora-editor = { module = "io.github.rosemoe:editor" }
+sora-language-textmate = { module = "io.github.rosemoe:language-textmate" }
+sora-oniguruma-native = { module = "io.github.rosemoe:oniguruma-native" }
+telephoto-zoomable-image-coil3 = { module = "me.saket.telephoto:zoomable-image-coil3", version.ref = "telephoto" }
+
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+

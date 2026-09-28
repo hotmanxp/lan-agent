@@ -4,7 +4,7 @@
 //
 //   **tab 根**(`tab/` 前缀,顺序 = 底栏从左到右):
 //     tab/tasks     → 任务(原生 Agent 工作区:实例 + 会话 + 会话切换面板)
-//     tab/remote    → 远程(Agents-Anywhere 远程会话)
+//     tab/remote    → 远程(Agents-Anywhere 官方客户端整体,自带导航)
 //     tab/services  → 服务 hub(内部三张卡片,各自 push 到下面 service/* 路由)
 //     tab/settings  → 设置(主题 / AA 登录配置 / 入口卡片 / 概览 / 关于)
 //
@@ -12,8 +12,6 @@
 //     service/instances                           → 局域网实例管理
 //     service/ssh                                 → 局域网 SSH 服务
 //     service/remote                              → 转码服务
-//     aa-session/{sid}                            → AA 远程会话详情
-//     aa-devices / aa-pairing / aa-web-login      → AA 设备管理 / 配对 / 登录
 //     scan                                        → 扫码添加
 //     webview/{url}                               → 全屏 WebView
 //     agent-sessions/{baseUrl}/{instanceName}     → 局域网会话列表
@@ -70,17 +68,11 @@ fun AppNavHost(
                 },
             )
         }
-        // 远程栏 = Agents-Anywhere。0.21.0 之前是设置栏里的一个调试屏
-        // (AgentsAnywhereScreen),0.24.0 拆成这一栏:配置搬去设置栏,
-        // 这里只留 dashboard + 会话。
+        // 远程栏 = Agents-Anywhere 官方客户端(0.24.2 起整份移植进来,
+        // 见 lanagent/aa/ 与 ui/AaHostScreen.kt 的文件头)。0.21.0~0.24.1 那版
+        // 手写复刻的代码已删除。
         composable(TabDestination.Remote.route) {
-            RemoteTasksTabScreen(
-                onOpenSession = { sid ->
-                    navController.navigate("aa-session/${Uri.encode(sid)}")
-                },
-                onOpenDevices = { navController.navigate("aa-devices") },
-                onGoSettings = { onSelectTab(TabDestination.Settings) },
-            )
+            AaHostScreen()
         }
         composable(TabDestination.Services.route) {
             ServiceHubScreen(
@@ -103,9 +95,6 @@ fun AppNavHost(
                         "agent-session/${Uri.encode(baseUrl)}/${Uri.encode(instanceName)}/${Uri.encode(sid)}"
                     )
                 },
-                onOpenAaWebLogin = { navController.navigate("aa-web-login") },
-                onOpenAaDevices = { navController.navigate("aa-devices") },
-                onOpenAaPairing = { navController.navigate("aa-pairing") },
             )
         }
 
@@ -145,29 +134,6 @@ fun AppNavHost(
                     navController.navigate("webview/${Uri.encode(url)}")
                 },
             )
-        }
-
-        // ===== AA(远程)子页 =====
-        composable(
-            route = "aa-session/{sid}",
-            arguments = listOf(navArgument("sid") { type = NavType.StringType })
-        ) { entry ->
-            AaSessionScreen(
-                sessionId = Uri.decode(entry.arguments?.getString("sid").orEmpty()),
-                onBack = { navController.popBackStack() },
-            )
-        }
-        composable("aa-devices") {
-            AaDevicesScreen(
-                onBack = { navController.popBackStack() },
-                onOpenPairing = { navController.navigate("aa-pairing") },
-            )
-        }
-        composable("aa-pairing") {
-            AaPairingScreen(onBack = { navController.popBackStack() })
-        }
-        composable("aa-web-login") {
-            AaWebLoginScreen(onBack = { navController.popBackStack() })
         }
 
         // ===== 详情页(其他) =====

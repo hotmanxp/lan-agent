@@ -99,6 +99,32 @@
             android:name=".service.WebViewKeepAliveService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+
+        <!-- ── Agents-Anywhere 官方客户端(0.24.2 移植)需要的组件 ──
+             MainActivity / RemoteTerminalForegroundService 不并入:
+             前者与本项目的 .MainActivity 职责重复(AA 的根是个 composable,
+             已在 ui/AaHostScreen.kt 挂进「远程」栏),后者随远程终端一起摘掉了。 -->
+
+        <!-- 附件相机拍照(AA 会话输入条)与更新 APK 安装都要通过 FileProvider
+             暴露 content:// URI;lan-agent 自己的 WebView 上传走的是
+             系统选择器 + bridge,不依赖它。 -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.aa.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/aa_file_paths" />
+        </provider>
+
+        <!-- AA 自更新模块的安装完成回调。注意我们**没有**声明
+             REQUEST_INSTALL_PACKAGES(那是要用户单独授权的高危权限,
+             lan-agent 只是个局域网工具),所以下载能走、安装会被系统拒绝,
+             属于预期降级。 -->
+        <receiver
+            android:name="io.github.hotmanxp.lanagent.aa.feature.update.AppUpdateInstallReceiver"
+            android:exported="false" />
     </application>
 
 </manifest>

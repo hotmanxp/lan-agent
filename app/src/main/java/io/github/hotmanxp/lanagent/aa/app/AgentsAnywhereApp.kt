@@ -480,6 +480,10 @@ fun AgentsAnywhereApp(
         onOAuthCallbackConsumed()
     }
 
+    // 0.24.5:production 路径里必须把 NavHost + 升级弹窗包进 AgentsAnywhereTheme,
+    // 否则 LocalAAColors 永远 fallback 到默认 LightAgentsAnywhereColors,跟 lan-agent
+    // 自身的深色不一致 —— @Preview 已经在 Theme.kt:947 那里写对了,这里漏了。
+    AgentsAnywhereTheme(appearanceMode = appearanceMode) {
     AgentsAnywhereNavHost(
         currentDestination = currentDestination,
         sessionsState = sessionsState,
@@ -870,6 +874,7 @@ fun AgentsAnywhereApp(
             onUpdate = appUpdateViewModel::downloadUpdate,
             onIgnore = appUpdateViewModel::ignoreVersion,
         )
+    }
     }
     LaunchedEffect(updatesAllowed, appUpdateViewModel.state.installFile) {
         if (updatesAllowed) appUpdateViewModel.state.installFile?.let(onInstallUpdate)

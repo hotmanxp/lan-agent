@@ -61,6 +61,8 @@ import androidx.compose.ui.window.Popup
 import io.github.hotmanxp.lanagent.R
 import io.github.hotmanxp.lanagent.aa.ui.designsystem.LocalAAColors
 import io.github.hotmanxp.lanagent.aa.ui.designsystem.noRippleClickable
+import io.github.hotmanxp.lanagent.voice.HoldToTalkCapsule
+import io.github.hotmanxp.lanagent.voice.HoldToTalkState
 import kotlinx.coroutines.delay
 
 @Composable
@@ -98,6 +100,11 @@ internal fun MessageComposer(
     showInterrupt: Boolean,
     interrupting: Boolean,
     placeholder: String,
+    /**
+     * 按住说话的腾讯云 ASR 状态机，null = 没配凭据（按钮整条不渲染）。
+     * 状态机本体由会话页持有，这里只负责把文本域换成胶囊、工具条换麦克风/键盘图标。
+     */
+    holdToTalk: HoldToTalkState? = null,
     attachments: List<PendingAttachment>,
     onToggleTakeover: () -> Unit,
     onPickPhoto: () -> Unit,
@@ -122,6 +129,12 @@ internal fun MessageComposer(
     }
     var showAttachMenu by remember { mutableStateOf(false) }
     var keepAttachMenuMounted by remember { mutableStateOf(false) }
+    // 语音模式两段式，与 lan-agent 输入条一致：点麦克风 → 文本域换成「按住 说话」
+    // 大胶囊；识别完成由会话页回填草稿并按条件自动发出，胶囊不自动收回，想接着
+    // 按就接着按、想打字点键盘图标切回。holdToTalk 变 null（凭据没了）时回到打字。
+    var voiceMode by remember(holdToTalk) { mutableStateOf(false) }
+    val voiceState = holdToTalk.takeIf { voiceMode && inputEnabled }
+    val voiceAvailable = holdToTalk != null && inputEnabled
     val menuOffset = with(LocalDensity.current) { IntOffset(14.dp.roundToPx(), (-34).dp.roundToPx()) }
     val textFieldMaxHeight = if (attachments.isEmpty()) 92.dp else 40.dp
     LaunchedEffect(showAttachMenu) {
@@ -158,52 +171,66 @@ internal fun MessageComposer(
                     onPreviewAttachment = onPreviewAttachment,
                 )
             }
-            BasicTextField(
-                value = draft,
-                onValueChange = onDraftChange,
-                enabled = inputEnabled,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 28.dp, max = textFieldMaxHeight),
-                textStyle = TextStyle(
-                    color = input,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Medium,
-                    lineHeight = 21.sp,
-                ),
-                cursorBrush = SolidColor(input),
-                maxLines = 4,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                keyboardActions = KeyboardActions(onSend = { if (canSend) onSend() }),
-                decorationBox = { innerTextField ->
-                    Box(
-                        modifier = Modifier.fillMaxWidth(),
-                        contentAlignment = Alignment.TopStart,
-                    ) {
-                        if (draft.isEmpty()) {
-                            Text(
-                                text = placeholder,
-                                color = muted,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Medium,
-                                maxLines = 4,
-                            )
+            if (voiceState != null) {
+                HoldToTalkCapsule(
+                    state = voiceState,
+                    baseText = draft,
+                    containerColor = if (darkMode) LocalAAColors.current.subtle else Color(0xFFF1F0ED),
+                    idleInk = if (darkMode) Color(0xFFA1A1AA) else Color(0xFF3A3935),
+                    activeInk = if (darkMode) Color(0xFFFAFAFA) else Color(0xFF2B2B2B),
+                    cancelInk = Color(0xFFEF4444),
+                )
+            } else {
+                BasicTextField(
+                    value = draft,
+                    onValueChange = onDraftChange,
+                    enabled = inputEnabled,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 28.dp, max = textFieldMaxHeight),
+                    textStyle = TextStyle(
+                        color = input,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Medium,
+                        lineHeight = 21.sp,
+                    ),
+                    cursorBrush = SolidColor(input),
+                    maxLines = 4,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                    keyboardActions = KeyboardActions(onSend = { if (canSend) onSend() }),
+                    decorationBox = { innerTextField ->
+                        Box(
+                            modifier = Modifier.fillMaxWidth(),
+                            contentAlignment = Alignment.TopStart,
+                        ) {
+                            if (draft.isEmpty()) {
+                                Text(
+                                    text = placeholder,
+                                    color = muted,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    maxLines = 4,
+                                )
+                            }
+                            innerTextField()
                         }
-                        innerTextField()
-                    }
-                },
-            )
+                    },
+                )
+            }
             ComposerActions(
                 darkMode = darkMode,
                 takeoverEnabled = takeoverEnabled,
                 takeoverBusy = takeoverBusy,
                 attachmentsEnabled = attachmentsEnabled,
+                voiceActive = voiceState != null,
+                voiceAvailable = voiceAvailable,
                 canSend = canSend,
                 sending = sending,
                 showInterrupt = showInterrupt,
                 interrupting = interrupting,
                 onToggleTakeover = onToggleTakeover,
                 onOpenAttachMenu = { if (attachmentsEnabled) showAttachMenu = true },
+                onToggleVoice = { voiceMode = !voiceMode },
                 onSend = onSend,
                 onInterrupt = onInterrupt,
             )
@@ -467,12 +494,15 @@ private fun ComposerActions(
     takeoverEnabled: Boolean,
     takeoverBusy: Boolean,
     attachmentsEnabled: Boolean,
+    voiceActive: Boolean,
+    voiceAvailable: Boolean,
     canSend: Boolean,
     sending: Boolean,
     showInterrupt: Boolean,
     interrupting: Boolean,
     onToggleTakeover: () -> Unit,
     onOpenAttachMenu: () -> Unit,
+    onToggleVoice: () -> Unit,
     onSend: () -> Unit,
     onInterrupt: () -> Unit,
 ) {
@@ -511,6 +541,12 @@ private fun ComposerActions(
             .background(surface)
             .border(1.dp, border, CircleShape)
     }
+    // 语音模式激活时用发送钮同款「实心黑/白」色，和 inactive 的中性灰拉开区别。
+    val voiceIcon = if (voiceActive) {
+        if (darkMode) Color(0xFFFAFAFA) else Color(0xFF2B2B2B)
+    } else {
+        icon
+    }
     val takeoverModifier = if (darkMode) {
         Modifier.height(28.dp)
     } else {
@@ -540,6 +576,18 @@ private fun ComposerActions(
                 contentAlignment = Alignment.Center,
             ) {
                 PlusMiniGlyph(icon)
+            }
+            if (voiceAvailable) {
+                Box(
+                    modifier = plusModifier.noRippleClickable(onClick = onToggleVoice),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (voiceActive) {
+                        KeyboardGlyph(voiceIcon)
+                    } else {
+                        MicGlyph(voiceIcon)
+                    }
+                }
             }
             Row(
                 modifier = takeoverModifier.then(

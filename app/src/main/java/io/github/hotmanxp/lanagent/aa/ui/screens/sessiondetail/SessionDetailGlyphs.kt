@@ -108,6 +108,55 @@ internal fun XGlyph(color: Color, sizeDp: Int = 24) = DetailGlyph(sizeDp = sizeD
     drawLine(color, Offset(size.width * 0.76f, size.height * 0.24f), Offset(size.width * 0.24f, size.height * 0.76f), strokeWidth = stroke, cap = StrokeCap.Round)
 }
 
+/** 麦克风：输入条工具条上的「切到语音模式」入口。 */
+@Composable
+internal fun MicGlyph(color: Color) = DetailGlyph(sizeDp = 20, color = color) {
+    val stroke = 2.dp.toPx()
+    drawRoundRect(
+        color = color,
+        topLeft = Offset(size.width * 0.36f, size.height * 0.14f),
+        size = androidx.compose.ui.geometry.Size(size.width * 0.28f, size.height * 0.38f),
+        cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.width * 0.14f),
+        style = androidx.compose.ui.graphics.drawscope.Stroke(width = stroke),
+    )
+    val radius = size.width * 0.26f
+    drawArc(
+        color = color,
+        startAngle = 0f,
+        sweepAngle = 180f,
+        useCenter = false,
+        topLeft = Offset(size.width * 0.50f - radius, size.height * 0.50f - radius),
+        size = androidx.compose.ui.geometry.Size(radius * 2, radius * 2),
+        style = androidx.compose.ui.graphics.drawscope.Stroke(width = stroke, cap = StrokeCap.Round),
+    )
+    drawLine(color, Offset(size.width * 0.50f, size.height * 0.76f), Offset(size.width * 0.50f, size.height * 0.90f), strokeWidth = stroke, cap = StrokeCap.Round)
+}
+
+/** 键盘：语音模式下的「切回打字」入口，与麦克风同尺寸同笔重。 */
+@Composable
+internal fun KeyboardGlyph(color: Color) = DetailGlyph(sizeDp = 20, color = color) {
+    val stroke = 2.dp.toPx()
+    drawRoundRect(
+        color = color,
+        topLeft = Offset(size.width * 0.16f, size.height * 0.24f),
+        size = androidx.compose.ui.geometry.Size(size.width * 0.68f, size.height * 0.52f),
+        cornerRadius = androidx.compose.ui.geometry.CornerRadius(3.dp.toPx()),
+        style = androidx.compose.ui.graphics.drawscope.Stroke(width = stroke),
+    )
+    val tick = 1.6.dp.toPx()
+    for (i in 0..4) {
+        val x = size.width * (0.30f + 0.10f * i)
+        drawLine(color, Offset(x, size.height * 0.40f), Offset(x, size.height * 0.48f), strokeWidth = tick, cap = StrokeCap.Round)
+    }
+    drawLine(
+        color,
+        Offset(size.width * 0.34f, size.height * 0.62f),
+        Offset(size.width * 0.66f, size.height * 0.62f),
+        strokeWidth = tick,
+        cap = StrokeCap.Round,
+    )
+}
+
 @Composable
 private fun DetailGlyph(
     sizeDp: Int = 20,

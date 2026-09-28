@@ -447,6 +447,10 @@ fun HoldToTalkButton(
  *
  * 手势块与 [HoldToTalkButton] 相同，两个坑位同样适用（pointerInput key 与
  * phase 无关；非 Idle 分支必须吸干事件，见文件头坑位 1/5）。
+ *
+ * 四个颜色参数默认值取 MaterialTheme。Agents-Anywhere 的输入卡不是 M3 配色，
+ * 传自己的值才不撞色（它的 MaterialTheme.colorScheme 只覆盖了 primary/onSurface，
+ * surfaceContainerHigh 仍是 M3 默认的紫调中性灰）。
  */
 @Composable
 fun HoldToTalkCapsule(
@@ -454,6 +458,10 @@ fun HoldToTalkCapsule(
     baseText: String,
     modifier: Modifier = Modifier,
     cancelThresholdDp: Int = 64,
+    containerColor: Color = MaterialTheme.colorScheme.surfaceContainerHigh,
+    idleInk: Color = MaterialTheme.colorScheme.onSurface,
+    activeInk: Color = MaterialTheme.colorScheme.primary,
+    cancelInk: Color = MaterialTheme.colorScheme.error,
 ) {
     val density = LocalDensity.current
     val cancelPx = with(density) { cancelThresholdDp.dp.toPx() }
@@ -470,9 +478,9 @@ fun HoldToTalkCapsule(
     val recording = state.phase == HoldPhase.Recording
     val recognizing = state.phase == HoldPhase.Recognizing
     val accent = when {
-        state.willCancel -> MaterialTheme.colorScheme.error
-        recording || recognizing -> MaterialTheme.colorScheme.primary
-        else -> MaterialTheme.colorScheme.onSurface
+        state.willCancel -> cancelInk
+        recording || recognizing -> activeInk
+        else -> idleInk
     }
     val alpha = if (recording) 0.55f + pulseAlpha * 0.45f else 1f
     val scale = if (recording) 1f + state.level * 0.06f else 1f
@@ -485,7 +493,7 @@ fun HoldToTalkCapsule(
     }
 
     Surface(
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        color = containerColor,
         shape = RoundedCornerShape(20.dp),
         modifier = modifier
             .fillMaxWidth()

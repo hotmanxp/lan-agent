@@ -128,6 +128,11 @@ import io.github.hotmanxp.lanagent.aa.ui.designsystem.LocalAAColors
 import io.github.hotmanxp.lanagent.aa.ui.designsystem.runtimePermissionLocalizer
 import io.github.hotmanxp.lanagent.aa.ui.designsystem.ScreenScaffold
 import io.github.hotmanxp.lanagent.aa.ui.designsystem.noRippleClickable
+import io.github.hotmanxp.lanagent.data.pickDefault
+import io.github.hotmanxp.lanagent.data.resolveAgentInstances
+import io.github.hotmanxp.lanagent.voice.HoldToTalkOverlay
+import io.github.hotmanxp.lanagent.voice.VoiceAsrConfig
+import io.github.hotmanxp.lanagent.voice.rememberHoldToTalk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -1367,7 +1372,15 @@ fun SessionDetailScreen(
     }
     val commandMode = commandRequested && inputEnabled
     val attachmentsReady = attachments.all { it.uploadState == AttachmentUploadState.Uploaded }
-    val canSend = inputEnabled &&
+
+    /**
+     * 「这段文本现在发得出去吗」。
+     *
+     * 抽成函数是因为语音识别**没有**按发送钮那条路径：结果直接回填草稿，
+     * 而 [draft] 是上一帧的快照，得显式把新文本代进去问一次，否则空草稿时
+     * canSend 恒 false，识别完的句子会静默躺在输入框里。
+     */
+    fun canSendWith(text: String): Boolean = inputEnabled &&
         !runtimeBlocksSubmission &&
         blockingNotices.isEmpty() &&
         !state.sending &&
@@ -1375,9 +1388,46 @@ fun SessionDetailScreen(
         !state.commandExecuting &&
         attachmentsReady &&
         (attachments.isEmpty() || canUseAttachments) &&
-        (draft.isNotBlank() || attachments.isNotEmpty()) &&
+        (text.isNotBlank() || attachments.isNotEmpty()) &&
         if (isPreparedSession) true
         else if (commandMode) canUseCommands && state.commands.isLoaded else canUseSendMessage || canUseSteer
+
+    val canSend = canSendWith(draft)
+
+    // 按住说话（腾讯云实时 ASR）—— 与 lan-agent 会话页同一套状态机，但走 §20
+    // **路径 2**：借一个在线 lan-agent 实例要 token（实例现读本机 WorkBuddy 登录态，
+    // 自动续期、401 自愈）。AA 服务端没有 `/api/voice/*` 这两个接口，拿不到实例的
+    // baseUrl 就只能退回 local.properties 里那份内置 token —— 那份 3 天就过期，
+    // 按住只会得到一句 401。所以这里从 App 自己的实例目录借一个在线实例，跟
+    // lan-agent 会话页用的是同一份目录（`resolveAgentInstances`）。借不到就不给
+    // 语音按钮（provider 为 null），别让用户按了才失败。
+    var asrInstanceBaseUrl by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        asrInstanceBaseUrl = context.resolveAgentInstances()
+            .pickDefault(null)
+            ?.takeIf { it.online }
+            ?.baseUrl
+    }
+    val asrProvider = remember(asrInstanceBaseUrl) {
+        asrInstanceBaseUrl?.let { VoiceAsrConfig.providerOrNull(it) }
+    }
+    val holdToTalk = if (asrProvider != null) {
+        rememberHoldToTalk(
+            asrUrlProvider = asrProvider,
+            engine = VoiceAsrConfig.engine,
+            onResult = { result ->
+                setComposerDraft(result)
+                // 与 lan-agent 对齐：说完了直接发，不用再点一次发送钮。草稿是同步
+                // 写入的 state，紧接着的 sendDraft 读到的就是这次识别结果；发不出去
+                // 时只留在输入框里，由用户自己发。
+                if (canSendWith(result)) sendDraft()
+            },
+            onError = ::showError,
+            onHint = ::showToast,
+        )
+    } else {
+        null
+    }
     val modelOptions = if (isPreparedSession) preparedModelOptions else remember(state.catalogs.model) {
         state.catalogs.model?.selectionOptions().orEmpty()
     }
@@ -1678,6 +1728,7 @@ fun SessionDetailScreen(
                                     showInterrupt = showInterrupt,
                                     interrupting = state.interrupting,
                                     placeholder = placeholder,
+                                    holdToTalk = holdToTalk,
                                     attachments = if (takeoverEnabled) attachments else emptyList(),
                                     onToggleTakeover = {
                                         if (!isPreparedSession) takeoverConfirm = !takeoverEnabled
@@ -1724,6 +1775,9 @@ fun SessionDetailScreen(
                                     .padding(top = 76.dp, start = 22.dp, end = 22.dp),
                             )
                         }
+                        // 录音中的全屏动效（绿浪 + 音量波形）。整层无 pointerInput，
+                        // 不吃事件 —— 按住手势仍在输入卡的胶囊上收。
+                        holdToTalk?.let { HoldToTalkOverlay(it) }
                         if (showCamera) {
                             SessionCameraCapture(
                                 onDismiss = { showCamera = false },

@@ -74,6 +74,36 @@ class SecureTokenStore private constructor(context: Context) {
         backend.edit().remove(KEY_REFRESH_TOKEN).apply()
     }
 
+    /**
+     * AA 设备凭据(0.24.0)—— `POST /connectors` 的一次性 `connectorToken`,
+     * 配对时(`POST /pairing/claim`)要用,按 connectorId 存。
+     *
+     * **一次性**:server 只在注册那一刻返回它,之后取不到。丢了只能重新注册
+     * 一台设备,所以拿到就必须落盘(见 `AaPairingScreen` 第 ① 步)。
+     *
+     * @return 没有任何一个 key 时返回空 Map。
+     */
+    fun allAaConnectorTokens(): Map<String, String> =
+        backend.all
+            .filterKeys { it.startsWith(KEY_AA_CONNECTOR_TOKEN_PREFIX) }
+            .mapNotNull { (k, v) ->
+                val id = k.removePrefix(KEY_AA_CONNECTOR_TOKEN_PREFIX)
+                (v as? String)?.takeIf { it.isNotBlank() }?.let { id to it }
+            }
+            .toMap()
+
+    fun getAaConnectorToken(connectorId: String): String? =
+        backend.getString(KEY_AA_CONNECTOR_TOKEN_PREFIX + connectorId, null)
+            ?.takeIf { it.isNotBlank() }
+
+    fun putAaConnectorToken(connectorId: String, token: String) {
+        backend.edit().putString(KEY_AA_CONNECTOR_TOKEN_PREFIX + connectorId, token).apply()
+    }
+
+    fun removeAaConnectorToken(connectorId: String) {
+        backend.edit().remove(KEY_AA_CONNECTOR_TOKEN_PREFIX + connectorId).apply()
+    }
+
     fun clearAll() {
         backend.edit().clear().apply()
     }
@@ -84,6 +114,7 @@ class SecureTokenStore private constructor(context: Context) {
         private const val FALLBACK_FILE_NAME = "lan_agent_secure_tokens_fallback_plain"
         private const val KEY_ACCESS_TOKEN = "agents_anywhere_access_token"
         private const val KEY_REFRESH_TOKEN = "agents_anywhere_refresh_token"
+        private const val KEY_AA_CONNECTOR_TOKEN_PREFIX = "agents_anywhere_connector_token_"
 
         @Volatile
         private var instance: SecureTokenStore? = null

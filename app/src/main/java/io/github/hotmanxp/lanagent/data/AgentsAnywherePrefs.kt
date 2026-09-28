@@ -93,6 +93,15 @@ class AgentsAnywherePrefs(context: Context) {
     /** token 走 EncryptedSharedPreferences;BuildConfig 兜底最低优先级。 */
     val accessTokenFlow: Flow<String> = _accessToken.asStateFlow()
 
+    /**
+     * 用户有没有**显式覆盖过** baseUrl(0.24.0 供设置栏提示用)。
+     *
+     * `baseUrlFlow` 把 BuildConfig 兜底和用户值混在一起返回,UI 单看值判断
+     * 不出「这一串是 build-time 的还是我刚敲的」—— 这个 flag 补的就是这个。
+     */
+    val baseUrlOverriddenFlow: Flow<Boolean> = appContext.agentsAnywherePrefs.data
+        .map { it[KEY_USER_OVERRIDE_BASE_URL] == true }
+
     /** "BuildConfig 有兜底值吗" —— 给 UI 状态条 + 字段 placeholder 用。 */
     val hasBuildConfigDefaults: Boolean
         get() = BuildConfig.AGENTS_ANYWHERE_BASE_URL.isNotBlank() ||

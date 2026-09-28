@@ -2,13 +2,54 @@
 <resources>
     <string name="app_name">LAN Agent</string>
     <string name="home_title">LAN Agent</string>
-    <!-- 底部 5 栏(0.14.0)。名称刻意压到 2 字以内:底栏每格约 72dp,
-         「实例管理」四个字在 10sp 下会顶到相邻格子。 -->
+    <!-- 底部 4 栏(0.24.0)。名称刻意压到 2-3 字以内:底栏每格约 90dp,
+         「远程任务」四个字在 10sp 下会顶到相邻格子。 -->
     <string name="tab_tasks">任务</string>
-    <string name="tab_instances">实例</string>
-    <string name="tab_ssh">SSH</string>
+    <string name="tab_remote">远程</string>
     <string name="tab_services">服务</string>
     <string name="tab_settings">设置</string>
+    <!-- 「服务」栏 hub(0.24.0) -->
+    <string name="service_instances_title">局域网实例管理</string>
+    <string name="service_instances_summary">%1$d 个实例 · %2$d 个运行中</string>
+    <string name="service_ssh_title">局域网 SSH 服务</string>
+    <string name="service_ssh_summary">%1$d 台主机</string>
+    <string name="service_remote_title">转码服务</string>
+    <string name="service_remote_summary">%1$d 个服务</string>
+    <string name="service_loading">…</string>
+    <!-- 远程任务栏(AA,0.24.0) -->
+    <string name="aa_not_logged_in">还没登录 Agents Anywhere\n先去设置里完成登录</string>
+    <string name="aa_no_server">还没配置服务器地址\n先去设置里填 Agents Anywhere server</string>
+    <string name="aa_go_settings">去设置</string>
+    <string name="aa_refresh">刷新</string>
+    <string name="aa_devices">设备</string>
+    <string name="aa_devices_title">远程设备</string>
+    <string name="aa_devices_empty">还没有接入任何设备</string>
+    <string name="aa_devices_add">接入设备</string>
+    <string name="aa_devices_online">在线</string>
+    <string name="aa_devices_offline">离线</string>
+    <string name="aa_devices_last_seen">最近活跃 %1$s</string>
+    <string name="aa_devices_revoke">撤销</string>
+    <string name="aa_devices_revoke_confirm">撤销「%1$s」的授权?该设备需要重新配对。</string>
+    <string name="aa_pairing_title">接入设备</string>
+    <string name="aa_pairing_hint">1. 在远程设备上装好 Connector 并登录\n2. 点下方「注册」拿到设备凭据\n3. 把配对码填进来完成认领</string>
+    <string name="aa_pairing_name">设备名称</string>
+    <string name="aa_pairing_code">配对码</string>
+    <string name="aa_pairing_register">注册并生成凭据</string>
+    <string name="aa_pairing_claim">认领设备</string>
+    <string name="aa_pairing_registered">已注册:%1$s\nconnectorToken 只显示一次,已自动保存</string>
+    <string name="aa_pairing_claimed">认领成功:%1$s</string>
+    <string name="aa_pairing_need_code">先填配对码</string>
+    <string name="aa_web_login_title">登录 Agents Anywhere</string>
+    <string name="aa_web_login_start">开始登录</string>
+    <string name="aa_web_login_cancel">取消登录</string>
+    <string name="aa_web_login_exchanging">正在换取凭据…</string>
+    <string name="aa_web_login_done">登录成功</string>
+    <string name="aa_web_login_failed">登录失败:%1$s</string>
+    <string name="aa_web_login_hint">在下方网页完成登录,授权后会自动跳回并保存凭据。</string>
+    <string name="aa_manual_token">手动粘贴 token</string>
+    <string name="aa_qr_swap_token">扫码换 token</string>
+    <string name="aa_sign_out">退出登录</string>
+    <string name="aa_me_unverified">未向服务器校验,以上为本地记录</string>
     <!-- 任务栏的「进行中」区 -->
     <string name="tasks_active_section">进行中</string>
     <string name="tasks_active_count">%1$d 个在跑</string>

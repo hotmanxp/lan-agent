@@ -333,6 +333,98 @@ data class RpcError(
     val message: String,
 )
 
+// ── Connectors / 设备(GET /connectors) ───────────────────────────────
+
+/**
+ * 远端 connector(= 一台桌面设备上跑的 Connector 进程)—— 对齐 Agents-Anywhere
+ * `DevicesDtos.RemoteDevice`。
+ *
+ * 0.24.0 之前 `DashboardSnapshot.connectors` 是裸 `List<JsonObject>`,UI 只能
+ * `toString` 整个对象,没法画「在线绿点 / 离线灰」和设备名。现在强类型化,
+ * `raw` 保留原 JSON 备用(对齐 [SessionSummary.raw] 的做法)。
+ */
+@Serializable
+data class AaConnector(
+    val id: String,
+    val name: String? = null,
+    /** `online` / `offline` 等字面量 —— 服务端枚举大小写会漂,渲染层只判 != "offline"。 */
+    val status: String? = null,
+    val deviceOs: String? = null,
+    val lastSeenAt: String? = null,
+    val createdAt: String? = null,
+    val updatedAt: String? = null,
+    val raw: JsonObject = JsonObject(emptyMap()),
+) {
+    /** 判在线刻意宽松 —— 只认 `offline` 为离线,其余(空 / 未来新状态)当在线。 */
+    val online: Boolean get() = !status.equals("offline", ignoreCase = true)
+}
+
+/**
+ * `POST /connectors` 的响应 —— 一次性拿到 connector 与它的 token。
+ *
+ * `deviceToken` 只在这一刻出现,**之后再也取不到**(server 只存哈希),所以
+ * 配对流程必须当场落盘到 [SecureTokenStore],不能只存 connectorId。
+ */
+@Serializable
+data class AaConnectorCredential(
+    val connector: AaConnector? = null,
+    val deviceToken: String? = null,
+    val tokenPrefix: String? = null,
+    val serverTime: String? = null,
+)
+
+/** `POST /pairing/claim` 的请求体。 */
+@Serializable
+data class AaPairingClaimRequest(
+    val code: String,
+    val name: String,
+    val serverUrl: String,
+    val connectorId: String,
+    val connectorToken: String,
+)
+
+/** `POST /pairing/claim` 的响应 —— 认领后的 connector。 */
+@Serializable
+data class AaPairingClaimResponse(
+    val connector: AaConnector? = null,
+    val serverTime: String? = null,
+)
+
+// ── 登录态(GET /auth/me) ────────────────────────────────────────────
+
+/**
+ * `GET /auth/me` 的响应 —— 拿 token 之后向 server 换权威用户信息。
+ *
+ * 设置栏展示的 userId / email / displayName / role 一律以这里为准,不信任
+ * 本地存的那份(可能已被服务端改过)。
+ */
+@Serializable
+data class AaMeResponse(
+    val userId: String,
+    val email: String? = null,
+    val displayName: String? = null,
+    val emailVerified: Boolean = false,
+    val role: String? = null,
+    val serverTime: String? = null,
+)
+
+/**
+ * `POST /oauth/token`(form-encoded)的响应。
+ *
+ * ⚠️ wire 上是 **snake_case**(与 Agents-Anywhere `api/Auth.kt:203` 的
+ * `toOAuthTokenResponse` 一致),和 `MobileLoginExchangeResponse` 的 camelCase
+ * 嵌套 `auth` 对象是两套完全不同的形状 —— 别拿同一个 DTO 套两条登录流。
+ * 服务端只给 `expires_in`(秒),不给绝对时间;要算到期时刻得自己加当前时间。
+ */
+@Serializable
+data class AaOAuthTokenResponse(
+    @SerialName("access_token") val accessToken: String,
+    @SerialName("token_type") val tokenType: String? = null,
+    @SerialName("refresh_token") val refreshToken: String? = null,
+    @SerialName("expires_in") val expiresIn: Long? = null,
+    val scope: String? = null,
+)
+
 // ── Session 列表(GET /sessions/list) ─────────────────────────────────
 
 /** `SessionView` 关键字段抽出来,其余原样存在 `raw` 备用。 */

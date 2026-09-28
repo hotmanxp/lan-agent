@@ -1,4 +1,4 @@
-// ui/BottomTabs.kt — 底部 5 栏导航(视觉对齐 WorkBuddy 手机端底栏)
+// ui/BottomTabs.kt — 底部 4 栏导航(视觉对齐 WorkBuddy 手机端底栏)
 //
 // 与 Material3 `NavigationBar` 的差异(照 WorkBuddy 截图逐项对的):
 //   1. **高度收窄**:M3 默认 80dp + 图标底下一堆留白,WorkBuddy 是 ~56dp
@@ -39,12 +39,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import com.composables.icons.lucide.Bot
 import com.composables.icons.lucide.Lucide
-import com.composables.icons.lucide.MessageCircle
 import com.composables.icons.lucide.Network
-import com.composables.icons.lucide.Server
+import com.composables.icons.lucide.RadioTower
 import com.composables.icons.lucide.Settings
-import com.composables.icons.lucide.Terminal
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -64,10 +63,16 @@ import androidx.compose.ui.unit.sp
 import io.github.hotmanxp.lanagent.R
 
 /**
- * 五个 tab 的单一事实来源:路由、显示名、图标都在这。
+ * 四个 tab 的单一事实来源:路由、显示名、图标都在这。
  *
  * 路由统一 `tab/` 前缀,只作命名空间 —— 底栏现在永远渲染,高亮哪个 tab 由
  * MainScaffold 的显式 currentTab 状态决定,不再从路由推导。
+ *
+ * ⚠️ **枚举 name 被持久化了,别随手改名**:`MainScaffold` 的 `currentTab` 走
+ * `rememberSaveable`,存的是 `TabDestination.name`。改名后老用户进程被杀再
+ * 恢复 SavedState 时 `valueOf` 会抛异常 —— 兜底见 `MainScaffold` 的
+ * `runCatching`。0.23.0 之前叫 `Instances` / `Ssh` 的两个 tab 已降级为
+ * 「服务」栏下的路由(见 AppNavHost 的 `service/` 前缀那三条),不再是 tab。
  */
 enum class TabDestination(
     val route: String,
@@ -77,22 +82,21 @@ enum class TabDestination(
     Tasks(
         route = "tab/tasks",
         labelRes = R.string.tab_tasks,
-        icon = Lucide.MessageCircle,
+        // 0.24.0:原为 MessageCircle,偏 IM 味 —— 这一栏实际是「Agent 工作区」
+        // 而非聊天窗,换成 Bot(机器人头 + 天线)语义更准,也和相邻的
+        // RadioTower 一眼分得开。
+        icon = Lucide.Bot,
     ),
-    Instances(
-        route = "tab/instances",
-        labelRes = R.string.tab_instances,
-        icon = Lucide.Server,
-    ),
-    Ssh(
-        route = "tab/ssh",
-        labelRes = R.string.tab_ssh,
-        icon = Lucide.Terminal,
+    /** 远程任务 = Agents-Anywhere 远程会话(与局域网实例相互独立)。 */
+    Remote(
+        route = "tab/remote",
+        labelRes = R.string.tab_remote,
+        icon = Lucide.RadioTower,
     ),
     Services(
         route = "tab/services",
         labelRes = R.string.tab_services,
-        // Lucide 没有 Hub(多层节点枢纽);HubGlyph 手绘的「三节点互连」语义更准。
+        // Lucide 没有 Hub(多层节点枢纽);Network 的「三节点互连」语义最接近。
         icon = Lucide.Network,
     ),
     Settings(
@@ -106,6 +110,16 @@ enum class TabDestination(
         /** 当前路由对应的 tab;详情页(webview / 会话 / 终端 …)返回 null → 隐藏底栏。 */
         fun fromRoute(route: String?): TabDestination? =
             entries.firstOrNull { it.route == route }
+
+        /**
+         * 由持久化的 name 反查 tab —— **认不出就落回 [Tasks],不抛异常**。
+         *
+         * `rememberSaveable` 恢复的字符串可能来自旧版本 App(枚举改名 / 删除
+         * 都会留下野值),`valueOf` 撞上就 `IllegalArgumentException` 直接崩在
+         * 启动路径上。`ui/NavTabRecoveryTest` 钉这条。
+         */
+        fun fromNameOrDefault(name: String?, default: TabDestination = Tasks): TabDestination =
+            runCatching { valueOf(name.orEmpty()) }.getOrDefault(default)
     }
 }
 

@@ -48,6 +48,28 @@ internal fun JsonObject.toSessionSummary(): SessionSummary? {
     )
 }
 
+// ── AaConnector(GET /connectors) ───────────────────────────────────────
+//
+// 字段名照 Agents-Anywhere `DevicesApi.parseDevice`:id / name / deviceOs /
+// status / lastSeenAt / createdAt / updatedAt。
+//
+// `name` 缺失时保持 null —— 「没名字」和「叫『设备』」是两件事,别在 parser
+// 里抹平,展示层自己兜底。
+
+internal fun JsonObject.toAaConnectorOrNull(): AaConnector? {
+    val id = (this["id"] as? JsonPrimitive)?.contentOrNull ?: return null
+    return AaConnector(
+        id = id,
+        name = stringOrNull("name"),
+        status = stringOrNull("status"),
+        deviceOs = stringOrNull("deviceOs"),
+        lastSeenAt = stringOrNull("lastSeenAt"),
+        createdAt = stringOrNull("createdAt"),
+        updatedAt = stringOrNull("updatedAt"),
+        raw = this,
+    )
+}
+
 // ── TimelineItem(server payload.item/... 形态) ─────────────────────────
 
 internal fun JsonObject.toTimelineItem(): TimelineItem? {

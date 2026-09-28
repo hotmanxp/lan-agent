@@ -1,9 +1,10 @@
-// ui/InstancesTabScreen.kt — 底栏第 2 栏「实例管理」的 tab 包装
+// ui/InstancesTabScreen.kt — 「服务」栏下「局域网实例管理」页的包装
 //
 // InstancesScreen 需要 baseUrl 才能拉 `/api/instances`,而这个 baseUrl 一直是从
 // 入口卡片里认出来的(URL 以 `/instances` 结尾的那张,见 data/Cards.kt)。
-// 以前是首页顶栏的 Storage 按钮 + 找不到就弹对话框;现在它升级成一级栏目,
-// 那套「没有管理器怎么办」的引导必须常驻在栏目里,否则用户只会看到一片空白。
+// 以前是首页顶栏的 Storage 按钮 + 找不到就弹对话框;0.14.0 升成一级栏目,
+// 0.24.0 又随「实例 / SSH」一起降级成「服务」栏下的一个路由 —— 那套
+// 「没有管理器怎么办」的引导必须常驻在这一页,否则用户只会看到一片空白。
 //
 // 0.15.0:入口卡片本体搬到了设置栏 —— 所以引导按钮也指向设置,不是任务栏。
 package io.github.hotmanxp.lanagent.ui
@@ -38,6 +39,8 @@ import io.github.hotmanxp.lanagent.data.findManagerBaseUrl
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun InstancesTabScreen(
+    /** 0.24.0 起这一页是「服务」栏下的路由,不再传 null —— 顶栏要有返回箭头。 */
+    onBack: () -> Unit,
     onOpenUrl: (String) -> Unit,
     onOpenSessions: (instanceBaseUrl: String, instanceName: String) -> Unit,
     onGoSettings: () -> Unit,
@@ -48,13 +51,25 @@ fun InstancesTabScreen(
 
     // 首帧等 DataStore;直接判空会闪一下「没配置管理器」的引导。
     if (cards == null) {
-        Scaffold(topBar = { TopAppBar(title = { Text(stringResource(R.string.instances_title)) }) }) { }
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text(stringResource(R.string.instances_title)) },
+                    navigationIcon = { WbBackIcon(onBack) },
+                )
+            },
+        ) { }
         return
     }
 
     if (baseUrl == null) {
         Scaffold(
-            topBar = { TopAppBar(title = { Text(stringResource(R.string.instances_title)) }) },
+            topBar = {
+                TopAppBar(
+                    title = { Text(stringResource(R.string.instances_title)) },
+                    navigationIcon = { WbBackIcon(onBack) },
+                )
+            },
         ) { padding ->
             Box(
                 modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 32.dp),
@@ -86,7 +101,7 @@ fun InstancesTabScreen(
 
     InstancesScreen(
         baseUrl = baseUrl,
-        onBack = null,
+        onBack = onBack,
         onOpenUrl = onOpenUrl,
         onOpenSessions = onOpenSessions,
     )

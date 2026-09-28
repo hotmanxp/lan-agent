@@ -1,9 +1,19 @@
-// ui/AgentsAnywhereScreen.kt — Agents-Anywhere server 调试屏(0.21.0 重写)。
+// ui/AaSessionViews.kt — Agents-Anywhere 远程会话的**渲染层**(0.21.0 起,0.24.0 拆)。
 //
-// 不再是「日志输出屏」,是真的能用的客户端:
-//   - 配置(baseUrl/token)+ 状态条 + 手动重连
-//   - dashboard 列(connectors/projects/sessions/runtimes)
-//   - 选中会话后 → 气泡视图(user/assistant/system 分色,工具/系统靠卡片)
+// 这个文件只画,不持有状态:气泡、工具卡、notice 卡片、composer、session header
+// 都在这儿,输入全是 `AgentsAnywhereSessionState` + `AgentsAnywhereApi`。
+//
+// ## 0.24.0 之前这个文件叫 `AgentsAnywhereScreen.kt`,里面同时装着「配置卡 +
+// dashboard 列表 + 会话视图 + 一个自己管全部 WS 生命周期的顶层屏」。顶栏
+// 「远程」栏诞生后那套布局不再成立(配置要搬去设置栏、会话详情要变成独立
+// 路由、WS 生命周期要跨路由),所以:
+//   - 顶层屏 + 配置卡 + 按钮行 → 删,分别去 `RemoteTasksTabScreen`(dashboard)
+//     与 `SettingsScreen`(配置)
+//   - 会话视图原样留下,被新的 `AaSessionScreen` 路由消费
+//   - 6 个跨文件复用的 composable 从 `private` 放开成 `internal`
+//
+// 能力清单(0.21.0 起就都在,没增减):
+//   - 会话详情:气泡视图(user/assistant/system 分色,工具/系统靠卡片)
 //   - 乐观发送(clientMessageId 关联 → server item 回流后替换)
 //   - interrupt / steer / takeover 按钮
 //   - notice 卡片(允许/拒绝 + input 字段)
@@ -14,7 +24,8 @@
 // 状态架构:
 //   - Dashboard:一个 `AgentsAnywhereDashboardState`(`dashboard.snapshot` 推过来
 //     就整段替换,server 自己处理 invalidation)。
-//   - Session:每个会话一个 `AgentsAnywhereSessionState`,切换会话时新建。
+//   - Session:每个会话一个 `AgentsAnywhereSessionState`,由 `AaSessionHolder`
+//     进程内持有(会话详情成了独立路由,`remember` 存不住跨路由的 WS job)。
 //
 // 解析放后台线程:WS 帧由 `AgentsAnywhereWsClient` 内部 `flowOn(Dispatchers.IO)`
 // 处理(`data/AgentsAnywhereWsClient.kt:128`),REST 走 OkHttp + `withContext(IO)`;
@@ -118,319 +129,10 @@ import com.composables.icons.lucide.X
 
 // ── 顶层屏 ────────────────────────────────────────────────────────────
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun AgentsAnywhereScreen(onBack: () -> Unit) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-
-    val prefs = remember { AgentsAnywherePrefs(context) }
-    val ws = remember { AgentsAnywhereWsClient() }
-
-    // baseUrl / token —— 流式从 DataStore 取(包括 BuildConfig 兜底,见 Prefs)。
-    val baseUrl by prefs.baseUrlFlow.collectAsState(initial = "")
-    val accessToken by prefs.accessTokenFlow.collectAsState(initial = "")
-    var clientId by remember { mutableStateOf("") }
-    LaunchedEffect(prefs) { clientId = prefs.clientId() }
-
-    // Api/Client —— baseUrl/token/clientId 变了重建,避免 stale 引用。
-    // `AgentsAnywhereApi` 内部的 OkHttpClient 是 companion-object 单例,
-    // 所以即使每次保存配置都新建 Api 实例也不会泄漏 dispatcher /
-    // connection pool(0.21.0 之前的版本里 OkHttpClient 是 per-instance
-    // 创建的,每次保存配置都泄漏一组线程池)。
-    val api = remember(baseUrl, accessToken, clientId) {
-        AgentsAnywhereApi(baseUrl.trim(), accessToken.trim(), clientId)
-    }
-    val liveClient = remember(api, ws, prefs) {
-        AgentsAnywhereClient(prefs, api, ws)
-    }
-
-    // 表单态的 baseUrl/token —— 用户编辑 → 保存 → 写回 prefs。
-    // 关键:**用 remember(prefs) 而不是 remember** —— 屏重建时回填上次的编辑中
-    // 值,但 prefs 替换(几乎不会发生)就清空。
-    var formBaseUrl by remember(prefs) { mutableStateOf(baseUrl) }
-    var formAccessToken by remember(prefs) { mutableStateOf(accessToken) }
-    LaunchedEffect(baseUrl) { if (formBaseUrl.isBlank()) formBaseUrl = baseUrl }
-    LaunchedEffect(accessToken) { if (formAccessToken.isBlank()) formAccessToken = accessToken }
-
-    // 两个独立状态容器 + 订阅 job。
-    // **per-session state 只在 AgentsAnywhereScreen 内存活** —— backToDashboard
-    // 会清空 `sessionStates`,避免用户多次进出不同会话后 `itemsById` /
-    // `outgoingByCmid` 跨会话持久累积。
-    val dashboardState = remember { AgentsAnywhereDashboardState() }
-    val sessionStates = remember { mutableMapOf<String, AgentsAnywhereSessionState>() }
-    var dashboardJob by remember { mutableStateOf<Job?>(null) }
-    var sessionJob by remember { mutableStateOf<Job?>(null) }
-    var selectedSessionId by remember { mutableStateOf<String?>(null) }
-    var sessionList by remember { mutableStateOf<List<SessionSummary>>(emptyList()) }
-    var sessionListError by remember { mutableStateOf<String?>(null) }
-    // mobile-login QR dialog —— 单独一态,避免跟 ConfigCard 的表单态互相干扰。
-    var showMobileLogin by remember { mutableStateOf(false) }
-
-    val selectedSession = selectedSessionId?.let { sessionStates[it] }
-
-    fun startDashboard() {
-        dashboardJob?.cancel()
-        sessionJob?.cancel()
-        dashboardState.setConn(AgentsAnywhereConnState.Connecting, "拉 ticket + 开 WS")
-        dashboardJob = scope.launch {
-            liveClient.subscribeDashboard(
-                baseUrl = baseUrl.trim(),
-                accessToken = accessToken.trim(),
-            ).collect { ev ->
-                when (ev) {
-                    is AgentsAnywhereEvent.Incoming -> {
-                        val applied = dispatchDashboardFrame(ev.parsed, dashboardState)
-                        if (applied) {
-                            dashboardState.setConn(AgentsAnywhereConnState.Connected, "dashboard · 已连接")
-                        }
-                    }
-                    is AgentsAnywhereEvent.Lifecycle -> {
-                        val kind = when (ev.kind) {
-                            AgentsAnywhereEvent.Lifecycle.Kind.Connected ->
-                                AgentsAnywhereConnState.Connected
-                            AgentsAnywhereEvent.Lifecycle.Kind.Closed ->
-                                AgentsAnywhereConnState.Disconnected
-                            AgentsAnywhereEvent.Lifecycle.Kind.Failure ->
-                                AgentsAnywhereConnState.Error
-                            AgentsAnywhereEvent.Lifecycle.Kind.Retrying ->
-                                AgentsAnywhereConnState.Error
-                        }
-                        dashboardState.setConn(kind, ev.message)
-                    }
-                    is AgentsAnywhereEvent.Unparseable -> Unit
-                }
-            }
-        }
-    }
-
-    /**
-     * @param preserveOutgoing true = `applyTimelineSnapshot` 不要清空乐观气泡
-     *        (`outgoingByCmid`),只移除已被新 snapshot 覆盖的 cmid。
-     *        **手动重连**场景必须传 true —— 用户刚发出去但 server 还没回流的事件,
-     *        重连不能把气泡吞掉。冷启动场景(从未打开过该会话)传 false,
-     *        outgoing map 本来就是空的,等价于「全部清空」。
-     */
-    fun openSession(sessionId: String, preserveOutgoing: Boolean = false) {
-        sessionJob?.cancel()
-        dashboardJob?.cancel()
-        selectedSessionId = sessionId
-        val st = sessionStates.getOrPut(sessionId) { AgentsAnywhereSessionState(sessionId) }
-        // 冷启动路径(默认):彻底清空乐观气泡 + 已被新 snapshot 覆盖的 cmid。
-        // **手动重连**路径(`preserveOutgoing=true`):不清,`applyTimelineSnapshot`
-        // 内部按 cmid 配对移除已覆盖的,保留未覆盖的 —— 用户刚发出去但 server
-        // 还没回流的事件不会丢。
-        if (!preserveOutgoing) {
-            st.clearOutgoing()
-        }
-        st.setConn(AgentsAnywhereConnState.Connecting, "拉 snapshot + 开 WS")
-
-        sessionJob = scope.launch {
-            // 1) 先 snapshot(冷启):拉完后才开 WS,避免 item 重复。
-            val snapResult = runCatching { api.fetchSnapshot(sessionId) }
-            if (snapResult.isFailure) {
-                val err = snapResult.exceptionOrNull()
-                val msg = (err as? io.github.hotmanxp.lanagent.data.HttpException)?.let { "${it.code} ${it.message ?: ""}".trim() }
-                    ?: err?.message ?: err?.javaClass?.simpleName ?: "?"
-                st.setConn(AgentsAnywhereConnState.Error, "snapshot 失败: $msg")
-            }
-            snapResult.getOrNull()?.let { snap ->
-                // session 字段先用一下(状态条信息)
-                val sessionObj = snap.session
-                val title = (sessionObj["title"] as? JsonPrimitive)?.contentOrNull
-                st.applyTimelineSnapshot(snap.timeline)
-                snap.state?.let { st.applyRuntimeState(it) }
-                snap.session.let { st.applySessionMeta(it) }
-                snap.notices.forEach { st.upsertNotice(it) }
-                st.setConn(AgentsAnywhereConnState.Connecting,
-                    "snapshot 拉完" + (if (!title.isNullOrBlank()) " · $title" else ""))
-            }
-
-            // 2) 拉完 snapshot 后再开 WS;cursor 用 snapshot 末尾 nextSeq。
-            val cursor = snapResult.getOrNull()?.timeline?.nextSeq ?: 0L
-            try {
-                liveClient.subscribeSession(
-                    sessionId = sessionId,
-                    baseUrl = baseUrl.trim(),
-                    accessToken = accessToken.trim(),
-                ).collect { ev ->
-                    when (ev) {
-                        is AgentsAnywhereEvent.Incoming -> {
-                            val applied = dispatchSessionFrame(ev.parsed, st)
-                            if (applied) {
-                                st.setConn(AgentsAnywhereConnState.Connected, "ws · 已连接 (cursor seq:$cursor)")
-                            }
-                        }
-                        is AgentsAnywhereEvent.Lifecycle -> {
-                            val kind = when (ev.kind) {
-                                AgentsAnywhereEvent.Lifecycle.Kind.Connected ->
-                                    AgentsAnywhereConnState.Connected
-                                AgentsAnywhereEvent.Lifecycle.Kind.Closed ->
-                                    AgentsAnywhereConnState.Disconnected
-                                AgentsAnywhereEvent.Lifecycle.Kind.Failure ->
-                                    AgentsAnywhereConnState.Error
-                                AgentsAnywhereEvent.Lifecycle.Kind.Retrying ->
-                                    AgentsAnywhereConnState.Error
-                            }
-                            st.setConn(kind, ev.message)
-                        }
-                        is AgentsAnywhereEvent.Unparseable -> Unit
-                    }
-                }
-            } catch (ce: CancellationException) {
-                throw ce
-            }
-        }
-    }
-
-    fun backToDashboard() {
-        sessionJob?.cancel()
-        selectedSessionId = null
-        // 清空所有会话的运行时状态(items / outgoing / notices)。
-        // 用户从会话视图退到 dashboard 时,所有 per-session 数据都该
-        // 跟着释放 —— 下次再 openSession 走冷启动路径,不会显示陈年
-        // 残留气泡。
-        sessionStates.clear()
-    }
-
-    fun refreshSessionList() {
-        scope.launch {
-            sessionListError = null
-            runCatching { api.listSessions() }
-                .onSuccess { sessionList = it }
-                .onFailure { sessionListError = it.message ?: it.javaClass.simpleName }
-        }
-    }
-
-    fun manualReconnect() {
-        if (selectedSessionId != null) {
-            // 手动重连时保留乐观气泡 —— 用户刚发出去但 server 还没回的事件不能丢。
-            openSession(selectedSessionId!!, preserveOutgoing = true)
-        } else {
-            startDashboard()
-        }
-    }
-
-    DisposableEffect(Unit) {
-        onDispose {
-            dashboardJob?.cancel()
-            sessionJob?.cancel()
-        }
-    }
-
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        if (selectedSessionId == null) {
-                            stringResource(R.string.agents_anywhere_title)
-                        } else {
-                            stringResource(R.string.agents_anywhere_session_title)
-                        }
-                    )
-                },
-                navigationIcon = {
-                    TextButton(onClick = {
-                        if (selectedSessionId != null) backToDashboard() else onBack()
-                    }) {
-                        Text(
-                            if (selectedSessionId != null) {
-                                stringResource(R.string.agents_anywhere_back_to_dashboard)
-                            } else {
-                                stringResource(R.string.agents_anywhere_back)
-                            }
-                        )
-                    }
-                },
-            )
-        },
-    ) { padding ->
-        // `imePadding()` 不放 Column parent —— 对齐 `AgentSessionScreen.kt`
-        // 习惯,composer 自己处理键盘 inset。理由:屏内有 dashboard 列表 /
-        // 会话 timeline 多个区域,Column parent 整体抬会让所有内容一起被
-        // 顶起来(状态条 / 配置卡 / 按钮行也跟着上移,视觉割裂);只让
-        // composer 自己抬起,才是「聊天输入框」的常规做法。
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
-        ) {
-            ConnectionStatusBar(
-                state = if (selectedSession != null) selectedSession else dashboardState,
-            )
-            ConfigCard(
-                baseUrl = formBaseUrl,
-                accessToken = formAccessToken,
-                hasBuildConfigDefaults = prefs.hasBuildConfigDefaults,
-                onBaseUrlChange = { formBaseUrl = it },
-                onAccessTokenChange = { formAccessToken = it },
-                onSave = {
-                    scope.launch {
-                        prefs.setBaseUrl(formBaseUrl)
-                        prefs.setAccessToken(formAccessToken)
-                    }
-                },
-                onMobileLogin = { showMobileLogin = true },
-            )
-            ButtonRow(
-                isInSession = selectedSessionId != null,
-                onRefreshSessions = ::refreshSessionList,
-                onStartDashboard = ::startDashboard,
-                onManualReconnect = ::manualReconnect,
-                baseUrlConfigured = baseUrl.isNotBlank(),
-            )
-            Spacer(Modifier.height(4.dp))
-
-            if (selectedSession != null) {
-                SessionPane(
-                    state = selectedSession,
-                    api = api,
-                    onBack = ::backToDashboard,
-                    onInterrupt = {
-                        scope.launch {
-                            runCatching { api.interrupt(selectedSession.sessionId) }
-                        }
-                    },
-                )
-            } else {
-                DashboardPane(
-                    state = dashboardState,
-                    sessions = sessionList,
-                    sessionListError = sessionListError,
-                    onSelectSession = ::openSession,
-                )
-            }
-        }
-    }
-
-    // Mobile-login QR dialog —— 挂在 Scaffold 外层,确保盖在所有内容之上
-    // (Scaffold 内层会被 imePadding / navigationBarsPadding 折腾)。
-    // 触发条件:用户点 ConfigCard 的「扫码登录」,且 baseUrl 已配。
-    if (showMobileLogin && baseUrl.isNotBlank()) {
-        MobileLoginDialog(
-            api = api,
-            baseUrl = baseUrl,
-            onSuccess = { accessToken, refreshToken ->
-                // exchange 拿到新 token —— 写 encrypted store + DataStore override
-                // flag,然后重连(dashboard / 当前 session 任一)。SecureTokenStore
-                // 持有者是单例,直接通过 prefs.setAccessToken 走,不走原 datastore
-                // 路径 —— 那里现在只写 override flag,token 实体由 SecureTokenStore
-                // 自己管。
-                prefs.setAccessToken(accessToken)
-                SecureTokenStore.get(context).putRefreshToken(refreshToken)
-                formAccessToken = accessToken
-                manualReconnect()
-            },
-            onDismiss = { showMobileLogin = false },
-        )
-    }
-}
-
 // ── 连接状态条 ─────────────────────────────────────────────────────────
 
 @Composable
-private fun ConnectionStatusBar(state: Any) {
+internal fun ConnectionStatusBar(state: Any) {
     val (kind, text) = when (state) {
         is AgentsAnywhereDashboardState -> state.conn to state.statusText
         is AgentsAnywhereSessionState -> state.conn to state.statusText
@@ -479,142 +181,10 @@ private fun ConnectionStatusBar(state: Any) {
     }
 }
 
-// ── 配置卡 ─────────────────────────────────────────────────────────────
-
-@Composable
-private fun ConfigCard(
-    baseUrl: String,
-    accessToken: String,
-    hasBuildConfigDefaults: Boolean,
-    onBaseUrlChange: (String) -> Unit,
-    onAccessTokenChange: (String) -> Unit,
-    onSave: () -> Unit,
-    onMobileLogin: () -> Unit,
-) {
-    Surface(
-        shape = RoundedCornerShape(12.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 4.dp),
-    ) {
-        Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(
-                text = stringResource(R.string.agents_anywhere_config_title),
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            OutlinedTextField(
-                value = baseUrl,
-                onValueChange = onBaseUrlChange,
-                label = { Text(stringResource(R.string.agents_anywhere_field_base_url)) },
-                placeholder = { Text("http://192.168.1.10:8000") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            OutlinedTextField(
-                value = accessToken,
-                onValueChange = onAccessTokenChange,
-                label = { Text(stringResource(R.string.agents_anywhere_field_access_token)) },
-                placeholder = { Text("eyJhbGciOi...") },
-                singleLine = true,
-                supportingText = {
-                    Text(
-                        text = stringResource(R.string.agents_anywhere_field_access_token_hint),
-                        fontSize = 10.sp,
-                    )
-                },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                TextButton(onClick = onSave) {
-                    Text(stringResource(R.string.agents_anywhere_save))
-                }
-                // 扫码登录 —— 已登录设备的浏览器扫码 → server 推 approved →
-                // exchange 拿 token。baseUrl 必填,token 这条路 server 端会要求
-                // Bearer,所以这条流**只适用于已登录设备换 token**,不适合全新
-                // 设备首次登录(对话框里有 hint 提示)。
-                TextButton(
-                    onClick = onMobileLogin,
-                    enabled = baseUrl.isNotBlank(),
-                ) {
-                    Icon(
-                        Lucide.QrCode,
-                        contentDescription = null,
-                        modifier = Modifier.size(14.dp),
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    Text(
-                        text = stringResource(R.string.agents_anywhere_mobile_login),
-                        fontSize = 12.sp,
-                    )
-                }
-                if (hasBuildConfigDefaults) {
-                    Text(
-                        text = stringResource(R.string.agents_anywhere_local_props_active),
-                        fontSize = 10.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-        }
-    }
-}
-
-// ── 按钮行 ─────────────────────────────────────────────────────────────
-
-@Composable
-private fun ButtonRow(
-    isInSession: Boolean,
-    baseUrlConfigured: Boolean,
-    onRefreshSessions: () -> Unit,
-    onStartDashboard: () -> Unit,
-    onManualReconnect: () -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Button(
-            onClick = onRefreshSessions,
-            enabled = baseUrlConfigured && !isInSession,
-            modifier = Modifier.weight(1f),
-        ) {
-            Icon(Lucide.RefreshCw, contentDescription = null,
-                modifier = Modifier.size(16.dp))
-            Spacer(Modifier.width(4.dp))
-            Text(stringResource(R.string.agents_anywhere_list_sessions), fontSize = 12.sp)
-        }
-        Button(
-            onClick = if (isInSession) onManualReconnect else onStartDashboard,
-            enabled = baseUrlConfigured,
-            modifier = Modifier.weight(1f),
-        ) {
-            Text(
-                text = stringResource(
-                    if (isInSession) R.string.agents_anywhere_reconnect
-                    else R.string.agents_anywhere_subscribe_dashboard
-                ),
-                fontSize = 12.sp,
-            )
-        }
-    }
-}
-
 // ── Dashboard 列表 ────────────────────────────────────────────────────
 
 @Composable
-private fun DashboardPane(
+internal fun DashboardPane(
     state: AgentsAnywhereDashboardState,
     sessions: List<SessionSummary>,
     sessionListError: String?,
@@ -685,7 +255,7 @@ private fun DashboardPane(
 }
 
 @Composable
-private fun SectionTitle(text: String) {
+internal fun SectionTitle(text: String) {
     Text(
         text = text,
         fontSize = 12.sp,
@@ -696,7 +266,7 @@ private fun SectionTitle(text: String) {
 }
 
 @Composable
-private fun SessionRow(session: SessionSummary, onClick: () -> Unit) {
+internal fun SessionRow(session: SessionSummary, onClick: () -> Unit) {
     val title = session.title?.takeIf { it.isNotBlank() } ?: session.id
     Surface(
         shape = RoundedCornerShape(10.dp),
@@ -736,7 +306,7 @@ private fun SessionRow(session: SessionSummary, onClick: () -> Unit) {
 }
 
 @Composable
-private fun SimpleJsonRow(obj: JsonObject) {
+internal fun SimpleJsonRow(obj: JsonObject) {
     val name = (obj["name"] as? JsonPrimitive)?.contentOrNull
         ?: (obj["id"] as? JsonPrimitive)?.contentOrNull
         ?: obj.toString().take(40)
@@ -768,10 +338,9 @@ private fun SimpleJsonRow(obj: JsonObject) {
 // ── 会话视图 ───────────────────────────────────────────────────────────
 
 @Composable
-private fun SessionPane(
+internal fun SessionPane(
     state: AgentsAnywhereSessionState,
     api: AgentsAnywhereApi,
-    onBack: () -> Unit,
     onInterrupt: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()

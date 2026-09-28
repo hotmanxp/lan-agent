@@ -23,6 +23,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -31,14 +32,22 @@ import androidx.navigation.compose.rememberNavController
 
 @Composable
 fun MainScaffold(navController: NavHostController = rememberNavController()) {
-    // 显式 tab 状态(不推导自路由,理由见文件头)。rememberSaveable 覆盖进程重建。
-    var currentTab by rememberSaveable { mutableStateOf(TabDestination.Tasks) }
+    // 显式 tab 状态(不推导自路由,理由见文件头)。
+    //
+    // ⚠️ **存的是 name 而不是枚举本身** —— rememberSaveable 要能写进
+    // SavedState,枚举得转字符串。代价是反查时可能拿到**旧版本留下的野值**
+    // (0.23.0 把 `Instances` / `Ssh` 两个 tab 降级成了「服务」栏下的路由,
+    // 老用户进程被杀后恢复 SavedState 就会写回这两个已不存在的名字)。
+    // `valueOf` 撞上会抛 IllegalArgumentException,崩在启动路径上 ——
+    // 所以一律走 [TabDestination.fromNameOrDefault] 兜底,认不出就回任务栏。
+    var currentTabName by rememberSaveable { mutableStateOf(TabDestination.Tasks.name) }
+    val currentTab = remember(currentTabName) { TabDestination.fromNameOrDefault(currentTabName) }
 
     // 点底栏和 App 内跨 tab 跳转(实例栏引导页「去添加」)走同一条路:
     // 语义等同,都不叠新层。
     val selectTab: (TabDestination) -> Unit = selectTab@{ target ->
         if (target == currentTab) return@selectTab
-        currentTab = target
+        currentTabName = target.name
         navController.navigate(target.route) {
             popUpTo(navController.graph.findStartDestination().id) { saveState = true }
             launchSingleTop = true

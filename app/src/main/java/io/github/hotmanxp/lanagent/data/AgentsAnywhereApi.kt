@@ -190,6 +190,94 @@ class AgentsAnywhereApi(
         return execute<ProjectListBody>(getJson("/projects"))
     }
 
+    // ── 设备 / 配对(0.24.0,从 Agents-Anywhere `api/DevicesApi.kt` 搬端点) ──
+    //
+    // 搬的是**端点与语义**,解析按本仓风格(kotlinx.serialization)重写 ——
+    // AA 端用的是 OkHttp + `org.json` 那套,直接抄代码会带进两套 JSON 栈。
+
+    /** `GET /connectors/{id}` 的响应壳。 */
+    @Serializable
+    data class ConnectorBody(
+        val connector: AaConnector? = null,
+        val serverTime: String? = null,
+    )
+
+    /** 设备列表(强类型)。dashboard 的设备分区和「管理设备」页都用它。 */
+    suspend fun listAaConnectors(): List<AaConnector> {
+        val raw = execute<ConnectorListBody>(getJson("/connectors"))
+        return raw.connectors.mapNotNull { it.toAaConnectorOrNull() }
+    }
+
+    suspend fun getAaConnector(connectorId: String): AaConnector? {
+        val body = execute<ConnectorBody>(getJson("/connectors/${pathEncode(connectorId)}"))
+        return body.connector
+    }
+
+    /**
+     * `POST /connectors` —— 注册一台设备,换回它的一次性 `deviceToken`。
+     *
+     * **token 只在这一刻返回**,之后只能靠 [claimConnector] 配对;调用方拿到
+     * 结果必须**当场**把 deviceToken 落盘,丢了就得重新注册。
+     */
+    suspend fun registerConnector(name: String): AaConnectorCredential {
+        val body = buildJsonObject { put("name", name) }
+        return execute<AaConnectorCredential>(postJson("/connectors", body))
+    }
+
+    /**
+     * `POST /pairing/claim` —— 用配对码把刚注册的 connector 认领到当前账号。
+     *
+     * 一次完整的设备接入 = [registerConnector] → 拿到 token → 桌面端装好
+     * connector 并显示配对码 → 这里认领。
+     */
+    suspend fun claimConnector(request: AaPairingClaimRequest): AaPairingClaimResponse {
+        val body = buildJsonObject {
+            put("code", request.code)
+            put("name", request.name)
+            put("serverUrl", request.serverUrl)
+            put("connectorId", request.connectorId)
+            put("connectorToken", request.connectorToken)
+        }
+        return execute<AaPairingClaimResponse>(postJson("/pairing/claim", body))
+    }
+
+    /** `POST /connectors/{id}/revoke` —— 撤销设备授权。 */
+    suspend fun revokeConnector(connectorId: String) {
+        execute<JsonObject>(postBody("/connectors/${pathEncode(connectorId)}/revoke", "{}"))
+    }
+
+    // ── OAuth Web 登录(0.24.0,PKCE) ─────────────────────────────────
+    //
+    // ⚠️ `/oauth/token` 收的是 **`application/x-www-form-urlencoded`**,不是
+    // JSON。发成 JSON 会拿到 422,而且错误体是 FastAPI 的 validation 数组而
+    // 不是 `{detail}`,`parseErrorBody` 会退化成返回原文前 200 字。
+
+    suspend fun oauthToken(code: String, codeVerifier: String): AaOAuthTokenResponse {
+        val form = buildString {
+            append("grant_type=authorization_code")
+            append("&code=").append(formEncode(code))
+            append("&client_id=").append(formEncode(AaWebLogin.CLIENT_ID))
+            append("&redirect_uri=").append(formEncode(AaWebLogin.CALLBACK_URI))
+            append("&code_verifier=").append(formEncode(codeVerifier))
+        }
+        val builder = Request.Builder().url(urlFor("/oauth/token"))
+        // **不带 Authorization** —— 此刻还没有 token。
+        return execute<AaOAuthTokenResponse>(
+            builder.post(form.toRequestBody("application/x-www-form-urlencoded".toMediaType())).build()
+        )
+    }
+
+    /** `GET /auth/me` —— 拿 token 之后换权威用户信息(设置栏展示用)。 */
+    suspend fun me(): AaMeResponse {
+        return execute<AaMeResponse>(getJson("/auth/me"))
+    }
+
+    /** 路径段转义:connectorId 可能含 `/` 或空格。 */
+    private fun pathEncode(segment: String): String = java.net.URLEncoder.encode(segment, "UTF-8")
+
+    /** form body 转义:`URLEncoder` 产出的是 `+` 表示空格,form-urlencoded 正确。 */
+    private fun formEncode(raw: String): String = java.net.URLEncoder.encode(raw, "UTF-8")
+
     // ── Dashboard full snapshot(服务端没有直接给一个非 WS 聚合端点,
     //    这里折中拉三个 REST 端点 + 复用 sessions/list,合并成 DashboardSnapshot) ─
 

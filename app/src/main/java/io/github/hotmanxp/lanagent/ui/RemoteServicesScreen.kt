@@ -85,6 +85,8 @@ private const val PROBE_INTERVAL_MS = 10_000L
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RemoteServicesScreen(
+    /** 0.24.0 起这一页是「服务」栏下的路由,顶栏要画返回箭头。 */
+    onBack: (() -> Unit)? = null,
     onOpenUrl: (String) -> Unit,
 ) {
     val context = LocalContext.current
@@ -126,6 +128,8 @@ fun RemoteServicesScreen(
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(R.string.svc_title)) },
+                // 按需渲染,不摆占位 —— 否则标题左边会顶出一段莫名空白。
+                navigationIcon = { onBack?.let { WbBackIcon(it) } },
                 actions = {
                     IconButton(onClick = { adding = true }) {
                         Icon(

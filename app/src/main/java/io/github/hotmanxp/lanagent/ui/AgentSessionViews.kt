@@ -2537,7 +2537,7 @@ internal fun AgentInputBar(
                             InputBarIcon(
                                 icon = Lucide.Keyboard,
                                 contentDescription = stringResource(R.string.agent_input_keyboard),
-                                tint = MaterialTheme.colorScheme.primary,
+                                tint = MaterialTheme.colorScheme.onSurface,
                                 onClick = { voiceMode = false },
                             )
                         } else if (holdToTalk != null) {
@@ -2554,11 +2554,7 @@ internal fun AgentInputBar(
                             InputBarIcon(
                                 icon = Lucide.AudioLines,
                                 contentDescription = stringResource(R.string.agent_input_voice),
-                                tint = if (voice.listening) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.onSurface
-                                },
+                                tint = MaterialTheme.colorScheme.onSurface,
                                 modifier = Modifier.alpha(if (voice.listening) voiceAlpha else 1f),
                                 onClick = { voice.toggle(value) },
                             )
@@ -2588,8 +2584,8 @@ internal fun AgentInputBar(
                             InputBarCircle(
                                 icon = Glyph.SolidSquare,
                                 contentDescription = stringResource(R.string.agent_input_stop),
-                                container = MaterialTheme.colorScheme.error,
-                                content = MaterialTheme.colorScheme.onError,
+                                container = MaterialTheme.colorScheme.onSurface,
+                                content = MaterialTheme.colorScheme.surface,
                                 enabled = true,
                                 onClick = onStop,
                             )

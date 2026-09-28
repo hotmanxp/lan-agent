@@ -260,6 +260,12 @@ adb shell am start -n io.github.hotmanxp.lanagent/.MainActivity
 # 本地起 serve,手机扫码下载
 npx serve -l tcp://0.0.0.0:8765 app/build/outputs/apk/debug/
 
+# 分享 APK:生成带时间戳的 URL(强烈建议用这条而不是手拼)
+# 注:`ipconfig getifaddr en0` 在这台机器上会返回空串,必须用 ifconfig 兜底探测
+IP=$(ifconfig | awk '/inet /{print $2}' | grep -v '^127' | grep '^192\.168' | head -1)
+[ -z "$IP" ] && IP=$(ifconfig | awk '/inet /{print $2}' | grep -v '^127' | head -1)
+echo "http://$IP:8765/app-debug.apk?t=$(date +%s)"
+
 # 重置 DataStore(回 seed)
 adb shell pm clear io.github.hotmanxp.lanagent
 
@@ -276,6 +282,7 @@ adb shell pm clear io.github.hotmanxp.lanagent
 - JDK 21 替代 17(AGP 8.6.1 支持),`compileOptions` 仍保持 `VERSION_17` bytecode target
 - **不写 release**(`isMinifyEnabled = false`,`proguard-rules.pro` 空);每次手动 bump `versionCode` + `versionName`(`app/build.gradle.kts`),否则手机装上看不出是新版
 - 改入口卡片 → APP 内编辑模式 / `data/Cards.kt` 的 `defaultCards`(只影响卸载重装后的首次启动)/ 网络白名单 → `res/xml/network_security_config.xml`(默认 base-config 已全放行 cleartext,多半不用动);详见 `README.md`
+- **分享 APK 的链接必须带时间戳**:`…/app-debug.apk?t=$(date +%s)`。**Why:** 用户明确要求过 —— 手机浏览器 / 下载器会按 URL 缓存,不带 `?t=` 时用户点开拿到的可能是上一个旧 APK,表现为「改了但没生效」。**How to apply:** 每次给用户 APK 链接都现生成时间戳,别复述上一轮的链接,别给不带 query 的裸 URL;serve 已经在跑也别省这一步。
 
 ## 配套:opencc-web
 

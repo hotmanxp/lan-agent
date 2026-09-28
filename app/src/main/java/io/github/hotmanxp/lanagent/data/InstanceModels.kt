@@ -77,6 +77,22 @@ data class InstanceSnapshot(
                                             // 实例,Weixin = 微信专用实例。**只读** —
                                             // 创建后不可改,PATCH /api/instances/:id
                                             // 不接受 `app` 字段。
+    /**
+     * AA(Agents Anywhere)per-instance 覆盖 — 对齐 opencc-web
+     * `InstanceDefinition.aa`(见 `packages/zai/src/shared/instances.ts`)。
+     *
+     * 三态:
+     *   - `null`(缺省) = auto,跟随 root 是否带 `--aa`
+     *   - `true`  = 请求启用;**root 没启 `--aa` 时不生效**(root 是硬门禁,
+     *     因为 child 端要靠 `ZAI_AA_PARENT_URL` 才能把事件转发给 AA Cloud)
+     *   - `false` = 强制禁用,即便 root 启了也不带 `--aa`
+     *
+     * 勾上 Switch = `true`;取消勾选 = 回 auto(`null`)。**取消勾选不能发
+     * `null` 给服务端** — `parseBoolField` 只接受 `undefined | boolean`,
+     * 发字面 `null` 会被 400(所以关态走"不发这个 key",见
+     * `InstancesApi.patchInstance`)。
+     */
+    val aa: Boolean? = null,
     val state: InstanceState,
     val port: Int? = null,
     val pid: Int? = null,

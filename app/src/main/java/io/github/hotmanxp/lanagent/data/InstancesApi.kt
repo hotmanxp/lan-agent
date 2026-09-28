@@ -101,12 +101,18 @@ class InstancesApi(private val baseUrl: String) {
         lan: Boolean,
         port: Int?,
         app: InstanceAppProfile? = null,
+        aa: Boolean? = null,
     ): InstanceSnapshot {
         val body = buildJsonObject {
             put("name", name)
             put("cwd", cwd)
             put("lan", lan)
             if (port != null) put("port", port)
+            // AA per-instance 覆盖(对齐 web 端 InstanceDefinition.aa):
+            //   null(缺省) = auto,跟随 root;true = 请求启用;false = 强制禁用。
+            // 服务端 `parseBoolField` 只接受 `undefined | boolean` —— 发字面
+            // `null` 会被 400,所以只在非 null 时才 put 这个 key。
+            if (aa != null) put("aa", aa)
             // app 与 web 端 InstanceDefinition.app 字段对齐(0.8.0 新增,
             // 0.8.1 加 weixin):
             //   `task-factory` = 任务工厂实例(打开 /super-tasks)
@@ -154,6 +160,7 @@ class InstancesApi(private val baseUrl: String) {
         id: String,
         lan: PatchValue<Boolean>? = null,
         port: PatchValue<Int>? = null,
+        aa: PatchValue<Boolean>? = null,
     ): InstanceSnapshot {
         val body = buildJsonObject {
             lan?.let {
@@ -167,6 +174,21 @@ class InstancesApi(private val baseUrl: String) {
                 when (it) {
                     PatchValue.Null -> put("port", JsonNull)
                     is PatchValue.Set -> put("port", it.value)
+                    PatchValue.Unset -> Unit
+                }
+            }
+            // `aa` 与 lan/port 的三态**不同**:`parseBoolField` 只接受
+            // `undefined | boolean`,发字面 `null` 会被 400。所以这里刻意
+            // 不处理 `PatchValue.Null`(抛错而不是静默发 null),调用方表达
+            // 「回到 auto」的唯一方式是 `PatchValue.Unset`(不发这个 key)——
+            // 服务端读到的就是"没这个字段",保持 def.aa 原值不变。
+            aa?.let {
+                when (it) {
+                    PatchValue.Null -> throw IllegalArgumentException(
+                        "aa does not accept PatchValue.Null — the server rejects JSON null; " +
+                            "use PatchValue.Unset to leave def.aa untouched"
+                    )
+                    is PatchValue.Set -> put("aa", it.value)
                     PatchValue.Unset -> Unit
                 }
             }

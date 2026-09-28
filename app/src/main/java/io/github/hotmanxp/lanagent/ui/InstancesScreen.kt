@@ -88,6 +88,7 @@ fun InstancesScreen(
     var portEdit by remember { mutableStateOf<InstanceSnapshot?>(null) }
     var deleteConfirm by remember { mutableStateOf<InstanceSnapshot?>(null) }
     val lanBusy = remember { mutableStateListOf<String>() }
+    val aaBusy = remember { mutableStateListOf<String>() }
     val actionBusy = remember { mutableStateListOf<String>() }
 
     suspend fun refresh() {
@@ -129,6 +130,31 @@ fun InstancesScreen(
             lanBusy -= inst.id
             if (res.isFailure) {
                 snackbarHostState.showSnackbar(res.exceptionOrNull()?.message ?: "lan toggle failed")
+            } else {
+                refresh()
+            }
+        }
+    }
+
+    /**
+     * 切 AA per-instance 开关。
+     *
+     * 关态**不发** `aa` 字段(`PatchValue.Unset`),不是发 `null` —— 服务端
+     * `parseBoolField` 只接受 `undefined | boolean`,发字面 `null` 会被 400。
+     * 后果:取消勾选后 def.aa 保持原值(可能仍是 true)。这是刻意的:UI v1
+     * 只暴露「auto / 请求启用」两态,force-off 不是可达状态(与 web 端
+     * `setAa` 同款取舍 —— 关态在 web 端也是乐观清空为 undefined)。
+     */
+    fun toggleAa(inst: InstanceSnapshot, next: Boolean) {
+        if (inst.id in aaBusy) return
+        aaBusy += inst.id
+        scope.launch {
+            val res = runCatching {
+                api.patchInstance(inst.id, aa = if (next) PatchValue.Set(true) else PatchValue.Unset)
+            }
+            aaBusy -= inst.id
+            if (res.isFailure) {
+                snackbarHostState.showSnackbar(res.exceptionOrNull()?.message ?: "aa toggle failed")
             } else {
                 refresh()
             }
@@ -295,7 +321,9 @@ fun InstancesScreen(
                                 now = now,
                                 lanBusy = inst.id in lanBusy,
                                 actionBusy = inst.id in actionBusy,
+                                aaBusy = inst.id in aaBusy,
                                 onToggleLan = { next -> toggleLan(inst, next) },
+                                onToggleAa = { next -> toggleAa(inst, next) },
                                 onAction = { action ->
                                     if (action == Action.Delete) {
                                         deleteConfirm = inst
@@ -334,6 +362,7 @@ fun InstancesScreen(
                         lan = input.lan,
                         port = input.port,
                         app = input.app,
+                        aa = input.aa,
                     )
                     Unit
                 }

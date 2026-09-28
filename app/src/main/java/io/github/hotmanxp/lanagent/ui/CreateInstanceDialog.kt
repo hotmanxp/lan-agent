@@ -52,6 +52,17 @@ data class CreateInstanceInput(
                                             // InstanceAppProfile.TaskFactory = 任务工厂
                                             // 实例(对齐 web 端 InstanceDefinition.app
                                             // = 'task-factory',spawn 时传 --app)。
+    /**
+     * AA per-instance 覆盖(对齐 web 端 InstanceDefinition.aa)。
+     * `null` = auto(跟随 root,创建 body 不带 `aa` key);
+     * `true` = 请求启用(下次启动时 root 若带 `--aa` 则本实例也带);
+     * `false` = 强制禁用。
+     *
+     * 注意 **root 是硬门禁**:root 没启 `--aa` 时即便 `true` 也不生效
+     * (child 要靠 `ZAI_AA_PARENT_URL` 才能转发事件),服务端会在 spawn
+     * 时打一条 warn。默认 `null` —— 不勾选就不影响任何既有行为。
+     */
+    val aa: Boolean? = null,
 )
 
 @Composable
@@ -71,6 +82,10 @@ fun CreateInstanceDialog(
     // (参见 data/Cards.kt 的 host 取自 LAN IP)。用户可在 dialog 内取消勾选 —
     // 仅当用户**明确**通过 SSH 隧道 / 本机访问时才用得到。
     var lan by remember { mutableStateOf(true) }
+    // AA per-instance 开关:默认 false = auto(跟随 root,创建 body 不带 aa key)。
+    // 勾上才发 aa=true。注意 root 没启 --aa 时这个勾选不会生效(服务端 warn),
+    // 所以默认保持不动 —— 用户在明确知道 root 启了 AA 后再勾。
+    var aa by remember { mutableStateOf(false) }
     var portEnabled by remember { mutableStateOf(false) }
     var portText by remember { mutableStateOf("") }
     // 实例类型 Radio:标准实例(null) / 任务工厂实例(InstanceAppProfile.TaskFactory)。
@@ -192,6 +207,23 @@ fun CreateInstanceDialog(
                         modifier = Modifier.padding(start = 4.dp),
                     )
                 }
+                // ── AA per-instance 开关(对齐 web 端 Instances.tsx 的 aa-checkbox)──
+                // 不勾 = auto(跟随 root);勾上 = 请求启用。二态,与 web 端一致;
+                // force-off 不从 UI 暴露(留给将来的用例)。
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Checkbox(
+                        checked = aa,
+                        onCheckedChange = { aa = it },
+                    )
+                    Text(
+                        text = stringResource(R.string.instances_dialog_field_aa),
+                        fontSize = 13.sp,
+                        modifier = Modifier.padding(start = 4.dp),
+                    )
+                }
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -242,6 +274,9 @@ fun CreateInstanceDialog(
                                 lan = lan,
                                 port = if (portEnabled) portNumber else null,
                                 app = app,
+                                // 不勾 = null = auto(服务端落 def.aa=undefined,
+                                // 跟随 root);勾上才发 true。
+                                aa = if (aa) true else null,
                             )
                         )
                         submitting = false

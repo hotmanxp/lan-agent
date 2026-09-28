@@ -206,6 +206,8 @@ fun InstanceCard(
     lanBusy: Boolean,
     actionBusy: Boolean,
     onToggleLan: (Boolean) -> Unit,
+    onToggleAa: (Boolean) -> Unit,
+    aaBusy: Boolean,
     onAction: (Action) -> Unit,
     onEditPort: () -> Unit,
     modifier: Modifier = Modifier,
@@ -312,6 +314,55 @@ fun InstanceCard(
                                 text = stringResource(R.string.instances_action_edit_port),
                                 fontSize = 12.sp,
                             )
+                        }
+                    }
+
+                    // ── AA 开关(单独一行,不挤进上面那行)──
+                    // 窄屏(360dp)上 LAN 那一行已经有 Switch + label + tag +
+                    // 「编辑」按钮,再加一个 Switch 会挤到标签换行。单独一行更
+                    // 稳,也让「--aa」这个 flag 在视觉上独立于 --lan / 端口。
+                    //
+                    // 语义与 web 端 renderAaToggle 一致:关 = auto(跟随 root),
+                    // 开 = 请求启用。**root 没启 --aa 时开了也不生效** —— 服务端
+                    // 会打 warn,这里只能靠 tooltip 文案提前告知用户。
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Switch(
+                            checked = inst.aa == true,
+                            onCheckedChange = onToggleAa,
+                            enabled = !aaBusy,
+                        )
+                        Text(
+                            text = stringResource(R.string.instances_aa),
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (aaBusy) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(14.dp),
+                                strokeWidth = 1.5.dp,
+                            )
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .background(
+                                        if (inst.aa == true) Color(0xFFF9F0FF) else Color(0xFFF5F5F5),
+                                        RoundedCornerShape(10.dp),
+                                    )
+                                    .padding(horizontal = 8.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = if (inst.aa == true) stringResource(R.string.instances_aa_tag)
+                                           else stringResource(R.string.instances_aa_auto_tag),
+                                    color = if (inst.aa == true) Color(0xFF722ED1) else Color(0xFF8C8C8C),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                            }
                         }
                     }
                 }

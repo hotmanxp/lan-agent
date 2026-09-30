@@ -128,8 +128,11 @@ import io.github.hotmanxp.lanagent.aa.ui.designsystem.LocalAAColors
 import io.github.hotmanxp.lanagent.aa.ui.designsystem.runtimePermissionLocalizer
 import io.github.hotmanxp.lanagent.aa.ui.designsystem.ScreenScaffold
 import io.github.hotmanxp.lanagent.aa.ui.designsystem.noRippleClickable
+import io.github.hotmanxp.lanagent.aa.feature.auth.AuthSessionStore
+import io.github.hotmanxp.lanagent.aa.feature.sessiondetail.AaAsrProvider
 import io.github.hotmanxp.lanagent.data.pickDefault
 import io.github.hotmanxp.lanagent.data.resolveAgentInstances
+import io.github.hotmanxp.lanagent.voice.AsrUrlProvider
 import io.github.hotmanxp.lanagent.voice.HoldToTalkOverlay
 import io.github.hotmanxp.lanagent.voice.VoiceAsrConfig
 import io.github.hotmanxp.lanagent.voice.rememberHoldToTalk
@@ -1394,23 +1397,41 @@ fun SessionDetailScreen(
 
     val canSend = canSendWith(draft)
 
-    // 按住说话（腾讯云实时 ASR）—— 与 lan-agent 会话页同一套状态机，但走 §20
-    // **路径 2**：借一个在线 lan-agent 实例要 token（实例现读本机 WorkBuddy 登录态，
-    // 自动续期、401 自愈）。AA 服务端没有 `/api/voice/*` 这两个接口，拿不到实例的
-    // baseUrl 就只能退回 local.properties 里那份内置 token —— 那份 3 天就过期，
-    // 按住只会得到一句 401。所以这里从 App 自己的实例目录借一个在线实例，跟
-    // lan-agent 会话页用的是同一份目录（`resolveAgentInstances`）。借不到就不给
-    // 语音按钮（provider 为 null），别让用户按了才失败。
-    var asrInstanceBaseUrl by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(Unit) {
-        asrInstanceBaseUrl = context.resolveAgentInstances()
+    // 按住说话（腾讯云实时 ASR）—— 与 lan-agent 会话页同一套状态机。
+    //
+    // 凭据必须在**本机**（WorkBuddy 登录态在 Mac 上），但 AA 会话连的是官方托管
+    // 服务端，手机经常不在局域网。以前这里借的是 lan-agent 的 LAN 实例
+    // （`resolveAgentInstances`），出了局域网就借不到 → 语音按钮整个不渲染。
+    //
+    // 现在主路径走 AA 官方的 connector 文件通道：借 `fs.readText` 这条已有的 RPC
+    // 把 Mac 上的 auth 文件读回来，**服务端和 Mac 都不用改、不用多跑进程**。
+    // 兜底仍是 LAN 实例（局域网内少一跳，更快）。两条都拿不到 → provider 为 null，
+    // 不给语音按钮，别让用户按了才失败。
+    //
+    // `connectorId` 来自会话本身（`AgentSession.connectorId`），就是那台跑着
+    // connector 的 Mac；会话还没加载出来时它是 null，这里自然先拿不到 provider。
+    val asrConnectorId = state.session?.connectorId
+    val asrSessionStore = remember(context) { AuthSessionStore(context) }
+    // 纯内存计算，不发请求 —— 真正的文件读取在 provide() 里，跑在 io 线程。
+    // 只按 connectorId 记忆就够：provider 自己记着取凭据时的会话指纹，换账号 /
+    // 重新登录时它会自己丢弃缓存并现读登录态。
+    val connectorAsrProvider = remember(asrConnectorId, filesController) {
+        AaAsrProvider.create(
+            sessionStore = asrSessionStore,
+            connectorId = asrConnectorId.orEmpty(),
+            filesApi = filesController.filesApi,
+        )
+    }
+    var lanAsrProvider by remember { mutableStateOf<AsrUrlProvider?>(null) }
+    LaunchedEffect(connectorAsrProvider) {
+        if (connectorAsrProvider != null) return@LaunchedEffect
+        lanAsrProvider = context.resolveAgentInstances()
             .pickDefault(null)
             ?.takeIf { it.online }
             ?.baseUrl
+            ?.let { VoiceAsrConfig.providerOrNull(it) }
     }
-    val asrProvider = remember(asrInstanceBaseUrl) {
-        asrInstanceBaseUrl?.let { VoiceAsrConfig.providerOrNull(it) }
-    }
+    val asrProvider = connectorAsrProvider ?: lanAsrProvider
     val holdToTalk = if (asrProvider != null) {
         rememberHoldToTalk(
             asrUrlProvider = asrProvider,

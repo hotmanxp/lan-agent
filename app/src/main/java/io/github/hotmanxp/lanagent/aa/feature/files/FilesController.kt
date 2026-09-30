@@ -7,7 +7,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 class FilesController(
-    private val filesApi: FilesApi,
+    /**
+     * 公开（而不是 private）是为了让**同步**路径复用同一个实例 —— 只有这个实例
+     * 接了 `onUnauthorized`，AA 登录过期时会走全局的清会话流程。`AaAsrProvider`
+     * 走的就是这条路（`AsrUrlProvider.provide` 是同步的，跑在 io 线程上）。
+     * 另起一个 `FilesApi()` 会安静地失去这个能力。
+     */
+    val filesApi: FilesApi,
     private val sessionStore: AuthSessionStore,
 ) {
     suspend fun listFiles(

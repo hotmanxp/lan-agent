@@ -186,15 +186,19 @@ class WorkBuddyAsrAuth(
         }
 
         /**
-         * 过期时间有两种表达：直接给 `expiresAt`，或给 `lastRefreshTime + expiresIn`。
-         * 后者才是服务端原始形态（见 calculateExpiresAt 的还原）；再不行就从 JWT 的 exp 解。
+         * 过期时间有三种表达，依次降级：`expiresAt` 直给 → `lastRefreshTime + expiresIn`
+         * → JWT 的 `exp`。全都拿不到就返回 0（语义是「不知道何时过期」）。
+         *
+         * ⚠️ 只有 `expiresIn` 而**没有** `lastRefreshTime` 时**不猜**，直接落 0。
+         * 拿「读取时刻」当基准意味着文件放了两天就会被算成「还有三天过期」——
+         * 误差以天计，会把一个早就死掉的 token 缓存起来。按 [ConnectorAuthFile] 的
+         * 规矩，0 = 不缓存、每次现读，宁可多打几次 RPC 也不押注。
          */
-        private fun resolveExpiresAt(node: JSONObject): Long {
+        internal fun resolveExpiresAt(node: JSONObject): Long {
             node.optLong("expiresAt", 0L).takeIf { it > 0L }?.let { return it }
             val expiresIn = node.optLong("expiresIn", 0L)
             if (expiresIn > 0L) {
-                val base = node.optLong("lastRefreshTime", 0L).takeIf { it > 0L }
-                    ?: System.currentTimeMillis()
+                val base = node.optLong("lastRefreshTime", 0L).takeIf { it > 0L } ?: return 0L
                 return base + expiresIn * 1000L
             }
             return expiresAtFromJwt(node.optString("accessToken"))

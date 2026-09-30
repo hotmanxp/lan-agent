@@ -177,6 +177,21 @@ sealed interface AsrUrlProvider {
         private val nowMs: () -> Long = System::currentTimeMillis,
     ) : AsrUrlProvider {
 
+        /**
+         * 一份解析好的 WorkBuddy 凭据。[endpoint] 缺省时由调用方回落
+         * [WorkBuddyAsrAuth.DEFAULT_ENDPOINT]；[uid] 缺省 / 空白 = 不带
+         * `X-User-Id`；[expiresAtMs] 为 0 = 不知道过期时间，调用方据此**不缓存**。
+         *
+         * 放在类体上（而不是 companion）是因为 [ConnectorAuthFile] 也复用它 ——
+         * 那条路线拿到凭据的来源是 Mac 上的 auth 文件，但解析出来的形状完全一样。
+         */
+        internal data class ParsedResponse(
+            val endpoint: String,
+            val accessToken: String,
+            val uid: String?,
+            val expiresAtMs: Long,
+        )
+
         /** 缓存下来的凭据。null = 没有可用缓存，下次 provide 必须发 GET。 */
         @Volatile
         private var cached: ParsedResponse? = null
@@ -213,19 +228,6 @@ sealed interface AsrUrlProvider {
             private const val REFRESH_SKEW_MS = 5 * 60_000L
 
             /**
-             * 服务端响应解析后的结构。[endpoint] 缺省时由调用方回落
-             * [WorkBuddyAsrAuth.DEFAULT_ENDPOINT]；[uid] 缺省 / 空白 = 不带
-             * `X-User-Id`；[expiresAtMs] 为 0 = 服务端也不知道何时过期，
-             * 调用方据此决定不缓存。
-             */
-            internal data class ParsedResponse(
-                val endpoint: String,
-                val accessToken: String,
-                val uid: String?,
-                val expiresAtMs: Long,
-            )
-
-            /**
              * 解析服务端 JSON 响应。抽出来是为了单测能直接喂字符串构造 —
              * 端到端路径需要真 HTTP，调 `provide()` 拿不到注入点。
              *
@@ -251,6 +253,125 @@ sealed interface AsrUrlProvider {
                     accessToken = accessToken,
                     uid = json.optString("uid").takeIf { it.isNotBlank() },
                     expiresAtMs = json.optLong("expiresAt", 0L).takeIf { it > 0L } ?: 0L,
+                )
+            }
+        }
+    }
+
+    /**
+     * 远端（不在局域网）：借 Agents-Anywhere 官方的 **connector 文件通道**读 Mac 上
+     * WorkBuddy 落盘的 auth 文件。
+     *
+     * ── 为什么是这条路 ────────────────────────────────────────────────────
+     * 凭据必须来自本机（WorkBuddy 登录态在 Mac 上），但手机常常连不上 Mac 的局域网。
+     * AA 官方**没有**任何「客户端注册自定义端点」的机制（服务端是托管 SaaS，改不了），
+     * 唯一现成的「手机 → 官方服务端 → 你的 Mac」通道就是 connector 的文件 RPC：
+     *
+     *   POST {server}/api/v2/connectors/{connectorId}/fs/readText?root=~
+     *        { "path": "…/workbuddy-desktop.info" }
+     *      → 服务端鉴权后转成 WS RPC `fs.readText` 打到 Mac → 原路返回文件内容
+     *
+     * `root` 服务端纯透传、无白名单（server/agent_server/services/connector_files.py:36），
+     * connector 侧只做 `expanduser().resolve()`（connector/connector/local/common.py:21-32），
+     * 唯一的门是路由上的 `Depends(current_user_id)` —— 也就是只有你自己的账号能读
+     * 自己那台设备。这是 connector「代你操作本机文件」的正常用法。
+     *
+     * ── 只读不刷（红线）────────────────────────────────────────────────────
+     * 与 [WorkBuddyApi] 同理：**绝不在这里调 `/v2/plugin/auth/token/refresh`**。
+     * refreshToken 一次性轮换，客户端刷一次就把 WorkBuddy 桌面端踢下线。这里是
+     * 直接**读文件**而不是持有 [WorkBuddyAsrAuth] 就是为了从结构上杜绝那条路 ——
+     * 续期由桌面端自己负责，它会把新 token 写回同一个文件。
+     *
+     * 缓存策略照抄 [WorkBuddyApi]：按 `expiresAt` 缓存，到期前 5 分钟重读；
+     * 过期时间解不出来就**不缓存**（每次现读），避免押一个不知道何时失效的 token。
+     * 另外每份缓存都记下取它时的 [sessionFingerprint]，指纹一变（换账号 / 重新登录）
+     * 立刻丢弃 —— 否则 provider 会攥着一个已经作废的 AA token 一直按到 401。
+     */
+    class ConnectorAuthFile(
+        /** 同步读一次 auth 文件的原文。跑在 [TencentRealtimeAsr] 的 io 线程上。 */
+        private val readAuthFile: () -> String,
+        /**
+         * 当前**调用方会话**（AA 登录态）的指纹。返回 null 表示这条链路与会话无关，
+         * 缓存也就无从因会话变化而失效。
+         *
+         * 之所以要它：provider 实例会被 composable 记住，可能比一次登录周期活得久。
+         * 只按 `expiresAt` 判鲜的话，token 还在有效期内、但承载它的 AA 账号已经换人了，
+         * 缓存照样命中，然后每次按住都吃一发 401。
+         */
+        private val sessionFingerprint: () -> String? = { null },
+        private val nowMs: () -> Long = System::currentTimeMillis,
+    ) : AsrUrlProvider {
+
+        /** 凭据缓存。null = 没有可用缓存，下次 provide 必须重读文件。 */
+        @Volatile
+        private var cached: Cached? = null
+
+        /** 凭据和取它时的会话指纹**打包成一个对象** —— 分成两个 @Volatile 字段会出现
+         *  读到新凭据配旧指纹的窗口（先写 cached 后写 fingerprint 即可复现）。 */
+        private data class Cached(
+            val fingerprint: String?,
+            val credential: WorkBuddyApi.ParsedResponse,
+        )
+
+        override fun provide(engine: String): SignedAsrUrl {
+            val cred = freshOrFetch()
+            return WorkBuddy(
+                endpoint = WorkBuddyAsrAuth.DEFAULT_ENDPOINT,
+                tokenProvider = { cred.accessToken },
+                uid = cred.uid,
+            ).provide(engine)
+        }
+
+        /** 见 [AsrUrlProvider.invalidateAuth]。清缓存，下一次 provide 重读文件。 */
+        override fun invalidateAuth() {
+            cached = null
+        }
+
+        private fun freshOrFetch(): WorkBuddyApi.ParsedResponse {
+            val fingerprint = sessionFingerprint()
+            cached?.takeIf { it.fingerprint == fingerprint && isFresh(it.credential) }
+                ?.let { return it.credential }
+            val parsed = parseAuthFile(readAuthFile())
+            if (parsed.expiresAtMs > 0L) cached = Cached(fingerprint, parsed)
+            return parsed
+        }
+
+        private fun isFresh(c: WorkBuddyApi.ParsedResponse): Boolean =
+            c.expiresAtMs > 0L && nowMs() < c.expiresAtMs - REFRESH_SKEW_MS
+
+        companion object {
+            /** 与 [WorkBuddyApi] 同口径：建连时不卡在过期边界上。 */
+            private const val REFRESH_SKEW_MS = 5 * 60_000L
+
+            /**
+             * 解析 WorkBuddy 桌面端落盘的 auth 文件。**无副作用、不续期**。
+             *
+             * 不是严格意义的纯函数：过期时间在只有 `expiresIn` 时要拿系统时钟当基准
+             * （见 [WorkBuddyAsrAuth.resolveExpiresAt]）。调用方传进来的 `nowMs` 假
+             * 时钟只作用于本 provider 的缓存判定，管不到这里 —— 单测别指望它。
+             *
+             * 容忍两种形态（与 opencc-web `routes/voice.ts:64-93` 同源）：
+             *   - 标准：`{"account":{"uid":…},"auth":{"accessToken":…}}`
+             *   - 扁平：`{"uid":…,"accessToken":…}`
+             *
+             * `endpoint` 恒为 `copilot.tencent.com` —— 那是产品固定网关，文件里不带，
+             * 也没有别的取值（opencc-web `voice.ts:26` 同）。
+             */
+            internal fun parseAuthFile(raw: String): WorkBuddyApi.ParsedResponse {
+                val root = org.json.JSONObject(raw)
+                val auth = root.optJSONObject("auth") ?: root
+                val account = root.optJSONObject("account") ?: root
+
+                val accessToken = auth.optString("accessToken")
+                require(accessToken.isNotBlank()) {
+                    "WorkBuddy auth 文件里没有 accessToken（可能不是预期结构，或桌面端换了落盘格式）"
+                }
+
+                return WorkBuddyApi.ParsedResponse(
+                    endpoint = WorkBuddyAsrAuth.DEFAULT_ENDPOINT,
+                    accessToken = accessToken,
+                    uid = account.optString("uid").takeIf { it.isNotBlank() },
+                    expiresAtMs = WorkBuddyAsrAuth.resolveExpiresAt(auth),
                 )
             }
         }

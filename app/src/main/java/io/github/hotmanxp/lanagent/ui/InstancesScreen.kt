@@ -139,18 +139,23 @@ fun InstancesScreen(
     /**
      * 切 AA per-instance 开关。
      *
-     * 关态**不发** `aa` 字段(`PatchValue.Unset`),不是发 `null` —— 服务端
-     * `parseBoolField` 只接受 `undefined | boolean`,发字面 `null` 会被 400。
-     * 后果:取消勾选后 def.aa 保持原值(可能仍是 true)。这是刻意的:UI v1
-     * 只暴露「auto / 请求启用」两态,force-off 不是可达状态(与 web 端
-     * `setAa` 同款取舍 —— 关态在 web 端也是乐观清空为 undefined)。
+     * 两态都发显式布尔:开 = `aa: true`(force-on),关 = `aa: false`(force-off,
+     * 即便 root 带 `--aa` 也不给它)。**不能**发 `PatchValue.Unset`(不发 key)
+     * —— 那样 def.aa 保持原值,下次 start 又把 `--aa` 带上,等于关不掉。
+     *
+     * 历史坑:关态曾退化成空 body `{}`,被服务端「空补丁守卫」400
+     * `no patchable fields supplied` —— 开关怎么都关不掉,只弹一条英文报错。
+     *
+     * 注:服务端 PATCH 的 `aa` 还支持 `null` = 删掉 def.aa 回到 auto(跟随
+     * root),但 UI 关态**不用**它 —— 用户拨开关想表达的是"这个实例别被 AA
+     * Cloud 看到",不是"放弃 AA 偏好"。`null` 留给 API 侧回 auto 用。
      */
     fun toggleAa(inst: InstanceSnapshot, next: Boolean) {
         if (inst.id in aaBusy) return
         aaBusy += inst.id
         scope.launch {
             val res = runCatching {
-                api.patchInstance(inst.id, aa = if (next) PatchValue.Set(true) else PatchValue.Unset)
+                api.patchInstance(inst.id, aa = PatchValue.Set(next))
             }
             aaBusy -= inst.id
             if (res.isFailure) {

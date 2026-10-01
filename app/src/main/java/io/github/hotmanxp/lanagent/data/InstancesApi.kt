@@ -34,6 +34,50 @@ sealed interface PatchValue<out T> {
 
 fun <T> patchOf(value: T?): PatchValue<T> = if (value == null) PatchValue.Null else PatchValue.Set(value)
 
+/**
+ * `PATCH /api/instances/:id` 的 body 构造。抽成顶层函数是为了能在 JVM 单测
+ * 里直接钉 wire 契约(`data/InstancesApiPatchBodyTest`)—— 这段逻辑的取值
+ * 全是「发什么 / 不发什么」,一旦发错只有真机点开关才看得出来。
+ *
+ * 三个字段同一套三态语义:`Unset` 不发 key / `Null` 发字面 `null`(清除)/
+ * `Set(v)` 发 v。
+ *
+ * ⚠️ **UI 的 AA 关态必须发 `Set(false)`,不能发 `Unset`**:`Unset` 等于不发 key,
+ * 服务端视为「不改」,`def.aa` 保持原值,下一次 start 又把 `--aa` 带上 ——
+ * 开关关不掉。更早的版本关态直接发空 body `{}`,撞上服务端的「空补丁守卫」
+ * 400 `no patchable fields supplied`。
+ *
+ * `aa` 的 `Null`(清除 → auto / 跟随 root)与 `false`(force-off,永久不跟)
+ * 是两件事,UI 走后者;前者只从 API 侧使用。
+ */
+internal fun instancePatchBody(
+    lan: PatchValue<Boolean>? = null,
+    port: PatchValue<Int>? = null,
+    aa: PatchValue<Boolean>? = null,
+): JsonObject = buildJsonObject {
+    lan?.let {
+        when (it) {
+            PatchValue.Null -> put("lan", JsonNull)
+            is PatchValue.Set -> put("lan", it.value)
+            PatchValue.Unset -> Unit
+        }
+    }
+    port?.let {
+        when (it) {
+            PatchValue.Null -> put("port", JsonNull)
+            is PatchValue.Set -> put("port", it.value)
+            PatchValue.Unset -> Unit
+        }
+    }
+    aa?.let {
+        when (it) {
+            PatchValue.Null -> put("aa", JsonNull)
+            is PatchValue.Set -> put("aa", it.value)
+            PatchValue.Unset -> Unit
+        }
+    }
+}
+
 class InstancesApi(private val baseUrl: String) {
     private val client = OkHttpClient.Builder()
         .connectTimeout(5, TimeUnit.SECONDS)
@@ -182,37 +226,7 @@ class InstancesApi(private val baseUrl: String) {
         port: PatchValue<Int>? = null,
         aa: PatchValue<Boolean>? = null,
     ): InstanceSnapshot {
-        val body = buildJsonObject {
-            lan?.let {
-                when (it) {
-                    PatchValue.Null -> put("lan", JsonNull)
-                    is PatchValue.Set -> put("lan", it.value)
-                    PatchValue.Unset -> Unit
-                }
-            }
-            port?.let {
-                when (it) {
-                    PatchValue.Null -> put("port", JsonNull)
-                    is PatchValue.Set -> put("port", it.value)
-                    PatchValue.Unset -> Unit
-                }
-            }
-            // `aa` 与 lan/port 的三态**不同**:`parseBoolField` 只接受
-            // `undefined | boolean`,发字面 `null` 会被 400。所以这里刻意
-            // 不处理 `PatchValue.Null`(抛错而不是静默发 null),调用方表达
-            // 「回到 auto」的唯一方式是 `PatchValue.Unset`(不发这个 key)——
-            // 服务端读到的就是"没这个字段",保持 def.aa 原值不变。
-            aa?.let {
-                when (it) {
-                    PatchValue.Null -> throw IllegalArgumentException(
-                        "aa does not accept PatchValue.Null — the server rejects JSON null; " +
-                            "use PatchValue.Unset to leave def.aa untouched"
-                    )
-                    is PatchValue.Set -> put("aa", it.value)
-                    PatchValue.Unset -> Unit
-                }
-            }
-        }
+        val body = instancePatchBody(lan, port, aa)
         val req = Request.Builder()
             .url(urlFor("/api/instances/$id"))
             .patch(body.toString().toRequestBody(JSON))

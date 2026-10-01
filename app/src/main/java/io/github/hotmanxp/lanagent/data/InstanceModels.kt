@@ -87,10 +87,11 @@ data class InstanceSnapshot(
      *     因为 child 端要靠 `ZAI_AA_PARENT_URL` 才能把事件转发给 AA Cloud)
      *   - `false` = 强制禁用,即便 root 启了也不带 `--aa`
      *
-     * 勾上 Switch = `true`;取消勾选 = 回 auto(`null`)。**取消勾选不能发
-     * `null` 给服务端** — `parseBoolField` 只接受 `undefined | boolean`,
-     * 发字面 `null` 会被 400(所以关态走"不发这个 key",见
-     * `InstancesApi.patchInstance`)。
+     * 勾上 Switch = `true`;取消勾选 = `false`(force-off,该实例永远不跟
+     * root 的 `--aa`)。`null`(缺省)读出来 = auto(跟随 root),新建实例就是
+     * 这个状态 —— UI 上 auto 与 force-off 都显示「关」,靠这个字段区分不了,
+     * 所以关态统一发 `false`,语义更符合「这个实例别被 AA Cloud 看到」。
+     * 服务端 PATCH 另接受 `aa: null` 表示「清除覆盖、回到 auto」,只走 API。
      */
     val aa: Boolean? = null,
     val state: InstanceState,

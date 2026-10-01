@@ -12,6 +12,7 @@
 |---------|------------|
 | 技术栈版本 / 目录结构 / 路由清单 | [`docs/agents/overview.md`](docs/agents/overview.md) |
 | 已知坑 / 排障经验 | [`docs/agents/pitfalls.md`](docs/agents/pitfalls.md) |
+| 要发正式安装包(签名 / keystore / 升级代价) | [`docs/agents/release-signing.md`](docs/agents/release-signing.md) |
 | WorkBuddy accessToken / 真机探测 | `docs/superpowers/specs/2026-09-14-workbuddy-api-token-applicability.md` |
 | 初始设计 spec / 10-task plan | `docs/superpowers/specs/2026-08-24-lan-agent-android-app-design.md` / `plans/2026-08-24-lan-agent-android-app.md` |
 | 用户向验收清单 | `README.md` |

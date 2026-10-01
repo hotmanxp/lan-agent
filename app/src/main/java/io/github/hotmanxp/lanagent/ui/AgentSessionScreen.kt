@@ -133,6 +133,7 @@ import io.github.hotmanxp.lanagent.data.compactToolsFlow
 import io.github.hotmanxp.lanagent.data.ImageAttachments
 import io.github.hotmanxp.lanagent.data.ModelEntry
 import io.github.hotmanxp.lanagent.data.PatchSessionRequest
+import io.github.hotmanxp.lanagent.data.SessionToolsApi
 import io.github.hotmanxp.lanagent.data.pickDefault
 import io.github.hotmanxp.lanagent.data.readAgentWorkspace
 import io.github.hotmanxp.lanagent.data.resolveAgentInstances
@@ -148,7 +149,7 @@ import com.composables.icons.lucide.ArrowUpRight
 import com.composables.icons.lucide.ChevronRight
 import com.composables.icons.lucide.Folder
 import com.composables.icons.lucide.Menu
-import com.composables.icons.lucide.Plus
+import com.composables.icons.lucide.PanelTopOpen
 import com.composables.icons.lucide.RefreshCw
 
 /** 会话详情路由的薄包装 —— 从实例栏 / 卡片进来时实例与会话都是已知的。 */
@@ -268,6 +269,14 @@ fun AgentSessionPane(
     // 还得在场,清空的话抽屉会在滑走的过程中变成一片空白。
     var previewTarget by remember { mutableStateOf<FilePreviewTarget?>(null) }
     var previewOpen by remember { mutableStateOf(false) }
+
+    // 「工作区」浮层(0.24.11,见 ui/SessionToolsOverlay.kt)。与 previewTarget
+    // 共用预览层:文件栏点文件只是换个 target,预览层盖在面板之上,关掉
+    // 预览后面板还在场。
+    var toolsOpen by remember { mutableStateOf(false) }
+    val toolsApi = remember(instanceBaseUrl) {
+        instanceBaseUrl?.let { SessionToolsApi(it) }
+    }
 
     // 模型选择 —— 状态独立于 store,因为 model 是「用户偏好」级别的字段,
     // 不需要随 transcript 一起 hydrate。`availableModels` 失败时降级
@@ -932,13 +941,19 @@ fun AgentSessionPane(
                             }
                         },
                         actions = {
+                            // 0.24.11:这里原本是「+ 新建会话」。抽屉里的
+                            // NewSessionPill 和无会话空态的按钮已经覆盖了新建入口,
+                            // 顶栏这个位置换给「工作区」(文件 / Bash / git)。
                             IconButton(
-                                onClick = { startNewSession() },
-                                enabled = api != null,
+                                onClick = { toolsOpen = true },
+                                // `currentSid != null` 是硬条件:没有会话时
+                                // sessionId 是空串,`/api/bash/repl//events` 匹配不上
+                                // 路由 → 每 15s 一次 404 无限重连,面板开着就一直烧。
+                                enabled = api != null && currentSid != null,
                             ) {
                                 Icon(
-                                    imageVector = Lucide.Plus,
-                                    contentDescription = stringResource(R.string.agent_session_new_cd),
+                                    imageVector = Lucide.PanelTopOpen,
+                                    contentDescription = stringResource(R.string.agent_tools_cd),
                                 )
                             }
                         },
@@ -1205,6 +1220,31 @@ fun AgentSessionPane(
             }
         }
 
+        // 叠放顺序 = 声明顺序,**后面的在上面**。
+        //
+        // 面板先声明、预览后声明:从文件栏点开文件时,预览要盖在面板之上;
+        // 反过来点开了却看不见(这层不透光,底下什么都看不到)。
+        if (toolsOpen) {
+            SessionToolsOverlay(
+                api = toolsApi,
+                sessionId = currentSid.orEmpty(),
+                onOpenFile = { absPath ->
+                    previewTarget = FilePreviewTarget(baseUrl = instanceBaseUrl.orEmpty(), path = absPath)
+                    previewOpen = true
+                },
+                onReveal = { relPath ->
+                    val client = api
+                    if (client == null) return@SessionToolsOverlay
+                    scope.launch {
+                        runCatching { client.revealFile(relPath) }
+                            .onFailure { toast("打开失败:${it.message ?: it}") }
+                    }
+                },
+                onClose = { toolsOpen = false },
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+
         FileViewerOverlay(
             visible = previewOpen,
             target = previewTarget,
@@ -1213,7 +1253,10 @@ fun AgentSessionPane(
         )
     }
 
-    // 系统返回键优先关预览层,而不是退出会话页 / 切回上一个 tab。
+    // 系统返回键的优先级 = **后注册的赢**(Compose 的 BackHandler 语义)。
+    // 所以顺序必须与叠放顺序相反:先面板后预览 —— 两者同时开着时(从文件栏
+    // 点开文件就是这个状态),按返回先关最上面的预览,预览关了才轮到面板。
+    BackHandler(enabled = toolsOpen) { toolsOpen = false }
     BackHandler(enabled = previewOpen) { previewOpen = false }
 
     // 「选择实例」底部弹层 —— 挂在抽屉**外面**(ModalBottomSheet 是独立窗口),

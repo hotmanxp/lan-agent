@@ -814,6 +814,11 @@ fun AgentSessionPane(
     Box(modifier = Modifier.fillMaxSize()) {
         ModalNavigationDrawer(
             drawerState = drawerState,
+            // 关掉边缘右滑:手势会和消息列表的横向拖动(嵌套滚动 / 表格横滑)打架,
+            // 误触发比少个手势烦人得多。会话面板只从顶栏左上角按钮开。
+            // 代价是这个 flag 会连「点蒙层关闭」一起关掉(1.3.1 源码里 scrim 的
+            // onClick 同样挂在 gesturesEnabled 下),返回键另有一处 BackHandler 兜。
+            gesturesEnabled = false,
             drawerContent = {
                 ModalDrawerSheet {
                     Column(
@@ -1254,8 +1259,13 @@ fun AgentSessionPane(
     }
 
     // 系统返回键的优先级 = **后注册的赢**(Compose 的 BackHandler 语义)。
-    // 所以顺序必须与叠放顺序相反:先面板后预览 —— 两者同时开着时(从文件栏
-    // 点开文件就是这个状态),按返回先关最上面的预览,预览关了才轮到面板。
+    // 所以顺序必须与叠放顺序相反:先抽屉后面板再预览 —— 三者同时开着时(从抽屉
+    // 里点开工作区面板再点文件就是这个状态),按返回依次关掉最上面那层。
+    //
+    // 抽屉这行不能省:ModalNavigationDrawer 的 gesturesEnabled = false 会把
+    // 它自己的手势 **和** 返回键处理一起关掉(实测 1.3.1:抽屉开着时按返回直接
+    // 退到桌面),得自己补回来,否则「打开面板看看又后悔」就没退路了。
+    BackHandler(enabled = drawerState.isOpen) { scope.launch { drawerState.close() } }
     BackHandler(enabled = toolsOpen) { toolsOpen = false }
     BackHandler(enabled = previewOpen) { previewOpen = false }
 

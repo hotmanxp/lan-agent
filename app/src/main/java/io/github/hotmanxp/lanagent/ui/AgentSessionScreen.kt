@@ -148,7 +148,7 @@ import com.composables.icons.lucide.ArrowLeft
 import com.composables.icons.lucide.ArrowUpRight
 import com.composables.icons.lucide.ChevronRight
 import com.composables.icons.lucide.Folder
-import com.composables.icons.lucide.Menu
+import com.composables.icons.lucide.NotebookTabs
 import com.composables.icons.lucide.PanelTopOpen
 import com.composables.icons.lucide.RefreshCw
 
@@ -877,10 +877,12 @@ fun AgentSessionPane(
                         navigationIcon = {
                             // 抽屉在最左,back 在其次 —— 对齐 WorkBuddy 的顶栏顺序。
                             // tab 根用法(onBack == null)只有抽屉按钮。
+                            // 图标从 Lucide.Menu(三条横线)换成 NotebookTabs:抽屉里是
+                            // 实例切换 + 多条会话,「带标签页的笔记本」比横线更贴切。
                             Row {
                                 IconButton(onClick = { scope.launch { drawerState.open() } }) {
                                     Icon(
-                                        imageVector = Lucide.Menu,
+                                        imageVector = Lucide.NotebookTabs,
                                         contentDescription = stringResource(
                                             R.string.agent_session_open_sessions_cd
                                         ),

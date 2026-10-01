@@ -73,6 +73,13 @@ object WbPalette {
     /** 「发送」按钮的禁用态底色(WorkBuddy 空输入时那个浅蓝灰圆钮)。 */
     val SendDisabledLight = Color(0xFFE0E3E8)
 
+    /**
+     * 骨架屏占位条底色(见 `ui/SessionSkeleton.kt`)。**不能直接复用
+     * [SunkenLight]** —— 它是 `surfaceVariant`,压在 #F8F8F8 页底上只有约 2%
+     * 对比,静态截图里几乎看不见;骨架条要么认得出,要么不如不画。
+     */
+    val SkeletonLineLight = Color(0xFFE6E8EC)
+
     // ---- 暗色 ----
     val PageDark = Color(0xFF141517)
     val CardDark = Color(0xFF1F2124)
@@ -82,6 +89,9 @@ object WbPalette {
     val SunkenDark = Color(0xFF26282C)
     val BubbleDark = Color(0xFF2A2D2C)
     val SendDisabledDark = Color(0xFF34383D)
+
+    /** 骨架屏占位条底色(暗色版),理由同 [SkeletonLineLight]。 */
+    val SkeletonLineDark = Color(0xFF31343A)
 }
 
 /**

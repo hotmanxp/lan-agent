@@ -65,7 +65,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -982,7 +981,7 @@ fun AgentSessionPane(
 
                         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                             when {
-                                !bootstrapDone || sessionResolving -> CenterSpinner()
+                                !bootstrapDone || sessionResolving -> SessionSkeleton()
 
                                 active == null -> NoInstanceState(
                                     onRetry = { bootstrapTick++ },
@@ -996,7 +995,7 @@ fun AgentSessionPane(
                                     onSwitch = { showInstancePicker = true },
                                 )
 
-                                store.items.isEmpty() && !store.hydrated -> CenterSpinner()
+                                store.items.isEmpty() && !store.hydrated -> SessionSkeleton()
 
                                 store.items.isEmpty() -> AgentSessionEmptyState()
 
@@ -1386,13 +1385,6 @@ private suspend fun Context.awaitInstanceOnline(
         delay(intervalMs)
     }
     return null
-}
-
-@Composable
-private fun CenterSpinner() {
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        CircularProgressIndicator()
-    }
 }
 
 /** 空会话的占位:WorkBuddy 机器人 + 问候语(对齐 WorkBuddy 欢迎页)。 */

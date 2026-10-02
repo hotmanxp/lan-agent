@@ -361,6 +361,9 @@
     <string name="settings_section_session">会话</string>
     <string name="settings_compact_tools">工具调用精简模式</string>
     <string name="settings_compact_tools_sub">连续的工具调用聚合成一条,点开才展开全部;关掉退回逐条工具卡</string>
+    <!-- Mermaid 流程图渲染:默认开。关掉后 ```mermaid 围栏块显示成普通代码块。 -->
+    <string name="settings_mermaid_render">渲染 Mermaid 流程图</string>
+    <string name="settings_mermaid_render_sub">会话里的 mermaid 代码块画成流程图;关掉显示成代码块</string>
     <string name="settings_section_data">数据</string>
     <string name="settings_count_cards">入口卡片</string>
     <string name="settings_count_hosts">SSH 主机</string>

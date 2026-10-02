@@ -60,9 +60,11 @@ import io.github.hotmanxp.lanagent.R
 import io.github.hotmanxp.lanagent.data.ThemeMode
 import io.github.hotmanxp.lanagent.data.cardsFlow
 import io.github.hotmanxp.lanagent.data.compactToolsFlow
+import io.github.hotmanxp.lanagent.data.mermaidRenderFlow
 import io.github.hotmanxp.lanagent.data.remoteServicesFlow
 import io.github.hotmanxp.lanagent.data.resetCards
 import io.github.hotmanxp.lanagent.data.saveCompactTools
+import io.github.hotmanxp.lanagent.data.saveMermaidRender
 import io.github.hotmanxp.lanagent.data.saveThemeMode
 import io.github.hotmanxp.lanagent.data.sshHostsFlow
 import io.github.hotmanxp.lanagent.data.themeModeFlow
@@ -80,6 +82,7 @@ fun SettingsScreen(
 
     val themeMode by context.themeModeFlow().collectAsState(initial = ThemeMode.System)
     val compactTools by context.compactToolsFlow().collectAsState(initial = true)
+    val mermaidRender by context.mermaidRenderFlow().collectAsState(initial = true)
     val cards by context.cardsFlow().collectAsState(initial = null)
     val hosts by context.sshHostsFlow().collectAsState(initial = emptyList())
     val services by context.remoteServicesFlow().collectAsState(initial = null)
@@ -111,8 +114,8 @@ fun SettingsScreen(
                 }
             }
 
-            // 会话(0.15.2)—— 目前只有「工具调用精简模式」一项。放外观后面:
-            // 两者都是「改了立刻见效」的显示偏好。
+            // 会话(0.15.2)—— 「工具调用精简模式」+「渲染 Mermaid 流程图」两项。
+            // 放外观后面:两者都是「改了立刻见效」的显示偏好。
             item("session") {
                 SettingsCard(title = stringResource(R.string.settings_section_session)) {
                     SettingsSwitchRow(
@@ -120,6 +123,12 @@ fun SettingsScreen(
                         subtitle = stringResource(R.string.settings_compact_tools_sub),
                         checked = compactTools,
                         onCheckedChange = { on -> scope.launch { context.saveCompactTools(on) } },
+                    )
+                    SettingsSwitchRow(
+                        title = stringResource(R.string.settings_mermaid_render),
+                        subtitle = stringResource(R.string.settings_mermaid_render_sub),
+                        checked = mermaidRender,
+                        onCheckedChange = { on -> scope.launch { context.saveMermaidRender(on) } },
                     )
                 }
             }

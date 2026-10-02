@@ -211,7 +211,17 @@ private fun renderNode(node: org.commonmark.node.Node) {
             color = MaterialTheme.colorScheme.onSurface,
         )
 
-        is FencedCodeBlock -> CodeBox(node.literal, node.info)
+        // Mermaid 围栏块走 WebView 渲染;开关关掉、或渲染失败(语法错 / 流式
+        // 半截)时由 MermaidBlock 调 fallback 退回普通代码块 —— 和改动前一样。
+        is FencedCodeBlock -> {
+            val literal = node.literal
+            val info = node.info
+            if (isMermaidFence(info) && LocalMermaidEnabled.current) {
+                MermaidBlock(source = literal) { CodeBox(literal, info) }
+            } else {
+                CodeBox(literal, info)
+            }
+        }
 
         is IndentedCodeBlock -> CodeBox(node.literal, null)
 

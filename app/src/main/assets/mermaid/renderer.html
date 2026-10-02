@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  /* 这个 WebView 全程 detached、尺寸 0,布局对它没有意义 ——
+     但 DOCTYPE 仍然必须写:缺了会落进 quirks 模式(AGENTS.md §19 记的那个坑),
+     canvas 的尺寸计算会跟着走偏。 */
+  html, body { margin: 0; padding: 0; background: transparent; }
+</style>
+</head>
+<body>
+<script src="mermaid.min.js"></script>
+<script>
+(function () {
+  var currentTheme = null;
+
+  /**
+   * 把 HTML 实体(`&nbsp;` `&mdash;` …)换成 XML 数字字符引用。
+   *
+   * ⚠️ 这是本项目能渲染复杂流程图的前提。mermaid 会在节点/标题文本里吐
+   * **HTML 实体**,而 XML 只认 `&amp; &lt; &gt; &quot; &apos;` 五个 ——
+   * `&nbsp;` 在 XML 里是**未定义实体,直接解析失败**。后果有两处同源症状:
+   *   ① `img.src = data:image/svg+xml,…` 加载失败 → onerror → 整块回退成代码块
+   *   ② DOMParser 解析出 <parsererror>,取不到 viewBox → 尺寸退化成 800x600 → 拉长变形
+   * 纯中文标签的简单图不含实体,所以小图一直是好的,一复杂就全军覆没。
+   *
+   * 用 textarea 让浏览器自己的 HTML 解析器解出字符,免得维护一张实体表。
+   */
+  var ENTITY_RE = /&(#[0-9]+|#[xX][0-9a-fA-F]+|[a-zA-Z][a-zA-Z0-9]*);/g;
+  // HTML 真空元素:SVG/XML 里必须写成 <br/> 而不是 <br>。
+  var VOID_TAG_RE = /<(br|hr|img|input|meta|link|source|area|base|col|embed|param|track|wbr)(\s[^>]*?)?>/gi;
+
+  function toValidXml(svgText) {
+    var out = svgText.replace(ENTITY_RE, function (m, name) {
+      if (name.charAt(0) === '#') return m;   // 数字引用 XML 本来就合法
+      var ta = document.createElement('textarea');
+      ta.innerHTML = m;
+      var ch = ta.value;
+      if (ch === m || !ch) return m;          // 解不出来就原样留着
+      return '&#' + ch.charCodeAt(0) + ';';
+    });
+    // 已经自闭合的(<br/>)不动 —— 负向前瞻兜住。
+    out = out.replace(VOID_TAG_RE, function (m, tag, attrs) {
+      if (/\/>$/.test(m)) return m;
+      return '<' + tag + (attrs || '') + '/>';
+    });
+    return out;
+  }
+
+  /**
+   * 从 SVG 文本里取固有尺寸 —— **走正则而不是 DOMParser**。
+   *
+   * mermaid 写的是 `width="100%"`,而 `parseFloat("100%")` 返回 100 而不是 NaN,
+   * 拿它当固有宽度会把整张图纵向拉长成一根柱子。所以优先信 viewBox,
+   * 宽高属性只在 viewBox 缺失时兜底,且带 % 的跳过。
+   *
+   * 不用 DOMParser 是因为它按 XML 解析,遇到 `&nbsp;` 会整个失败(见 toValidXml)。
+   */
+  function svgSize(svgText) {
+    var w = 0, h = 0;
+    var m = /viewBox\s*=\s*["']\s*[-+\d.eE]+[\s,]+[-+\d.eE]+[\s,]+([-+0-9.eE]+)[\s,]+([-+0-9.eE]+)/.exec(svgText);
+    if (m) { w = parseFloat(m[1]); h = parseFloat(m[2]); }
+
+    if (!w || !h) {
+      var aw = /<svg[^>]*\swidth\s*=\s*["']([^"']*)["']/.exec(svgText);
+      var ah = /<svg[^>]*\sheight\s*=\s*["']([^"']*)["']/.exec(svgText);
+      if (aw && aw[1].indexOf('%') < 0) w = parseFloat(aw[1]) || 0;
+      if (ah && ah[1].indexOf('%') < 0) h = parseFloat(ah[1]) || 0;
+    }
+
+    if (!w || !h) { w = 800; h = 600; diag('svgSize: 没找到 viewBox,退回 800x600'); }
+    return { w: Math.max(1, Math.ceil(w)), h: Math.max(1, Math.ceil(h)) };
+  }
+
+  function diag() {
+    // 统一走 console —— Kotlin 侧 WebChromeClient.onConsoleMessage 转发到
+    // logcat -s LanAgentMermaid。渲染失败在 UI 上只是「静默回退成代码块」,
+    // 没有这层就只能靠猜。
+    try { console.log.apply(console, ['[mermaid]'].concat([].slice.call(arguments))); }
+    catch (e) {}
+  }
+
+  function renderOne(id, src, dark, bg) {
+    return new Promise(function (resolve) {
+      var done = function (payload) {
+        try { AndroidMermaid.onResult(id, payload); } catch (e) {}
+        resolve();
+      };
+
+      if (!window.mermaid) { diag('mermaid 未加载 id=' + id); done(''); return; }
+
+      // mermaid.initialize 是全局的,切主题时要重新调。
+      if (currentTheme !== dark) {
+        currentTheme = dark;
+        mermaid.initialize({
+          startOnLoad: false,
+          theme: dark ? 'dark' : 'default',
+          securityLevel: 'strict',
+          fontFamily: '-apple-system, Roboto, "PingFang SC", sans-serif',
+          // ⚠️ 必须关掉 HTML 标签。默认 true 时 mermaid 用
+          // <foreignObject><div><p>…<br>…</p></div></foreignObject> 画多行标签,
+          // 而 `<br>` 是 HTML 真空元素写法 —— SVG 按 **XML** 解析,`<br>` 必须
+          // 自闭合,于是整张 SVG 解析失败,<img> 加载不出来,整块图静默回退成代码块。
+          // 症状有迷惑性:标签里**不带换行的图**一切正常,一用 `<br/>` 就挂。
+          //
+          // 关掉后 mermaid 改用纯 SVG <tspan> 断行,顺带也避开了 foreignObject
+          // 在 <img> 上下文里字体经常不生效的老问题。
+          htmlLabels: false,
+          flowchart: { htmlLabels: false },
+        });
+      }
+
+      diag('render 开始 id=' + id + ' 长度=' + src.length);
+      var t0 = Date.now();
+
+      var p;
+      try {
+        p = mermaid.render('mmd' + id, src);
+      } catch (err) {
+        diag('render 同步抛出 id=' + id + ' ' + (err && (err.message || err)));
+        done('');
+        return;
+      }
+
+      Promise.resolve(p).then(function (res) {
+        diag('render resolve id=' + id + ' 耗时=' + (Date.now() - t0) +
+             ' 有svg=' + !!(res && res.svg));
+        if (!res || !res.svg) { done(''); return; }
+        return rasterize(res.svg, bg, done);
+      }).catch(function (err) {
+        diag('render reject id=' + id + ' ' + (err && (err.message || err)) +
+             ' / ' + (err && err.str));
+        done('');
+      });
+    });
+  }
+
+  // ⚠️ mermaid.render **不可重入** —— 它往一个模块级的临时 DOM 容器里画,画完
+  // 再拆掉。两次并发调用会互相把对方的中间节点删掉,后一个拿不到 svg。
+  //
+  // 症状很隐蔽:同一段回复里有两张图时,它们在同一次重组里一起发起,**第一张
+  // 正常出图、第二张静默失败**回退成代码块,看起来就像「只渲染了一张」。
+  // 所以这里用一条 promise 链串行化,一次只放一个进去。
+  var chain = Promise.resolve();
+
+  /** canvas 面积上限。超了 Chromium 会让 toDataURL 返回字面量 "data:," —— 静默失败。 */
+  var MAX_CANVAS_PIXELS = 4.0e6;
+  var MAX_CANVAS_EDGE = 4096;
+
+  /**
+   * 选缩放比:既要跟屏幕密度匹配,又不能把 canvas 撑爆。
+   * 一张 2900x309 的宽流程图在 dpr 3 下是 8700x927 ≈ 8 百万像素,
+   * 加上 devicePixelRatio 高的机器很容易越过浏览器的 canvas 上限。
+   */
+  function pickScale(w, h) {
+    var dpr = Math.min(window.devicePixelRatio || 2, 3);
+    var byArea = Math.sqrt(MAX_CANVAS_PIXELS / Math.max(1, w * h));
+    var byEdge = MAX_CANVAS_EDGE / Math.max(w, h);
+    return Math.max(0.4, Math.min(dpr, byArea, byEdge));
+  }
+
+  function rasterize(svgText, bg, done) {
+    // ⚠️ 必须先转实体 —— <img> 加载 SVG 走的是 XML 解析,&nbsp; 会让它整个加载失败。
+    var safe = toValidXml(svgText);
+    var size = svgSize(safe);
+    diag('光栅化 viewBox=' + size.w + 'x' + size.h + ' svg长度=' + svgText.length);
+
+    // 直接问 XML 解析器要错误文本 —— 别猜
+    try {
+      var probe = new DOMParser().parseFromString(safe, 'image/svg+xml');
+      var perr = probe.getElementsByTagName('parsererror')[0];
+      if (perr) {
+        diag('XML 解析失败: ' + String(perr.textContent).replace(/\s+/g, ' ').slice(0, 300));
+      } else {
+        diag('XML 解析通过');
+      }
+    } catch (e) {
+      diag('XML 探测抛异常 ' + (e && e.message));
+    }
+
+    var scale = pickScale(size.w, size.h);
+    var cv = document.createElement('canvas');
+    cv.width = Math.ceil(size.w * scale);
+    cv.height = Math.ceil(size.h * scale);
+    var ctx = cv.getContext('2d');
+    if (!ctx) { diag('getContext null,canvas=' + cv.width + 'x' + cv.height); done(''); return; }
+    if (bg) { ctx.fillStyle = bg; ctx.fillRect(0, 0, cv.width, cv.height); }
+
+    // 两条路依次试:data URL 简单但有长度上限,blob URL 没上限但可能污染 canvas。
+    // 复杂流程图的 SVG 有 20 KB+,编码后 CJK 一个字膨胀到 9 字符,很容易撞上
+    // WebView 的 data URL 上限 —— 那种情况下 onerror 且拿不到任何原因。
+    var dataUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(safe);
+    diag('dataURL 长度=' + dataUrl.length + ' 画布=' + cv.width + 'x' + cv.height +
+         ' scale=' + scale.toFixed(2));
+
+    var settled = false;
+    var tryLoad = function (url, label) {
+      var img = new Image();
+      img.onload = function () {
+        if (settled) return;
+        settled = true;
+        try {
+          ctx.drawImage(img, 0, 0, cv.width, cv.height);
+          var out = cv.toDataURL('image/png');
+          diag(label + ' 成功,toDataURL 前缀=' + out.slice(0, 24) + ' 长度=' + out.length);
+          done(out);
+        } catch (err) {
+          diag(label + ' 画到 canvas 时抛异常 ' + (err && (err.name + ': ' + err.message)));
+          done('');
+        }
+      };
+      img.onerror = function () {
+        if (settled) return;
+        diag(label + ' 加载失败');
+        if (label === 'dataURL') {
+          // 换 blob 再试一次
+          try {
+            var blob = new Blob([safe], { type: 'image/svg+xml;charset=utf-8' });
+            tryLoad(URL.createObjectURL(blob), 'blobURL');
+          } catch (e) {
+            diag('blob 也失败 ' + (e && e.message));
+            done('');
+          }
+        } else {
+          done('');
+        }
+      };
+      img.src = url;
+    };
+
+    tryLoad(dataUrl, 'dataURL');
+  }
+
+  // Kotlin 侧通过 evaluateJavascript 调这个(参数走 JSON 编码,不用手拼引号)。
+  window.__mermaidRender = function (id, src, dark, bg) {
+    chain = chain
+      .then(function () { return renderOne(id, src, dark, bg); })
+      .catch(function () { /* renderOne 内部已兜过,这里是防链断掉 */ });
+  };
+
+  // mermaid.min.js 是同步 <script>,到这里已经可用 —— 通知 Kotlin 可以开工了。
+  if (window.mermaid) {
+    try { AndroidMermaid.ready(); } catch (e) {}
+  } else {
+    // 脚本没加载出来也要报一声,否则 Kotlin 会一直等 ready() 超时。
+    setTimeout(function () { try { AndroidMermaid.ready(); } catch (e) {} }, 0);
+  }
+})();
+</script>
+</body>
+</html>

@@ -10,6 +10,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.LocalContext
@@ -18,8 +19,10 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import io.github.hotmanxp.lanagent.data.ThemeMode
+import io.github.hotmanxp.lanagent.data.mermaidRenderFlow
 import io.github.hotmanxp.lanagent.data.themeModeFlow
 import io.github.hotmanxp.lanagent.ui.LanAgentTheme
+import io.github.hotmanxp.lanagent.ui.LocalMermaidEnabled
 import io.github.hotmanxp.lanagent.ui.MainScaffold
 
 class MainActivity : ComponentActivity() {
@@ -55,6 +58,9 @@ class MainActivity : ComponentActivity() {
             // 不需要 recreate()。首帧会用系统默认值,深色用户最多闪一下。
             val context = LocalContext.current
             val mode by context.themeModeFlow().collectAsState(initial = ThemeMode.System)
+            // Mermaid 开关同样顶层 provide:五个 MarkdownText 调用点一个都不用改,
+            // 设置栏翻一下开关,所有会话立刻跟着变。
+            val mermaidEnabled by context.mermaidRenderFlow().collectAsState(initial = true)
             val systemDark = isSystemInDarkTheme()
             LanAgentTheme(
                 darkTheme = when (mode) {
@@ -63,7 +69,9 @@ class MainActivity : ComponentActivity() {
                     ThemeMode.Dark -> true
                 },
             ) {
-                MainScaffold()
+                CompositionLocalProvider(LocalMermaidEnabled provides mermaidEnabled) {
+                    MainScaffold()
+                }
             }
         }
     }

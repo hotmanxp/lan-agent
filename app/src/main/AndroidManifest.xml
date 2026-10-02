@@ -125,6 +125,19 @@
         <receiver
             android:name="io.github.hotmanxp.lanagent.aa.feature.update.AppUpdateInstallReceiver"
             android:exported="false" />
+
+        <!-- debug-only: drive the AA shell.exec channel from `adb shell am
+             broadcast` to verify end-to-end without driving the UI. The
+             `@debuggable` guard ties enablement to the build flag, so the
+             receiver is dead weight in any release-shaped APK. -->
+        <receiver
+            android:name="io.github.hotmanxp.lanagent.aa.api.ShellDebugReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="io.github.hotmanxp.lanagent.aa.SHELL" />
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>

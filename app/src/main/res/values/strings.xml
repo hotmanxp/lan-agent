@@ -18,6 +18,8 @@
     <string name="service_loading">…</string>
     <string name="service_aa_terminal_title">AA 远程终端</string>
     <string name="service_aa_terminal_summary">在远程设备的工作区里开终端</string>
+    <string name="service_aa_instances_title">远程实例管理</string>
+    <string name="service_aa_instances_summary">通过 AA Cloud 管理远端 zai 实例</string>
     <!-- 远程任务栏(AA,0.24.0) -->
     <string name="aa_not_logged_in">还没登录 Agents Anywhere\n先去设置里完成登录</string>
     <string name="aa_no_server">还没配置服务器地址\n先去设置里填 Agents Anywhere server</string>

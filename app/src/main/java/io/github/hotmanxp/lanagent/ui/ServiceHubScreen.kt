@@ -46,6 +46,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.composables.icons.lucide.ChevronRight
+import com.composables.icons.lucide.Cpu
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.Network
 import com.composables.icons.lucide.Server
@@ -64,6 +65,7 @@ fun ServiceHubScreen(
     onOpenSsh: () -> Unit,
     onOpenRemoteServices: () -> Unit,
     onOpenAaTerminal: () -> Unit,
+    onOpenAaInstances: () -> Unit,
 ) {
     val context = LocalContext.current
 
@@ -110,6 +112,17 @@ fun ServiceHubScreen(
                     title = stringResource(R.string.service_aa_terminal_title),
                     subtitle = stringResource(R.string.service_aa_terminal_summary),
                     onClick = onOpenAaTerminal,
+                )
+            }
+            item("aa-instances") {
+                ServiceCard(
+                    // 走 AA Cloud 的 shell.exec 通道,管理远端 zai 的实例:
+                    // start / stop / restart / remove。复用 AA 客户端已登录的
+                    // Bearer token,不需要新账号体系。
+                    icon = Lucide.Cpu,
+                    title = stringResource(R.string.service_aa_instances_title),
+                    subtitle = stringResource(R.string.service_aa_instances_summary),
+                    onClick = onOpenAaInstances,
                 )
             }
             item("remote") {

@@ -78,7 +78,12 @@ class RemoteInstancesViewModel(application: Application) : AndroidViewModel(appl
     }
 
     fun start(id: String) = operate(id) { serverUrl, token, deviceId -> shellApi.startInstance(serverUrl, token, deviceId, id) }
-    fun stop(id: String) = operate(id) { serverUrl, token, deviceId -> shellApi.stopInstance(serverUrl, token, deviceId, id) }
+
+    // 停止后必须重拉列表:行按钮的可用性直接由 `state` 推导,不刷新的话停止
+    // 已经成功,start 却还是禁用、stop 还是可点 —— 界面说的不是远端的实况。
+    // start / restart 有同样的陈旧状态问题,同样需要 thenRefresh。
+    fun stop(id: String) = operate(id, thenRefresh = true) { serverUrl, token, deviceId -> shellApi.stopInstance(serverUrl, token, deviceId, id) }
+
     fun restart(id: String) = operate(id) { serverUrl, token, deviceId -> shellApi.restartInstance(serverUrl, token, deviceId, id) }
     fun remove(id: String) = operate(id, thenRefresh = true) { serverUrl, token, deviceId -> shellApi.removeInstance(serverUrl, token, deviceId, id); null }
 

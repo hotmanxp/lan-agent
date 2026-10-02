@@ -37,9 +37,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.composables.icons.lucide.CircleStop
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.Play
 import com.composables.icons.lucide.RefreshCw
@@ -85,6 +87,7 @@ fun RemoteInstancesScreen(
                 padding = padding,
                 state = s,
                 onStart = viewModel::start,
+                onStop = viewModel::stop,
                 onRestart = viewModel::restart,
                 onRemove = viewModel::remove,
             )
@@ -108,6 +111,7 @@ private fun LoadedBody(
     padding: PaddingValues,
     state: RemoteInstancesUiState.Loaded,
     onStart: (String) -> Unit,
+    onStop: (String) -> Unit,
     onRestart: (String) -> Unit,
     onRemove: (String) -> Unit,
 ) {
@@ -125,6 +129,7 @@ private fun LoadedBody(
                 instance = instance,
                 operating = state.operatingId == instance.id,
                 onStart = { onStart(instance.id) },
+                onStop = { onStop(instance.id) },
                 onRestart = { onRestart(instance.id) },
                 onRemove = { onRemove(instance.id) },
             )
@@ -166,6 +171,7 @@ private fun InstanceRow(
     instance: RemoteInstance,
     operating: Boolean,
     onStart: () -> Unit,
+    onStop: () -> Unit,
     onRestart: () -> Unit,
     onRemove: () -> Unit,
 ) {
@@ -185,6 +191,12 @@ private fun InstanceRow(
                         text = instance.name,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        // 徽标要保住自然宽度,名字吃剩余空间并省略号截断。反过来
+                        // 名字会贪婪吃满、徽标被挤到近零宽,里面的 Text 一个字符一行
+                        // 竖着排开(见 pitfalls 的 android-compose-row-flexible-element)。
+                        modifier = Modifier.weight(1f, fill = false),
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     StateBadge(instance.state)
@@ -193,11 +205,15 @@ private fun InstanceRow(
                     text = "port=${instance.port ?: "—"}  cwd=${instance.cwd}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     text = instance.id,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
             if (operating) {
@@ -208,6 +224,9 @@ private fun InstanceRow(
             } else {
                 IconButton(onClick = onStart, enabled = !instance.isRunning) {
                     Icon(Lucide.Play, contentDescription = "Start")
+                }
+                IconButton(onClick = onStop, enabled = instance.isRunning) {
+                    Icon(Lucide.CircleStop, contentDescription = "Stop")
                 }
                 IconButton(onClick = onRestart) {
                     Icon(Lucide.RefreshCw, contentDescription = "Restart")
@@ -235,6 +254,10 @@ private fun StateBadge(state: String) {
             text = label,
             style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
             color = color,
+            // softWrap = false 是关键:默认允许换行,一旦外层给不出宽度就会退化成
+            // 一字一行。maxLines = 1 让它要么完整显示要么溢出,不会变形。
+            maxLines = 1,
+            softWrap = false,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
         )
     }

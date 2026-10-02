@@ -7,7 +7,9 @@
 package io.github.hotmanxp.lanagent.ui
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -25,6 +27,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -34,13 +37,18 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.composables.icons.lucide.Activity
+import com.composables.icons.lucide.Circle
+import com.composables.icons.lucide.CirclePause
+import com.composables.icons.lucide.CirclePlay
 import com.composables.icons.lucide.CircleStop
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.Play
@@ -51,6 +59,7 @@ import io.github.hotmanxp.lanagent.aa.api.RemoteDevice
 import io.github.hotmanxp.lanagent.aa.api.RemoteInstance
 import io.github.hotmanxp.lanagent.aa.feature.instances.RemoteInstancesUiState
 import io.github.hotmanxp.lanagent.aa.feature.instances.RemoteInstancesViewModel
+import io.github.hotmanxp.lanagent.data.InstanceState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -193,13 +202,13 @@ private fun InstanceRow(
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        // 徽标要保住自然宽度,名字吃剩余空间并省略号截断。反过来
-                        // 名字会贪婪吃满、徽标被挤到近零宽,里面的 Text 一个字符一行
-                        // 竖着排开(见 pitfalls 的 android-compose-row-flexible-element)。
+                        // 状态图标要保住自然宽度,名字吃剩余空间并省略号截断。反过来
+                        // 名字会贪婪吃满、把图标挤没了(见 pitfalls 的
+                        // android-compose-row-flexible-element)。
                         modifier = Modifier.weight(1f, fill = false),
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    StateBadge(instance.state)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    StateIcon(instance.state)
                 }
                 Text(
                     text = "port=${instance.port ?: "—"}  cwd=${instance.cwd}",
@@ -222,43 +231,88 @@ private fun InstanceRow(
                     strokeWidth = 2.dp,
                 )
             } else {
-                IconButton(onClick = onStart, enabled = !instance.isRunning) {
-                    Icon(Lucide.Play, contentDescription = "Start")
-                }
-                IconButton(onClick = onStop, enabled = instance.isRunning) {
-                    Icon(Lucide.CircleStop, contentDescription = "Stop")
-                }
-                IconButton(onClick = onRestart) {
-                    Icon(Lucide.RefreshCw, contentDescription = "Restart")
-                }
-                IconButton(onClick = onRemove) {
-                    Icon(Lucide.Trash2, contentDescription = "Remove")
-                }
+                RowAction(
+                    icon = Lucide.Play,
+                    label = "启动",
+                    enabled = !instance.isRunning,
+                    onClick = onStart,
+                )
+                RowAction(
+                    icon = Lucide.CircleStop,
+                    label = "停止",
+                    enabled = instance.isRunning,
+                    onClick = onStop,
+                )
+                RowAction(
+                    icon = Lucide.RefreshCw,
+                    label = "重启",
+                    enabled = true,
+                    onClick = onRestart,
+                )
+                RowAction(
+                    icon = Lucide.Trash2,
+                    label = "删除",
+                    enabled = true,
+                    onClick = onRemove,
+                )
             }
         }
     }
 }
 
+/**
+ * 状态从文字徽标改成图标:徽标一颗就占 ~55dp,四个动作按钮并排时名字被截成
+ * 「ope…」。16dp 图标把这块地还给了文本区。颜色走 [stateContent] —— 与
+ * 实例栏同一套色板,不在这里另写死 hex(运行中 = 绿 #52C41A)。
+ */
 @Composable
-private fun StateBadge(state: String) {
-    val (label, color) = when (state) {
-        "running" -> "running" to MaterialTheme.colorScheme.primary
-        "stopped" -> "stopped" to MaterialTheme.colorScheme.outline
-        else -> state to MaterialTheme.colorScheme.onSurfaceVariant
+private fun StateIcon(state: String) {
+    // InstanceState 的枚举名与 wire 字符串同名,认得出就直接复用色板。
+    val mapped = remember(state) { InstanceState.entries.firstOrNull { it.name == state } }
+    val (icon, tint) = when (mapped) {
+        InstanceState.running -> Lucide.CirclePlay to stateContent(InstanceState.running)
+        InstanceState.starting, InstanceState.stopping ->
+            Lucide.Activity to stateContent(mapped)
+        InstanceState.stopped -> Lucide.CirclePause to stateContent(InstanceState.stopped)
+        else -> Lucide.Circle to MaterialTheme.colorScheme.onSurfaceVariant
     }
-    Surface(
-        color = color.copy(alpha = 0.12f),
-        shape = RoundedCornerShape(8.dp),
+    Icon(
+        imageVector = icon,
+        contentDescription = state,
+        tint = tint,
+        modifier = Modifier.size(16.dp),
+    )
+}
+
+/**
+ * 行内动作按钮压到 40dp:`IconButton` 内部锁死 `minimumInteractiveComponentSize`
+ * (48dp),四个并排 = 192dp,文本区只剩 ~140dp。同 AGENTS.md §11 浮刷新按钮的
+ * 做法,自己拼触点。contentDescription 走 Icon —— clickable 会和它合并成同一个
+ * 无障碍节点。
+ */
+@Composable
+private fun RowAction(
+    icon: ImageVector,
+    label: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    val tint = if (enabled) {
+        LocalContentColor.current
+    } else {
+        LocalContentColor.current.copy(alpha = 0.38f)
+    }
+    Box(
+        modifier = Modifier
+            .size(40.dp)
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center,
     ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
-            color = color,
-            // softWrap = false 是关键:默认允许换行,一旦外层给不出宽度就会退化成
-            // 一字一行。maxLines = 1 让它要么完整显示要么溢出,不会变形。
-            maxLines = 1,
-            softWrap = false,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+        Icon(
+            imageVector = icon,
+            contentDescription = label,
+            tint = tint,
+            modifier = Modifier.size(20.dp),
         )
     }
 }

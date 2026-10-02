@@ -91,6 +91,8 @@
 | 现象 | 排查 |
 |------|------|
 | **DisplayFiles 卡片离开页面后丢了 size 与时间** | 服务端把 transcript 里的 tool_result 存成字面量 `'done'`,元数据只走一次 SSE 且 take-and-delete;`DisplayFilesCache`(进程内)兜"离开再回来";**冷启动后只剩路径,无解**(§20) |
+| **AA 远程终端连上了但屏幕全黑** | 两处独立根因,症状一模一样,别只查一个:(1) 服务端 snapshot 只读 `dataBase64` 发 replay、**不看 `outputs`**,connector 侧必须回**全量** scrollback(`includeScrollback=true`),否则空 replay + shell 静默 = 永久黑屏;(2) 客户端 post 包装 sink 时**不能读 `this.sink`** —— 那是包装器自己,会自调用成死循环,JS 一帧都到不了 WebView。抓 `adb logcat -s LanAgentTerm` 看 `frame replay … b64len=N`:`b64len=0` 是第 1 类,`b64len>0` 却仍黑屏是第 2 类 |
+| **`java.lang.Throwable: A WebView method was called on thread …`** | `evaluateJavascript` 只能在主线程调。OkHttp 的 `WebSocketListener.onMessage` / JavaBridge 线程都调不得;用 `Handler(Looper.getMainLooper()).post` 收口。**别把 WebView 传进数据源** —— 「字节管道」那层抽象会反向依赖渲染器 |
 | 预览图片被判成「过大」 | 服务端上限是 **1 MiB**(`PREVIEW_DEFAULT_MAX`),不是 512KB;`FILE_PREVIEW_MAX_BYTES` 必须与它一致 |
 
 ## 编辑态 / 拖拽

@@ -40,7 +40,10 @@
 // 前缀 —— 0.24.1 手写版就是漏了 `/api/v2` 被 SPA fallback 吞掉,排查了半天。
 package io.github.hotmanxp.lanagent.ui
 
+import android.os.Handler
+import android.os.Looper
 import android.util.Base64
+import android.util.Log
 import io.github.hotmanxp.lanagent.aa.api.TerminalApi
 import io.github.hotmanxp.lanagent.aa.api.webSocketApiUrl
 import kotlinx.coroutines.CancellationException
@@ -75,6 +78,10 @@ sealed interface AaTerminalState {
  * 生命周期:屏调 [start] → 建终端 + 开 WS;WebView 销毁时 [onReleased] 关 WS。
  * [start] 幂等,重复调用会先断开旧连接。
  */
+private const val TAG = "LanAgentTerm"
+/** sink 未就绪时的帧缓冲上限(见 [AaTerminalTransport.deliver])。 */
+private const val PENDING_MAX = 512
+
 internal class AaTerminalTransport(
     private val serverUrl: String,
     private val accessToken: String,
@@ -95,6 +102,18 @@ internal class AaTerminalTransport(
 
     private val api = TerminalApi()
 
+    /**
+     * sink 落到 `webView.evaluateJavascript`,那是**只能在主线程调**的 WebView
+     * 方法。而 AA 的 WS 帧跑在 OkHttp 的后台线程上(`WebSocketListener.onMessage`),
+     * 直接调会拿到 `java.lang.Throwable: A WebView method was called on thread ...`
+     * —— 0.24.8 之前手机上报「连接失败:…A WebView method…」就是这个。
+     *
+     * 用主线程 Handler 而不是把 WebView 塞进 transport:后者会让「字节管道」
+     * 这层抽象反向依赖渲染器。SSH 那条路没这个问题,是因为 [SshTerminalStore]
+     * 自己已经切过线程。
+     */
+    private val main = Handler(Looper.getMainLooper())
+
     private var socket: WebSocket? = null
     private var job: Job? = null
     private var sink: ((String) -> Unit)? = null
@@ -102,8 +121,35 @@ internal class AaTerminalTransport(
     private var terminalId: String? = null
     private var closedByUs = false
 
+    // sink 就绪(xterm 初始化完)之前收到的帧,按序攒着,等 sink 到位一次性补灌。
+    private val pending = ArrayDeque<String>()
+    private var framesIn = 0
+    private var framesDropped = 0
+
     override fun onSinkReady(sink: ((String) -> Unit)?) {
-        this.sink = sink
+        if (sink == null) {
+            this.sink = null
+            pending.clear()
+            return
+        }
+        // 包一层 post:不管调用方在哪个线程,输出统一下回主线程再进 WebView。
+        //
+        // **必须捕获入参 `sink`(它才是真正的 evaluateJavascript),不能在 lambda
+        // 里读 `this.sink`** —— `this.sink` 就是这个包装器自己,读它等于自己调
+        // 自己:post → invoke 包装器 → 再 post …… 无限循环,JS 一帧也送不到
+        // WebView,表现是「已连接 · online」但屏幕全黑、连诊断横幅都不出现。
+        //
+        // WebView 已销毁的保护改用 `this.sink != null` 做活性判断:onReleased
+        // 会把它置空,已经排队但还没执行的 post 就此变成 no-op。
+        val real: (String) -> Unit = sink
+        this.sink = { js: String -> main.post { if (this.sink != null) real(js) } }
+        // **补灌**:`AaTerminalScreen` 的 DisposableEffect 先调 start() 开 WS,
+        // WebView 之后才 loadUrl + 解析 xterm.js。xterm 就绪之前到的帧先攒着,
+        // 否则 shell 那一次性的提示符会被丢掉。
+        val flushed = pending.toList()
+        pending.clear()
+        flushed.forEach { js -> this.sink?.invoke(js) }
+        Log.i(TAG, "sink ready; flushed=${flushed.size} framesIn=$framesIn dropped=$framesDropped")
     }
 
     override fun onInput(bytes: ByteArray) {
@@ -123,14 +169,27 @@ internal class AaTerminalTransport(
         // WebView 没了,立刻停手 —— 之后任何往 sink 的写入都会打到已 destroy 的
         // WebView 上。
         sink = null
+        pending.clear()
         stop()
+    }
+
+    /**
+     * 状态回调统一切回主线程。
+     *
+     * `onState` 的实现方写的是 Compose `MutableState`(`state.value = …`),而
+     * 绝大多数调用点在 OkHttp 的后台线程上。跨线程写快照状态不是崩溃,但会绕过
+     * recomposition 的线程假设,表现为状态条不刷新或偶发崩溃 —— 与 sink 那个
+     * WebView 线程错误是同一类问题,一起收在这里。
+     */
+    private fun emitState(state: AaTerminalState) {
+        main.post { onState(state) }
     }
 
     /** 建终端并开 WS。幂等。 */
     fun start() {
         stop()
         closedByUs = false
-        onState(AaTerminalState.Connecting)
+        emitState(AaTerminalState.Connecting)
         job = scope.launch(Dispatchers.IO) {
             try {
                 val terminal = api.createTerminal(
@@ -151,7 +210,7 @@ internal class AaTerminalTransport(
             } catch (ce: CancellationException) {
                 throw ce
             } catch (err: Exception) {
-                onState(AaTerminalState.Failed(err.message ?: err.javaClass.simpleName))
+                emitState(AaTerminalState.Failed(err.message ?: err.javaClass.simpleName))
             }
         }
     }
@@ -177,7 +236,7 @@ internal class AaTerminalTransport(
             Request.Builder().url(url).build(),
             object : WebSocketListener() {
                 override fun onOpen(webSocket: WebSocket, response: Response) {
-                    onState(AaTerminalState.Open)
+                    emitState(AaTerminalState.Open)
                 }
 
                 override fun onMessage(webSocket: WebSocket, text: String) {
@@ -191,14 +250,14 @@ internal class AaTerminalTransport(
                 override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                     socket = null
                     if (!closedByUs) {
-                        onState(AaTerminalState.Exited(code, reason.takeIf { it.isNotBlank() }))
+                        emitState(AaTerminalState.Exited(code, reason.takeIf { it.isNotBlank() }))
                     }
                 }
 
                 override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                     socket = null
                     if (!closedByUs) {
-                        onState(AaTerminalState.Failed(t.message ?: t.javaClass.simpleName))
+                        emitState(AaTerminalState.Failed(t.message ?: t.javaClass.simpleName))
                     }
                 }
             },
@@ -207,7 +266,8 @@ internal class AaTerminalTransport(
 
     private fun handleFrame(text: String) {
         val json = runCatching { JSONObject(text) }.getOrNull() ?: return
-        when (json.optString("type")) {
+        val type = json.optString("type")
+        when (type) {
             "output" -> {
                 val seq = json.optLong("seq", -1L)
                 // seq 单调,重复的丢掉 —— 重连补发会让已渲染的内容再发一遍。
@@ -221,13 +281,13 @@ internal class AaTerminalTransport(
                 // 重连补发:server 从 fromSeq 重发,客户端要**先清屏**再整体重写,
                 // 否则屏幕上会变成「旧内容 + 补发内容」的拼接。
                 lastSeq = -1L
-                sink?.invoke("wbTerm && wbTerm.reset()")
+                deliver("wbTerm && wbTerm.reset()")
                 emit(json.optString("data"))
             }
-            "exit" -> onState(
+            "exit" -> emitState(
                 AaTerminalState.Exited(json.optInt("exitCode", 0), json.optString("reason").takeIf { it.isNotBlank() })
             )
-            "error" -> onState(AaTerminalState.Failed(json.optString("message", "未知错误")))
+            "error" -> emitState(AaTerminalState.Failed(json.optString("message", "未知错误")))
         }
     }
 
@@ -243,14 +303,30 @@ internal class AaTerminalTransport(
      */
     private fun emit(base64: String) {
         if (base64.isBlank()) return
-        val target = sink ?: return
-        target("wbTerm && wbTerm.write('$base64')")
+        framesIn += 1
+        deliver("wbTerm && wbTerm.write('$base64')")
+    }
+
+    /**
+     * sink 到位就直接送,没到位就攒着等 [onSinkReady] 补灌。
+     *
+     * 上限 512 条:正常情况下缓冲只攒几十毫秒,这个上限只为「用户一直没打开
+     * 终端页」这种极端情况兜底,免得无限增长。
+     */
+    private fun deliver(js: String) {
+        val target = sink
+        if (target == null) {
+            pending.addLast(js)
+            framesDropped += 1
+            if (pending.size > PENDING_MAX) pending.removeFirst()
+            return
+        }
+        target(js)
     }
 
     /** 往终端流里写一行青色状态横幅(连接中 / 错误原因),不额外占行。 */
     fun banner(text: String) {
-        val target = sink ?: return
         val b64 = Base64.encodeToString(text.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
-        target("wbTerm && wbTerm.banner('$b64')")
+        deliver("wbTerm && wbTerm.banner('$b64')")
     }
 }

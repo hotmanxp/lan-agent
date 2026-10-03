@@ -19,10 +19,12 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import io.github.hotmanxp.lanagent.data.ThemeMode
+import io.github.hotmanxp.lanagent.data.messageFontScaleFlow
 import io.github.hotmanxp.lanagent.data.mermaidRenderFlow
 import io.github.hotmanxp.lanagent.data.themeModeFlow
 import io.github.hotmanxp.lanagent.ui.LanAgentTheme
 import io.github.hotmanxp.lanagent.ui.LocalMermaidEnabled
+import io.github.hotmanxp.lanagent.ui.LocalMessageFontScale
 import io.github.hotmanxp.lanagent.ui.MainScaffold
 
 class MainActivity : ComponentActivity() {
@@ -61,6 +63,10 @@ class MainActivity : ComponentActivity() {
             // Mermaid 开关同样顶层 provide:五个 MarkdownText 调用点一个都不用改,
             // 设置栏翻一下开关,所有会话立刻跟着变。
             val mermaidEnabled by context.mermaidRenderFlow().collectAsState(initial = true)
+            // 对话字号同样顶层 provide:所有走 MarkdownText / 用户气泡 / 工具卡的正文
+            // 读到后乘这个因子,设置栏切档即时生效(无 recreate)。
+            val messageFontScale by context.messageFontScaleFlow()
+                .collectAsState(initial = io.github.hotmanxp.lanagent.data.MessageFontScale.Standard)
             val systemDark = isSystemInDarkTheme()
             LanAgentTheme(
                 darkTheme = when (mode) {
@@ -69,7 +75,10 @@ class MainActivity : ComponentActivity() {
                     ThemeMode.Dark -> true
                 },
             ) {
-                CompositionLocalProvider(LocalMermaidEnabled provides mermaidEnabled) {
+                CompositionLocalProvider(
+                    LocalMermaidEnabled provides mermaidEnabled,
+                    LocalMessageFontScale provides messageFontScale.factor,
+                ) {
                     MainScaffold()
                 }
             }

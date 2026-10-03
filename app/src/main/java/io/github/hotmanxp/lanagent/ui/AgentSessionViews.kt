@@ -186,6 +186,7 @@ internal fun clockOf(ms: Long?): String? = ms?.let { CLOCK.format(Date(it)) }
 @Composable
 internal fun UserBubble(item: AgentItem.UserText) {
     var viewerIndex by remember { mutableStateOf<Int?>(null) }
+    val fontScale = LocalMessageFontScale.current
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.End,
@@ -197,10 +198,11 @@ internal fun UserBubble(item: AgentItem.UserText) {
         ) {
             Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
                 if (item.text.isNotBlank()) {
+                    val bubbleFont = 15.sp * fontScale
                     Text(
                         text = item.text,
-                        fontSize = 15.sp,
-                        lineHeight = 22.sp,
+                        fontSize = bubbleFont,
+                        lineHeight = bubbleFont * 1.45f,
                         modifier = Modifier.padding(horizontal = 2.dp),
                     )
                 }

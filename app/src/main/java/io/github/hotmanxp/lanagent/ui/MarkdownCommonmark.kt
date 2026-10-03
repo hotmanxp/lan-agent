@@ -188,6 +188,9 @@ internal fun CommonmarkText(
 /** 块级节点分发。行内节点在 [inlineAnnotated] 里处理,不到这里。 */
 @Composable
 private fun renderNode(node: org.commonmark.node.Node) {
+    // 0.26.0 对话字号:全局缩放因子(0.85 / 1.0 / 1.15)。一次性读,在本节点
+    // 分支里复用,避免每次 Text() 都触发一次 CompositionLocal 读取。
+    val fontScale = LocalMessageFontScale.current
     when (node) {
         is Heading -> {
             val (size, weight) = when (node.level) {
@@ -196,18 +199,23 @@ private fun renderNode(node: org.commonmark.node.Node) {
                 3 -> 15.sp to FontWeight.SemiBold
                 else -> 14.sp to FontWeight.Medium
             }
+            val scaledSize = size * fontScale
             Text(
                 text = inlineAnnotated(node, linkColor),
-                fontSize = size,
+                fontSize = scaledSize,
                 fontWeight = weight,
-                lineHeight = size * 1.4f,
+                lineHeight = scaledSize * 1.4f,
                 color = MaterialTheme.colorScheme.onSurface,
             )
         }
 
         is Paragraph -> Text(
             text = inlineAnnotated(node, linkColor),
-            style = MaterialTheme.typography.bodyMedium,
+            // bodyMedium 在 Material3 默认 14sp;乘以 fontScale 后落到目标字号。
+            // 这里**不**用 bodyLarge(默认 16sp,起点就大),会和小档叠加超界。
+            style = MaterialTheme.typography.bodyMedium.copy(
+                fontSize = MaterialTheme.typography.bodyMedium.fontSize * fontScale,
+            ),
             color = MaterialTheme.colorScheme.onSurface,
         )
 
@@ -229,7 +237,11 @@ private fun renderNode(node: org.commonmark.node.Node) {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 node.children().filterIsInstance<ListItem>().forEachIndexed { i, item ->
                     Row(modifier = Modifier.padding(start = ((i % 4) * 10).dp)) {
-                        Text("•", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            "•",
+                            fontSize = 14.sp * fontScale,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                         Spacer(Modifier.width(6.dp))
                         Column(Modifier.weight(1f)) { item.children().forEach { renderNode(it) } }
                     }
@@ -243,7 +255,7 @@ private fun renderNode(node: org.commonmark.node.Node) {
                     Row {
                         Text(
                             "${node.startNumber + i}.",
-                            fontSize = 14.sp,
+                            fontSize = 14.sp * fontScale,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Spacer(Modifier.width(6.dp))
@@ -350,9 +362,10 @@ private fun CommonmarkTable(table: TableBlock) {
 
 @Composable
 private fun RowScope.TableCellText(cell: TableCell?, isHeader: Boolean) {
+    val fontScale = LocalMessageFontScale.current
     Text(
         text = cell?.let { inlineAnnotated(it, linkColor) } ?: AnnotatedString(""),
-        fontSize = 12.sp,
+        fontSize = 12.sp * fontScale,
         fontWeight = if (isHeader) FontWeight.SemiBold else FontWeight.Normal,
         color = MaterialTheme.colorScheme.onSurface,
         textAlign = when (cell?.alignment) {

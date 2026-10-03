@@ -57,13 +57,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.hotmanxp.lanagent.BuildConfig
 import io.github.hotmanxp.lanagent.R
+import io.github.hotmanxp.lanagent.data.MessageFontScale
 import io.github.hotmanxp.lanagent.data.ThemeMode
 import io.github.hotmanxp.lanagent.data.cardsFlow
 import io.github.hotmanxp.lanagent.data.compactToolsFlow
+import io.github.hotmanxp.lanagent.data.messageFontScaleFlow
 import io.github.hotmanxp.lanagent.data.mermaidRenderFlow
 import io.github.hotmanxp.lanagent.data.remoteServicesFlow
 import io.github.hotmanxp.lanagent.data.resetCards
 import io.github.hotmanxp.lanagent.data.saveCompactTools
+import io.github.hotmanxp.lanagent.data.saveMessageFontScale
 import io.github.hotmanxp.lanagent.data.saveMermaidRender
 import io.github.hotmanxp.lanagent.data.saveThemeMode
 import io.github.hotmanxp.lanagent.data.sshHostsFlow
@@ -83,6 +86,8 @@ fun SettingsScreen(
     val themeMode by context.themeModeFlow().collectAsState(initial = ThemeMode.System)
     val compactTools by context.compactToolsFlow().collectAsState(initial = true)
     val mermaidRender by context.mermaidRenderFlow().collectAsState(initial = true)
+    val messageFontScale by context.messageFontScaleFlow()
+        .collectAsState(initial = MessageFontScale.Standard)
     val cards by context.cardsFlow().collectAsState(initial = null)
     val hosts by context.sshHostsFlow().collectAsState(initial = emptyList())
     val services by context.remoteServicesFlow().collectAsState(initial = null)
@@ -114,8 +119,8 @@ fun SettingsScreen(
                 }
             }
 
-            // 会话(0.15.2)—— 「工具调用精简模式」+「渲染 Mermaid 流程图」两项。
-            // 放外观后面:两者都是「改了立刻见效」的显示偏好。
+            // 会话(0.15.2)—— 「工具调用精简模式」+「渲染 Mermaid 流程图」+
+            // 「对话字号」(0.26.0)三项。放外观后面:都是「改了立刻见效」的显示偏好。
             item("session") {
                 SettingsCard(title = stringResource(R.string.settings_section_session)) {
                     SettingsSwitchRow(
@@ -129,6 +134,12 @@ fun SettingsScreen(
                         subtitle = stringResource(R.string.settings_mermaid_render_sub),
                         checked = mermaidRender,
                         onCheckedChange = { on -> scope.launch { context.saveMermaidRender(on) } },
+                    )
+                    // 0.26.0 对话字号:三档(小/标准/大),参考 AA 的 compact 二态
+                    // (17sp↔14sp),详见 MessageFontScale 注释。
+                    MessageFontScaleRow(
+                        selected = messageFontScale,
+                        onSelect = { scale -> scope.launch { context.saveMessageFontScale(scale) } },
                     )
                 }
             }
@@ -344,5 +355,72 @@ private fun CountRow(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+    }
+}
+
+/**
+ * 三档对话字号(0.26.0)。横向三个胶囊按钮,选中态用品牌橙底 + 白字,
+ * 未选中态 hairline 边 + onSurfaceVariant 字 —— 与 M3 SegmentedButton 的
+ * 视觉差不大,但**不引入 [androidx.compose.material3.SegmentedButton]**(其
+ * API 在 material3 1.x 里改过两次名,锁版本成本不值),自己用 Surface + Row 拼。
+ */
+@Composable
+private fun MessageFontScaleRow(
+    selected: MessageFontScale,
+    onSelect: (MessageFontScale) -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
+        Text(
+            text = stringResource(R.string.settings_message_font_scale),
+            fontSize = 14.sp,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Text(
+            text = stringResource(R.string.settings_message_font_scale_sub),
+            fontSize = 11.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 2.dp, bottom = 8.dp),
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            MessageFontScale.entries.forEach { scale ->
+                val isSelected = scale == selected
+                val label = stringResource(
+                    when (scale) {
+                        MessageFontScale.Small -> R.string.settings_message_font_scale_small
+                        MessageFontScale.Standard -> R.string.settings_message_font_scale_standard
+                        MessageFontScale.Large -> R.string.settings_message_font_scale_large
+                    }
+                )
+                Surface(
+                    modifier = Modifier
+                        .weight(1f)
+                        .selectable(
+                            selected = isSelected,
+                            role = Role.RadioButton,
+                            onClick = { onSelect(scale) },
+                        ),
+                    shape = RoundedCornerShape(10.dp),
+                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
+                    contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    border = BorderStroke(
+                        width = if (isSelected) 0.dp else 0.5.dp,
+                        color = MaterialTheme.colorScheme.outlineVariant,
+                    ),
+                ) {
+                    Text(
+                        text = label,
+                        fontSize = 13.sp,
+                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 10.dp),
+                    )
+                }
+            }
+        }
     }
 }

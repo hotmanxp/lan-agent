@@ -20,6 +20,7 @@ private val REFRESH_BTN_Y = floatPreferencesKey("refresh_btn_y")
 private val THEME_MODE = stringPreferencesKey("theme_mode")
 private val COMPACT_TOOLS = booleanPreferencesKey("compact_tools")
 private val MERMAID_RENDER = booleanPreferencesKey("mermaid_render")
+private val MESSAGE_FONT_SCALE = stringPreferencesKey("message_font_scale")
 
 /**
  * 主题模式。落盘用 [storageKey] 字符串 —— 枚举名重排/改序都不会让老配置失真,
@@ -100,4 +101,38 @@ fun Context.mermaidRenderFlow(): Flow<Boolean> = uiPrefsDataStore.data.map { pre
 /** 写入 Mermaid 渲染开关。 */
 suspend fun Context.saveMermaidRender(enabled: Boolean) {
     uiPrefsDataStore.edit { prefs -> prefs[MERMAID_RENDER] = enabled }
+}
+
+/**
+ * 会话对话字号(0.26.0)。三级:小 0.85 / 标准 1.0 / 大 1.15 —— 模仿 AA
+ * (AgentsAnywhere,本仓库 `aa/` 子模块)对话 markdown 正文的 `compact` 二态
+ * (`fontSize = if (compact) 14.sp else 17.sp`,见
+ * `aa/ui/screens/sessiondetail/AgentMarkdownText.kt` 的 `markdownStyles`)。
+ * 落盘用 [storageKey] 字符串,枚举名重排/改序都不会让老配置失真;认不出的
+ * 值一律回落 [Standard]。
+ */
+enum class MessageFontScale(val storageKey: String, val factor: Float) {
+    /** 略小。适合「屏幕想多看几行」或视力正常的年轻用户。 */
+    Small("small", 0.85f),
+
+    /** 默认(对齐 AA 非 compact 形态:17sp 落在 14sp base 上 ≈ 1.21×,我们取 1.0 起步,不再放大)。 */
+    Standard("standard", 1.0f),
+
+    /** 略大。 */
+    Large("large", 1.15f);
+
+    companion object {
+        fun fromStorage(raw: String?): MessageFontScale =
+            entries.firstOrNull { it.storageKey == raw } ?: Standard
+    }
+}
+
+/** 字号 Flow。未设置过 = 标准。 */
+fun Context.messageFontScaleFlow(): Flow<MessageFontScale> = uiPrefsDataStore.data.map { prefs ->
+    MessageFontScale.fromStorage(prefs[MESSAGE_FONT_SCALE])
+}
+
+/** 写入字号档位。 */
+suspend fun Context.saveMessageFontScale(scale: MessageFontScale) {
+    uiPrefsDataStore.edit { prefs -> prefs[MESSAGE_FONT_SCALE] = scale.storageKey }
 }

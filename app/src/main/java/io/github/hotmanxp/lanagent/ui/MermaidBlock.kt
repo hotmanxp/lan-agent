@@ -50,6 +50,22 @@ private const val TALL_ASPECT = 0.45f
 internal val LocalMermaidEnabled = staticCompositionLocalOf { true }
 
 /**
+ * 会话对话字号缩放(0.26.0)。由 MainActivity 顶层 provide,所有走
+ * [MarkdownText] / 用户气泡 / 工具卡的正文 Text 读到后乘这个因子决定字号。
+ *
+ * 模仿 AA `aa/ui/screens/sessiondetail/AgentMarkdownText.kt` 的 `compact`
+ * 二态 —— 那里非 compact 是 17sp / compact 是 14sp,17/14 ≈ 1.21。我们落
+ * 三档(0.85 / 1.0 / 1.15),Default=1.0 起步,不再放大。
+ *
+ * 默认 **1.0f**:与 [MessageFontScale.Standard] 一致,首帧不会因为「还没读到偏好」
+ * 而闪一下大号字。
+ *
+ * 用 [staticCompositionLocalOf] 是有意的:整个会话屏幕都用同一个常量,不该因
+ * 重组而频繁重读 DataStore。改字号靠 Activity 重组触发,不是依赖此值更新。
+ */
+internal val LocalMessageFontScale = staticCompositionLocalOf { 1.0f }
+
+/**
  * 这个围栏块是不是 Mermaid 流程图。
  *
  * 只看 `info` 的**第一个词** —— ```` ```mermaid ```` 后面可以跟属性

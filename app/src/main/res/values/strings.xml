@@ -366,6 +366,14 @@
     <!-- Mermaid 流程图渲染:默认开。关掉后 ```mermaid 围栏块显示成普通代码块。 -->
     <string name="settings_mermaid_render">渲染 Mermaid 流程图</string>
     <string name="settings_mermaid_render_sub">会话里的 mermaid 代码块画成流程图;关掉显示成代码块</string>
+    <!-- 对话字号(0.26.0):三档(小/标准/大)。仿 AA `compact` 二态(17sp↔14sp)落
+         三档(0.85 / 1.0 / 1.15),详见 MessageFontScale 注释。只影响正文,
+         工具卡 chrome 不动(对齐 AA 的 compact 只动 markdownStyles.body)。 -->
+    <string name="settings_message_font_scale">对话字号</string>
+    <string name="settings_message_font_scale_sub">任务页会话正文的字号档位,设置后立即生效</string>
+    <string name="settings_message_font_scale_small">小</string>
+    <string name="settings_message_font_scale_standard">标准</string>
+    <string name="settings_message_font_scale_large">大</string>
     <string name="settings_section_data">数据</string>
     <string name="settings_count_cards">入口卡片</string>
     <string name="settings_count_hosts">SSH 主机</string>

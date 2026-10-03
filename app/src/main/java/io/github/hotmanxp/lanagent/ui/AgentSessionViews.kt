@@ -167,10 +167,39 @@ import com.composables.icons.lucide.Table
 import com.composables.icons.lucide.Terminal
 import com.composables.icons.lucide.X
 import com.composables.icons.lucide.Zap
+import com.composables.icons.lucide.Wrench
 
 private val CLOCK = SimpleDateFormat("HH:mm", Locale.getDefault())
 
 internal fun clockOf(ms: Long?): String? = ms?.let { CLOCK.format(Date(it)) }
+
+// Skill 注入的 user 消息以 "Base directory for this skill: <dir>" 起头,
+// 后面是 SKILL.md 全文。正常情况下 AgentSessionStore.hydrateTranscript
+// 会按 entry.isMeta=true 在 line 380 把这条 user.text 整段跳过 —— 但万一
+// isMeta 没落盘、或 vendor 端走了另一条路径(例如 SkillTool 直接
+// createUserMessage 而没走 appendUserMessageV2),这条仍会作为可见
+// user.text 出现在原生对话里,把整套 SKILL.md 渲染成大段灰色气泡,
+// 用户体验上等于"AI 回复完又把 skill 文档贴了一遍"。
+//
+// 渲染层再做一道防御: 见到这个起头就只画一个 Skill 名 pill, 不渲染 body.
+// 与 opencc-web MessageBubble.tsx 的同款实现保持同一语义, 两端的「识别
+// Skill 注入」逻辑都收敛到这一个 helper 上, 后续如果要调整阈值或格式,
+// 改一处即可 —— SkillTool 的写入格式是跨语言稳定的(见 zn-agent-core
+// SkillTool.ts:1086 的 `Base directory for this skill:`)。
+internal data class SkillInvocation(val skillName: String)
+
+internal fun parseSkillInvocation(text: String): SkillInvocation? {
+    val header = "Base directory for this skill: "
+    if (!text.startsWith(header)) return null
+    val rest = text.substring(header.length)
+    val firstLine = rest.substringBefore('\n').trim()
+    if (firstLine.isEmpty()) return null
+    // 路径最后一段, 处理正反斜杠与结尾斜杠。
+    // 不依赖具体目录布局 —— 任何 slash-style 路径都能拿到合法名。
+    val segments = firstLine.split('/', '\\').filter { it.isNotEmpty() }
+    val last = segments.lastOrNull() ?: firstLine
+    return SkillInvocation(skillName = last)
+}
 
 // ===== 用户消息 =====
 
@@ -198,13 +227,58 @@ internal fun UserBubble(item: AgentItem.UserText) {
         ) {
             Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
                 if (item.text.isNotBlank()) {
-                    val bubbleFont = 15.sp * fontScale
-                    Text(
-                        text = item.text,
-                        fontSize = bubbleFont,
-                        lineHeight = bubbleFont * 1.45f,
-                        modifier = Modifier.padding(horizontal = 2.dp),
-                    )
+                    val skillInvocation = parseSkillInvocation(item.text)
+                    if (skillInvocation != null) {
+                        // Skill 注入的内容以 SKILL.md 全文展开 —— 在用户气泡里
+                        // 只渲染一个紧凑 pill: 🔧 Skill · <name>。与 opencc-web
+                        // MessageBubble.tsx 的同款渲染保持对齐, 两端都用「Skill
+                        // 名」一个语义, 不会双份实现多份识别。
+                        //
+                        // 不读 fontScale: 这是 chrome 控件(对齐 §28「故意不动
+                        // 工具卡 chrome」);真实内容由 SkillTool 的 tool_use:done
+                        // 块呈现, 这里只压缩展示。
+                        Surface(
+                                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                contentColor = MaterialTheme.colorScheme.primary,
+                                shape = RoundedCornerShape(50),
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = Lucide.Wrench,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(12.dp),
+                                    )
+                                    Text(
+                                        text = "Skill",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                    Text(
+                                        text = "·",
+                                        fontSize = 11.sp,
+                                        modifier = Modifier.alpha(0.6f),
+                                    )
+                                    Text(
+                                        text = skillInvocation.skillName,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontFamily = FontFamily.Monospace,
+                                    )
+                                }
+                            }
+                    } else {
+                        val bubbleFont = 15.sp * fontScale
+                        Text(
+                            text = item.text,
+                            fontSize = bubbleFont,
+                            lineHeight = bubbleFont * 1.45f,
+                            modifier = Modifier.padding(horizontal = 2.dp),
+                        )
+                    }
                 }
                 // 有 URI 时直接渲染方形缩略图;纯历史(URI 丢了)退化成「N 张图片」文字。
                 if (item.attachmentUris.isNotEmpty()) {

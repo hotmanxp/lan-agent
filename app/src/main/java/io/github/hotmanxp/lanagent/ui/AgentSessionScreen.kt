@@ -455,12 +455,17 @@ fun AgentSessionPane(
     /**
      * 复制用户消息正文(用户气泡左侧那枚复制按钮)。对齐 AA 的 `copyMessageText`:
      * 去掉尾部换行再进剪贴板,给一句「已复制」。
+     *
+     * 文案要在 composable 作用域里读,再被普通函数 copyText 用 —— 不能
+     * 在 copyText 里直接 `stringResource(...)`,那是 @Composable,会编不过。
      */
+    val copiedMessage = stringResource(R.string.agent_bubble_copied)
+
     fun copyText(text: String) {
         val payload = text.trimEnd('\r', '\n')
         if (payload.isBlank()) return
         clipboard.setText(AnnotatedString(payload))
-        toast("已复制")
+        toast(copiedMessage)
     }
 
     /**

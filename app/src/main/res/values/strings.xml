@@ -318,6 +318,8 @@
     <string name="agent_input_paste_sub">把剪贴板里的文本填进输入框</string>
     <string name="agent_input_attachment_cd">附件图片</string>
     <string name="agent_input_remove_attachment">移除附件</string>
+    <string name="agent_bubble_copy_cd">复制消息</string>
+    <string name="agent_bubble_copied">已复制</string>
     <string name="agent_input_send">发送</string>
     <string name="agent_input_stop">停止</string>
     <!-- icon row(输入卡下方一行快捷入口,与 WorkBuddy 对齐) -->

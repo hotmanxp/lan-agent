@@ -87,14 +87,16 @@ internal fun SessionSkeleton(modifier: Modifier = Modifier) {
         }
         Spacer(Modifier.height(10.dp))
 
-        // 用户气泡:右对齐 + 大圆角,和左对齐的正文一眼分得开
+        // 用户气泡:右对齐 + 大圆角,和左对齐的正文一眼分得开。
+        // 22dp 必须跟 UserBubble 的真气泡一致(0.26.2 起)——骨架只占位,
+        // 半径对不上会在 hydrate 那一刻看出一个圆角跳变。
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             SkeletonBlock(
                 Modifier
                     .fillMaxWidth(0.36f)
                     .height(40.dp),
                 bubble,
-                RoundedCornerShape(18.dp),
+                RoundedCornerShape(22.dp),
             )
         }
         Spacer(Modifier.height(10.dp))

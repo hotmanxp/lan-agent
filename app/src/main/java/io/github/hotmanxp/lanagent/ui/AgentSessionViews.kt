@@ -247,7 +247,7 @@ internal fun UserBubble(item: AgentItem.UserText, onCopy: (String) -> Unit) {
                 ) {
                     Icon(
                         imageVector = Lucide.Copy,
-                        contentDescription = "复制消息",
+                        contentDescription = stringResource(R.string.agent_bubble_copy_cd),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(17.dp),
                     )

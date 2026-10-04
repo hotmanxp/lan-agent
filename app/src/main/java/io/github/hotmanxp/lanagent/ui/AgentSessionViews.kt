@@ -214,9 +214,10 @@ internal fun parseSkillInvocation(text: String): SkillInvocation? {
  *   3. 气泡**右贴、宽度随内容**,长文可以占到接近满宽(不设 320dp 上限)。
  *   4. 左侧挂一枚 30dp 圆形**复制按钮**(17dp 图标、灰、底对齐、间距 6dp)——
  *      用户发出去的话经常要原样再喂回 Mac 或另一个会话。
- *   5. 正文 **16.5sp / 行高 1.45**(≈ 24sp,正是 AA 的 `16.5.sp` + `24.sp`)。
- *      `* fontScale` 保留:§28 的三档字号是本项目自己的档位,「标准」档
- *      落在 AA 的尺寸上,小/大档再按比例缩放。
+ *   5. 正文 **15sp / 行高 1.45**。**故意不抄 AA 的 16.5sp** —— AA 的正文
+ *      比本项目大一档,16.5 在那边是「与正文齐平」,搬过来会让用户自己说的
+ *      话比 AI 的回复还大一号(本项目正文是 `bodyMedium` 14sp)。`* fontScale`
+ *      保留:§28 的三档字号照常生效,「标准」档落在 15sp。
  *
  * 复制按钮**只在有真实正文时出现** —— Skill 注入那条只渲染 pill(复制整份
  * SKILL.md 毫无意义),纯图片消息也没有可复制的文字。
@@ -303,9 +304,11 @@ internal fun UserBubble(item: AgentItem.UserText, onCopy: (String) -> Unit) {
                                 }
                             }
                         } else {
-                            // 16.5sp × 1.45 ≈ 24sp 行高 —— 「标准」档与 AA 的
-                            // `16.5.sp` + `24.sp` 完全对上,小/大档再按 §28 缩放。
-                            val bubbleFont = 16.5.sp * fontScale
+                            // 15sp —— **不要照抄 AA 的 16.5sp**:那边的正文比本项目
+                            // 大一档,16.5 在 AA 里是「与正文齐平」,搬过来会让
+                            // 用户自己说的话比 AI 的回复还大一号(本项目正文是
+                            // `bodyMedium` 14sp,15sp 才是那个 +1sp 的关系)。
+                            val bubbleFont = 15.sp * fontScale
                             Text(
                                 text = item.text,
                                 fontSize = bubbleFont,

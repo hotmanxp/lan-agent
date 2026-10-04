@@ -153,6 +153,7 @@ import com.composables.icons.lucide.ChevronDown
 import com.composables.icons.lucide.ChevronUp
 import com.composables.icons.lucide.ClipboardPaste
 import com.composables.icons.lucide.Code
+import com.composables.icons.lucide.Copy
 import com.composables.icons.lucide.File
 import com.composables.icons.lucide.FileText
 import com.composables.icons.lucide.FileText
@@ -204,40 +205,71 @@ internal fun parseSkillInvocation(text: String): SkillInvocation? {
 // ===== 用户消息 =====
 
 /**
- * 用户消息气泡。对齐 WorkBuddy 手机端的三条硬特征:
- *   1. **中性浅灰底**(`#E2E4E3`),不是品牌绿 —— 青绿只给发送按钮。
- *      上一版用 `primaryContainer`(薄荷绿),整屏跟 WorkBuddy 放在一起
- *      一眼就能看出不是同一个产品。
- *   2. **四角同半径**(18dp)。上一版右下角是 4dp 的「小尖角」(IM 常见尾巴),
- *      WorkBuddy 没有尾巴。
+ * 用户消息气泡。对齐 AA 会话页(`aa/ui/screens/sessiondetail/SessionMessages.kt`
+ * 的 `UserBubble`)的五条硬特征:
+ *   1. **中性浅灰底**(`WbPalette.BubbleLight` = AA 的 `sessionMessageBubble`),
+ *      不是品牌绿 —— 品牌橙只给发送按钮。上一版用 `primaryContainer`(薄荷绿),
+ *      整屏跟 WorkBuddy 放在一起一眼就能看出不是同一个产品。
+ *   2. **四角同半径**(22dp)。没有 IM 常见的小尖角,WorkBuddy / AA 都没有。
  *   3. 气泡**右贴、宽度随内容**,长文可以占到接近满宽(不设 320dp 上限)。
+ *   4. 左侧挂一枚 30dp 圆形**复制按钮**(17dp 图标、灰、底对齐、间距 6dp)——
+ *      用户发出去的话经常要原样再喂回 Mac 或另一个会话。
+ *   5. 正文 **16.5sp / 行高 1.45**(≈ 24sp,正是 AA 的 `16.5.sp` + `24.sp`)。
+ *      `* fontScale` 保留:§28 的三档字号是本项目自己的档位,「标准」档
+ *      落在 AA 的尺寸上,小/大档再按比例缩放。
+ *
+ * 复制按钮**只在有真实正文时出现** —— Skill 注入那条只渲染 pill(复制整份
+ * SKILL.md 毫无意义),纯图片消息也没有可复制的文字。
  */
 @Composable
-internal fun UserBubble(item: AgentItem.UserText) {
+internal fun UserBubble(item: AgentItem.UserText, onCopy: (String) -> Unit) {
     var viewerIndex by remember { mutableStateOf<Int?>(null) }
     val fontScale = LocalMessageFontScale.current
+    val skillInvocation = if (item.text.isNotBlank()) parseSkillInvocation(item.text) else null
+    val copyableText = item.text.takeIf { it.isNotBlank() && skillInvocation == null }
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.End,
     ) {
-        Surface(
-            color = LocalWbExtras.current.userBubble,
-            contentColor = MaterialTheme.colorScheme.onSurface,
-            shape = RoundedCornerShape(18.dp),
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.Bottom,
         ) {
-            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
-                if (item.text.isNotBlank()) {
-                    val skillInvocation = parseSkillInvocation(item.text)
-                    if (skillInvocation != null) {
-                        // Skill 注入的内容以 SKILL.md 全文展开 —— 在用户气泡里
-                        // 只渲染一个紧凑 pill: 🔧 Skill · <name>。与 opencc-web
-                        // MessageBubble.tsx 的同款渲染保持对齐, 两端都用「Skill
-                        // 名」一个语义, 不会双份实现多份识别。
-                        //
-                        // 不读 fontScale: 这是 chrome 控件(对齐 §28「故意不动
-                        // 工具卡 chrome」);真实内容由 SkillTool 的 tool_use:done
-                        // 块呈现, 这里只压缩展示。
-                        Surface(
+            if (copyableText != null) {
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .clip(CircleShape)
+                        .noRippleClickable { onCopy(copyableText) }
+                        .padding(bottom = 3.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Lucide.Copy,
+                        contentDescription = "复制消息",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(17.dp),
+                    )
+                }
+            }
+            Surface(
+                color = LocalWbExtras.current.userBubble,
+                contentColor = MaterialTheme.colorScheme.onSurface,
+                shape = RoundedCornerShape(22.dp),
+            ) {
+                Column(modifier = Modifier.padding(horizontal = 17.dp, vertical = 13.dp)) {
+                    if (item.text.isNotBlank()) {
+                        if (skillInvocation != null) {
+                            // Skill 注入的内容以 SKILL.md 全文展开 —— 在用户气泡里
+                            // 只渲染一个紧凑 pill: 🔧 Skill · <name>。与 opencc-web
+                            // MessageBubble.tsx 的同款渲染保持对齐, 两端都用「Skill
+                            // 名」一个语义, 不会双份实现多份识别。
+                            //
+                            // 不读 fontScale: 这是 chrome 控件(对齐 §28「故意不动
+                            // 工具卡 chrome」);真实内容由 SkillTool 的 tool_use:done
+                            // 块呈现, 这里只压缩展示。复制按钮同理不出现在 pill 上。
+                            Surface(
                                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
                                 contentColor = MaterialTheme.colorScheme.primary,
                                 shape = RoundedCornerShape(50),
@@ -270,31 +302,34 @@ internal fun UserBubble(item: AgentItem.UserText) {
                                     )
                                 }
                             }
-                    } else {
-                        val bubbleFont = 15.sp * fontScale
+                        } else {
+                            // 16.5sp × 1.45 ≈ 24sp 行高 —— 「标准」档与 AA 的
+                            // `16.5.sp` + `24.sp` 完全对上,小/大档再按 §28 缩放。
+                            val bubbleFont = 16.5.sp * fontScale
+                            Text(
+                                text = item.text,
+                                fontSize = bubbleFont,
+                                lineHeight = bubbleFont * 1.45f,
+                                modifier = Modifier.padding(horizontal = 2.dp),
+                            )
+                        }
+                    }
+                    // 有 URI 时直接渲染方形缩略图;纯历史(URI 丢了)退化成「N 张图片」文字。
+                    if (item.attachmentUris.isNotEmpty()) {
+                        if (item.text.isNotBlank()) Spacer(Modifier.height(8.dp))
+                        UserImageGrid(
+                            uris = item.attachmentUris,
+                            onTap = { idx -> viewerIndex = idx },
+                        )
+                    } else if (item.attachments > 0) {
+                        if (item.text.isNotBlank()) Spacer(Modifier.height(6.dp))
                         Text(
-                            text = item.text,
-                            fontSize = bubbleFont,
-                            lineHeight = bubbleFont * 1.45f,
+                            text = "${item.attachments} 张图片",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(horizontal = 2.dp),
                         )
                     }
-                }
-                // 有 URI 时直接渲染方形缩略图;纯历史(URI 丢了)退化成「N 张图片」文字。
-                if (item.attachmentUris.isNotEmpty()) {
-                    if (item.text.isNotBlank()) Spacer(Modifier.height(8.dp))
-                    UserImageGrid(
-                        uris = item.attachmentUris,
-                        onTap = { idx -> viewerIndex = idx },
-                    )
-                } else if (item.attachments > 0) {
-                    if (item.text.isNotBlank()) Spacer(Modifier.height(6.dp))
-                    Text(
-                        text = "${item.attachments} 张图片",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 2.dp),
-                    )
                 }
             }
         }
@@ -1249,6 +1284,7 @@ internal fun ToolGroupCard(
     listState: LazyListState,
     onOpenFile: (PresentedFile) -> Unit,
     onReveal: (PresentedFile) -> Unit,
+    onCopy: (String) -> Unit,
 ) {
     val anchor = rememberCardTopAnchor()
     var expanded by remember(groupKey) { mutableStateOf(false) }
@@ -1332,7 +1368,7 @@ internal fun ToolGroupCard(
         }
         if (expanded) {
             // 按 transcript 原顺序铺开 —— 工具卡与思考卡交错,跟不聚合时的顺序一致。
-            members.forEach { AgentItemView(it, api, listState, onOpenFile, onReveal) }
+            members.forEach { AgentItemView(it, api, listState, onOpenFile, onReveal, onCopy) }
         }
     }
 }

@@ -65,10 +65,11 @@ object WbPalette {
 
     /**
      * 用户消息气泡底色。**这是 WorkBuddy 与常见「绿色气泡」IM 的分水岭** ——
-     * WorkBuddy 手机端的用户气泡是中性浅灰(不是品牌绿),品牌平安橙只留给
-     * 发送按钮/主按钮。采样值 #E2E4E3。
+     * WorkBuddy 手机端的用户气泡是中性浅灰(不是品牌绿),品牌橙只留给
+     * 发送按钮/主按钮。值取自 AA 会话页 `AAColors.sessionMessageBubble` 亮色
+     * (0.26.2 起两屏并排看是同一个色)。
      */
-    val BubbleLight = Color(0xFFE2E4E3)
+    val BubbleLight = Color(0xFFF1F0ED)
 
     /** 「发送」按钮的禁用态底色(WorkBuddy 空输入时那个浅蓝灰圆钮)。 */
     val SendDisabledLight = Color(0xFFE0E3E8)
@@ -87,7 +88,8 @@ object WbPalette {
     val InkMutedDark = Color(0xFF9AA0A8)
     val HairlineDark = Color(0xFF2B2D31)
     val SunkenDark = Color(0xFF26282C)
-    val BubbleDark = Color(0xFF2A2D2C)
+    /** 气泡底色暗色版,同 [BubbleLight] 取自 AA `sessionMessageBubble` 暗色。 */
+    val BubbleDark = Color(0xFF2A2A2A)
     val SendDisabledDark = Color(0xFF34383D)
 
     /** 骨架屏占位条底色(暗色版),理由同 [SkeletonLineLight]。 */

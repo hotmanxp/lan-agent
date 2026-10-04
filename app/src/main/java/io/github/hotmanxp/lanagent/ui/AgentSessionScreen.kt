@@ -94,9 +94,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -196,6 +198,7 @@ fun AgentSessionPane(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
+    val clipboard = LocalClipboardManager.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val listState = rememberLazyListState()
 
@@ -447,6 +450,17 @@ fun AgentSessionPane(
     /** 失败提示 —— 红边 + 警示图标(0.22.0)。 */
     fun toastError(msg: String) {
         scope.launch { snackbarHostState.showErrorToast(msg) }
+    }
+
+    /**
+     * 复制用户消息正文(用户气泡左侧那枚复制按钮)。对齐 AA 的 `copyMessageText`:
+     * 去掉尾部换行再进剪贴板,给一句「已复制」。
+     */
+    fun copyText(text: String) {
+        val payload = text.trimEnd('\r', '\n')
+        if (payload.isBlank()) return
+        clipboard.setText(AnnotatedString(payload))
+        toast("已复制")
     }
 
     /**
@@ -1039,6 +1053,7 @@ fun AgentSessionPane(
                                             onReveal = { file ->
                                                 api?.let { revealOnMac(it, file.path) }
                                             },
+                                            onCopy = { text -> copyText(text) },
                                         )
                                     }
                                 }
@@ -1685,6 +1700,7 @@ private fun statusLabel(status: AgentRunStatus): String = when (status) {
  *   null = 实例还没解析出来(元数据照常渲染,只是点不开)。
  * @param onOpenFile 点文件 → 打开会话面板内的预览层(见 ui/FileViewerOverlay.kt)。
  * @param onReveal 点 📂 → 在 Mac 上打开该文件所在目录(`POST /api/fs/reveal`)。
+ * @param onCopy 复制用户消息正文(用户气泡左侧那枚复制按钮)。
  */
 @Composable
 internal fun AgentItemView(
@@ -1693,9 +1709,10 @@ internal fun AgentItemView(
     listState: LazyListState,
     onOpenFile: (PresentedFile) -> Unit,
     onReveal: (PresentedFile) -> Unit,
+    onCopy: (String) -> Unit,
 ) {
     when (item) {
-        is AgentItem.UserText -> UserBubble(item)
+        is AgentItem.UserText -> UserBubble(item, onCopy)
         is AgentItem.AssistantText -> AssistantBubble(item)
         is AgentItem.Thinking -> ThinkingBubble(item, listState)
         // `PresentFile` 是**自包含展示类**工具:卡片自己就是内容(图片 / 文本
@@ -1729,10 +1746,11 @@ private fun AgentBlockView(
     listState: LazyListState,
     onOpenFile: (PresentedFile) -> Unit,
     onReveal: (PresentedFile) -> Unit,
+    onCopy: (String) -> Unit,
 ) {
     when (block) {
         is AgentBlock.Single ->
-            items.getOrNull(block.index)?.let { AgentItemView(it, api, listState, onOpenFile, onReveal) }
+            items.getOrNull(block.index)?.let { AgentItemView(it, api, listState, onOpenFile, onReveal, onCopy) }
 
         is AgentBlock.ToolGroup -> ToolGroupCard(
             members = block.indices.mapNotNull { items.getOrNull(it) },
@@ -1741,6 +1759,7 @@ private fun AgentBlockView(
             listState = listState,
             onOpenFile = onOpenFile,
             onReveal = onReveal,
+            onCopy = onCopy,
         )
 
         is AgentBlock.Artifacts ->

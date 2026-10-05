@@ -69,6 +69,35 @@ class SlashCommandsTest {
         assertEquals("第一行\n第二行", input.args)
     }
 
+    // ===== `+` 面板插入 =====
+
+    @Test
+    fun `prepend puts command at front so existing text becomes args`() {
+        // 关键不变量:插完之后整段**必须**还能被 parseSlashInput 认成一条调用 ——
+        // 否则点发送会走普通消息分支,用户看到一串 `/xxx` 被原样发给模型。
+        val merged = prependSlashToken("帮我看看这段 bug", "commit")
+        assertEquals("/commit 帮我看看这段 bug ", merged)
+        val parsed = assertNotNull(parseSlashInput(merged), "插入后必须仍是合法命令调用")
+        assertEquals("commit", parsed.name)
+        assertEquals("帮我看看这段 bug", parsed.args)
+    }
+
+    @Test
+    fun `prepend on empty input leaves a trailing space for arguments`() {
+        assertEquals("/clear ", prependSlashToken("", "clear"))
+        // 全空白(用户点过输入框又删了)等价于空 —— 不能留下「/clear  」。
+        assertEquals("/clear ", prependSlashToken("   ", "clear"))
+        assertEquals("/clear ", prependSlashToken("\n  \t", "clear"))
+    }
+
+    @Test
+    fun `prepend trims surrounding blanks and keeps plugin name intact`() {
+        assertEquals("/commit 修一下 ", prependSlashToken("   修一下   ", "commit"))
+        // 插件项的名字带 `:` —— 整段当名字用,不能被切开。
+        val plugin = prependSlashToken("整理下", "plugin:superpowers:commit")
+        assertEquals("plugin:superpowers:commit", assertNotNull(parseSlashInput(plugin)).name)
+    }
+
     // ===== 模糊过滤 =====
 
     private val sample = listOf(

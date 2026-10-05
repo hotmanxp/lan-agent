@@ -311,7 +311,10 @@
     <string name="agent_input_voice">语音输入</string>
     <!-- 0.16.5:语音模式激活后,左下角换成键盘图标,点它切回打字模式 -->
     <string name="agent_input_keyboard">切回打字</string>
-    <string name="agent_input_more">添加图片或粘贴</string>
+    <string name="agent_input_more">添加图片、粘贴或命令</string>
+    <!-- 0.26.4:`+` 面板补「命令与技能」浏览入口(对齐 web 端 `+` 的 QuickCommandPopover) -->
+    <string name="agent_input_commands">命令与技能</string>
+    <string name="agent_input_commands_sub">浏览全部指令与 Skill，插入输入框</string>
     <string name="agent_input_add_image">添加图片</string>
     <string name="agent_input_add_image_sub">从相册选，压缩后作为附件发送</string>
     <string name="agent_input_paste">粘贴剪贴板</string>
@@ -433,6 +436,9 @@
     <string name="agent_slash_badge_skill">技能</string>
     <string name="agent_slash_badge_command_plugin">%1$s · 命令</string>
     <string name="agent_slash_badge_skill_plugin">%1$s · 技能</string>
+    <!-- `+` → 命令与技能 浏览层(0.26.4) -->
+    <string name="agent_slash_picker_title">命令与技能</string>
+    <string name="agent_slash_picker_search">搜索命令或技能</string>
     <string name="agent_cmd_cleared">已清空当前对话</string>
     <string name="agent_cmd_compacted">已压缩 %1$d 条消息</string>
     <string name="agent_cmd_unknown">未找到命令 %1$s</string>

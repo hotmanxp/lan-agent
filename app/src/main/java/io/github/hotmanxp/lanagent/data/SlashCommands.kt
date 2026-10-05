@@ -205,6 +205,25 @@ fun parseSlashInput(text: String): SlashInput? {
 }
 
 /**
+ * 从 `+` 面板(浏览入口)点选一条候选时,把 `/name ` 插到输入串**最前面** ——
+ * 用户已经写好的文字顺势变成命令参数(`/commit 帮我把这个提交了`)。
+ *
+ * **为什么插最前面而不是追加末尾**:执行闸在 [parseSlashInput](整段必须以
+ * `/` 开头)。追加到「帮我看看这段 bug」后面,整段不以 `/` 开头,点发送会走
+ * `send()` 的普通消息分支,原样把 `/xxx 帮我看看这段 bug` 发给模型 —— 用户
+ * 看到的是一串看不懂的斜杠命令。插最前面则整段仍是**一条合法调用**,而且
+ * 「用这个 skill 处理我刚写的话」正是点选 skill 的自然心智。
+ *
+ * 尾部那个空格是留给用户接参数的落点(参数写完点发送,[parseSlashInput] 自己
+ * 会 trim),与 web 端 `commitDraft("/" + name + " ")` 一致。
+ */
+fun prependSlashToken(value: String, name: String): String {
+    val token = "/$name "
+    val rest = value.trim()
+    return if (rest.isEmpty()) token else token + rest + " "
+}
+
+/**
  * 面板过滤/排序。返回条数上限 [limit]。
  *
  * **打分与分段规则逐行对齐 web 端 `AgentInputBox.filteredSlash`

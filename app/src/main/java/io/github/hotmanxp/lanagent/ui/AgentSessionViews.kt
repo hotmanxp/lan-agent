@@ -136,6 +136,7 @@ import io.github.hotmanxp.lanagent.data.displayDetail
 import io.github.hotmanxp.lanagent.data.displayName
 import io.github.hotmanxp.lanagent.data.filterSlashItems
 import io.github.hotmanxp.lanagent.data.parseSlashInput
+import io.github.hotmanxp.lanagent.data.prependSlashToken
 import io.github.hotmanxp.lanagent.data.tupleKey
 import io.github.hotmanxp.lanagent.voice.HoldPhase
 import io.github.hotmanxp.lanagent.voice.HoldToTalkCapsule
@@ -2464,6 +2465,9 @@ private fun slashQueryOf(value: String): String? {
     return body
 }
 
+/** `+` 弹层的两页:主菜单,以及点「命令与技能」进去的清单页。 */
+private enum class MorePage { MENU, SLASH }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun AgentInputBar(
@@ -2510,6 +2514,13 @@ internal fun AgentInputBar(
     onRunSlash: (SlashItem) -> Unit,
 ) {
     var showMoreMenu by remember { mutableStateOf(false) }
+    // `+` 弹层的两页。**一个 ModalBottomSheet 切内容**,不是套第二个:
+    // 同一帧开关两个 Dialog 会丢进出场动画、还可能闪一下。
+    var morePage by remember { mutableStateOf(MorePage.MENU) }
+    // 清单页选中后要把焦点抢回输入框,但必须等 sheet 从 composition 里摘掉
+    // 之后 —— 还开着(带遮罩)的 sheet 会把 requestFocus 吞掉。所以记个意图,
+    // 由下面的 LaunchedEffect 在收起后的那一帧执行。
+    var refocusInput by remember { mutableStateOf(false) }
     var showModelPicker by remember { mutableStateOf(false) }
     // 语音模式两段式：点语音图标 → 输入框区域变成「按住 说话」大胶囊（WorkBuddy
     // 同款）；识别完成由 `holdToTalk.onResult` 直接 send() 自动发出，胶囊不自动
@@ -2604,6 +2615,22 @@ internal fun AgentInputBar(
             }
         }
         return false
+    }
+
+    // 清单页选中 → 关闭 sheet → 把焦点(和软键盘)抢回输入框。见 [refocusInput]。
+    LaunchedEffect(refocusInput, showMoreMenu) {
+        if (refocusInput && !showMoreMenu) {
+            refocusInput = false
+            runCatching { focusRequester.requestFocus() }
+        }
+    }
+
+    // 每次关掉 `+` 弹层都退回主菜单页。不重置的话,用户在清单页选完一条
+    // 下次点 `+` 会**直接落在清单页** —— 主菜单(图片 / 粘贴)整个被跳过,
+    // 同一个 `+` 两次打开是两张脸。sheet 关闭的路径不止一条(选中 / 外部下滑 /
+    // onDismiss),挂在这里一次兜住。
+    LaunchedEffect(showMoreMenu) {
+        if (!showMoreMenu) morePage = MorePage.MENU
     }
 
     // 有内容才让发送钮「亮」起来。注意:圆钮**始终渲染**,只是禁用态换颜色 ——
@@ -2830,26 +2857,59 @@ internal fun AgentInputBar(
             onDismissRequest = { showMoreMenu = false },
             sheetState = sheetState,
         ) {
-            Column(modifier = Modifier.navigationBarsPadding()) {
-                InputSheetAction(
-                    icon = Lucide.ImagePlus,
-                    title = stringResource(R.string.agent_input_add_image),
-                    subtitle = stringResource(R.string.agent_input_add_image_sub),
-                    onClick = {
-                        showMoreMenu = false
-                        onPickImage()
-                    },
-                )
-                InputSheetAction(
-                    icon = Lucide.ClipboardPaste,
-                    title = stringResource(R.string.agent_input_paste),
-                    subtitle = stringResource(R.string.agent_input_paste_sub),
-                    onClick = {
-                        showMoreMenu = false
-                        onPaste()
-                    },
-                )
-                Spacer(Modifier.height(8.dp))
+            when (morePage) {
+                MorePage.MENU -> Column(modifier = Modifier.navigationBarsPadding()) {
+                    // 「命令与技能」排在图片/粘贴**上面**:它是这套 `+` 里唯一的
+                    // 「往输入框里加东西」的动作,用户想 skill 时第一眼要找它。
+                    // **拿不到清单就不渲染这一项** —— 与 `/` 面板同一态度
+                    // (拉 /api/slash 失败会降级成空列表),别给一个点开是空的入口。
+                    if (slashItems.isNotEmpty()) {
+                        InputSheetAction(
+                            icon = Lucide.Terminal,
+                            title = stringResource(R.string.agent_input_commands),
+                            subtitle = stringResource(R.string.agent_input_commands_sub),
+                            onClick = { morePage = MorePage.SLASH },
+                        )
+                    }
+                    InputSheetAction(
+                        icon = Lucide.ImagePlus,
+                        title = stringResource(R.string.agent_input_add_image),
+                        subtitle = stringResource(R.string.agent_input_add_image_sub),
+                        onClick = {
+                            showMoreMenu = false
+                            onPickImage()
+                        },
+                    )
+                    InputSheetAction(
+                        icon = Lucide.ClipboardPaste,
+                        title = stringResource(R.string.agent_input_paste),
+                        subtitle = stringResource(R.string.agent_input_paste_sub),
+                        onClick = {
+                            showMoreMenu = false
+                            onPaste()
+                        },
+                    )
+                    Spacer(Modifier.height(8.dp))
+                }
+
+                MorePage.SLASH -> {
+                    // 返回键先回主菜单,而不是把整个 sheet 甩掉(用户在清单里
+                    // 误按返回多半是想退回上一层)。内层 BackHandler 后注册先赢,
+                    // 自然压在 AgentSessionScreen 那个之上。
+                    BackHandler { morePage = MorePage.MENU }
+                    SlashPickerSheet(
+                        items = slashItems,
+                        loading = slashLoading,
+                        onBack = { morePage = MorePage.MENU },
+                        onPick = { item ->
+                            // 插到**最前面**,已有文字顺势变成命令参数 —— 见
+                            // prependSlashToken 的注释。纯插入,不自动执行。
+                            onValueChange(prependSlashToken(value, item.name))
+                            showMoreMenu = false
+                            refocusInput = true
+                        },
+                    )
+                }
             }
         }
     }

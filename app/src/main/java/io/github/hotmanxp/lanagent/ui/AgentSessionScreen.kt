@@ -92,6 +92,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -118,7 +119,9 @@ import io.github.hotmanxp.lanagent.data.AgentApi
 import io.github.hotmanxp.lanagent.data.AgentInstance
 import io.github.hotmanxp.lanagent.data.AgentSessionMeta
 import io.github.hotmanxp.lanagent.data.AttachedImage
+import io.github.hotmanxp.lanagent.data.FileUploads
 import io.github.hotmanxp.lanagent.data.InstancesApi
+import io.github.hotmanxp.lanagent.data.mergeIntoInput
 import io.github.hotmanxp.lanagent.data.CMD_TYPE_CLEARED
 import io.github.hotmanxp.lanagent.data.CMD_TYPE_COMPACTED
 import io.github.hotmanxp.lanagent.data.CMD_TYPE_ERROR
@@ -782,6 +785,40 @@ fun AgentSessionPane(
         }
     }
 
+    // 「文件」方砖(0.27.0):选文档 → POST /api/fs/upload 换回 Mac 上的绝对路径
+    // → 塞进输入框。**不产生附件 chip** —— 这条通道只往输入框塞文本,不进
+    // attachments,所以没有 MAX_COUNT / 缩略图那套。
+    //
+    // 走 octet-stream 流式上传(0.27.1 起),字节由 OkHttp 边读边写,
+    // 内存 O(1) —— 大文件不会把 App 的堆撑爆,也没有 14 MB 的客户端预检。
+    //
+    // OpenDocument 不需要任何存储权限:拿到的 URI 自带本次读授权,且我们读一次
+    // 就上传完了,不持有(所以不 takePersistableUriPermission)。
+    // `arrayOf("*/*")` = 不按 MIME 过滤(SAF 的空数组就是「全部」,写出来更清楚)。
+    var fileRefocusTick by remember { mutableIntStateOf(0) }
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val agentApi = api
+        if (agentApi == null) {
+            toast("还没连上实例,没法上传文件")
+            return@rememberLauncherForActivityResult
+        }
+        scope.launch {
+            runCatching {
+                val picked = FileUploads.meta(context, uri)
+                val res = agentApi.uploadFile(context.contentResolver, picked)
+                res.absPath ?: throw IllegalStateException(res.error ?: "服务端没返回文件地址")
+            }
+                .onSuccess { absPath ->
+                    input = mergeIntoInput(input, absPath)
+                    fileRefocusTick++
+                }
+                .onFailure { toast("上传文件失败:${it.message ?: it}") }
+        }
+    }
+
     // 语音输入：走系统 SpeechRecognizer，识别结果回填到输入框。
     // onMessage 里的 toast 会在识别服务的异步回调里被调到，所以走 toast()
     // 而不是直接改 state。
@@ -1281,6 +1318,8 @@ fun AgentSessionPane(
                                     }
                                 },
                                 onPaste = { pasteFromClipboard() },
+                                onPickFile = { filePickerLauncher.launch(arrayOf("*/*")) },
+                                refocusTick = fileRefocusTick,
                                 currentModel = currentModel,
                                 availableModels = availableModels,
                                 onModelChange = { picked ->

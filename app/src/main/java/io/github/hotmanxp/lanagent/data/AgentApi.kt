@@ -18,6 +18,7 @@
 //   GET  /api/fs/preview?path=                   fs.ts:1043  文件预览(PresentFile)
 //   GET  /api/fs/raw?path=                       fs.ts:1183  原始字节(图片,≤10 MiB)
 //   POST /api/fs/reveal                          fs.ts:1125  在 Mac 上打开所在目录
+//   POST /api/fs/upload                          fs.ts:657   上传副本换绝对路径(文件附件)
 //   GET  /api/event?sid=<sid>                    routes/event.ts:44  SSE
 //   GET  /api/slash                              slash.ts:7   命令 + skill 清单
 //   POST /api/agent/command                      command.ts:36 执行/展开一条命令
@@ -37,6 +38,8 @@
 //      重连时不过滤。这正是「先 hydrate transcript,再连 SSE」的顺序依据。
 package io.github.hotmanxp.lanagent.data
 
+import android.content.ContentResolver
+import android.net.Uri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -50,10 +53,13 @@ import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 import kotlinx.serialization.json.addJsonObject
 import okhttp3.Call
+import okhttp3.MediaType
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
+import okio.BufferedSink
 import java.io.IOException
 import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
@@ -408,6 +414,33 @@ class AgentApi(
             request("/api/fs/reveal").postJson(buildJsonObject { put("path", path) })
         ).ok
 
+    /**
+     * `POST /api/fs/upload` —— 把文件副本落到 `~/.zai/uploads/`,返回副本的
+     * **绝对路径**(`fs.ts:739`)。
+     *
+     * 「文件」附件通道的落点:路径随后作为纯文本内嵌进用户消息发给模型,
+     * 模型用自己的 Read 工具去读 —— 不走 `contentBlocks`(那条路对
+     * OpenAI 系 provider 会静默丢块,见 data/FileUpload.kt 头部注释)。
+     *
+     * 走 **octet-stream 流式分支**:body 就是文件的原始字节,由
+     * [ContentUriRequestBody] 边读边写 socket,内存 O(1);文件名走
+     * `X-File-Name` 头。这条路绕开 `express.json` 的 20mb 全局闸(服务端
+     * 自己按 1 GiB 拦),所以不受 14 MB 限制。
+     *
+     * 服务端对超限 / 非法文件名回 4xx,`execute` 会把它包成 [HttpException]
+     * 带服务端那句人话 error,调用方直接 toast 即可。
+     */
+    suspend fun uploadFile(
+        resolver: ContentResolver,
+        file: PickedFile,
+    ): FsUploadResult = withContext(Dispatchers.IO) {
+        val req = request("/api/fs/upload")
+            .header("X-File-Name", uploadFileNameHeader(file.name))
+            .post(ContentUriRequestBody(resolver, file.uri, file.byteSize))
+            .build()
+        execute(req)
+    }
+
     // ===== SSE =====
 
     /**
@@ -560,5 +593,46 @@ internal fun promptRequestBody(
                 }
             }
         }
+    }
+}
+
+/**
+ * 把 `content://` Uri 边读边写进请求体的流式 body。
+ *
+ * **为什么不用 `ByteArray.toRequestBody()`**:那要求先把整个文件读进内存,
+ * 一个 500 MB 的包就是一次 OOM(base64 那版还要再乘 1.33)。这里 `writeTo`
+ * 被 OkHttp 调用时只持有一个 64 KB 块,读多少写多少,内存与文件大小无关。
+ *
+ * OkHttp 的约定:`contentLength()` 返回 -1 时发 `Transfer-Encoding: chunked`,
+ * 服务端 express 照单全收(不依赖 Content-Length),所以 provider 没给
+ * 大小也不影响。
+ */
+internal class ContentUriRequestBody(
+    private val resolver: ContentResolver,
+    private val uri: Uri,
+    private val declaredSize: Long,
+) : RequestBody() {
+
+    override fun contentType(): MediaType = "application/octet-stream".toMediaType()
+
+    override fun contentLength(): Long = declaredSize
+
+    override fun writeTo(sink: BufferedSink) {
+        val stream = resolver.openInputStream(uri)
+            ?: throw IOException("读不到文件内容:$uri")
+        stream.use { input ->
+            val buf = ByteArray(CHUNK_BYTES)
+            while (true) {
+                val n = input.read(buf)
+                if (n < 0) break
+                // declaredSize 不可信时(provider 可能撒谎)也不校验 —— 服务端
+                // 那边有 1 GiB 的计数闸,超了会回 413,不必在客户端重复一遍。
+                sink.write(buf, 0, n)
+            }
+        }
+    }
+
+    private companion object {
+        const val CHUNK_BYTES = 64 * 1024
     }
 }

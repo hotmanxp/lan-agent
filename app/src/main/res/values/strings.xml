@@ -321,6 +321,11 @@
     <string name="agent_input_sheet_close_cd">关闭</string>
     <string name="agent_input_take_photo">拍照</string>
     <string name="agent_input_pick_photo">相册</string>
+    <!-- 0.27.0:顶部补第三块方砖「文件」—— 选文档上传到 Mac,拿回绝对路径
+         内嵌进输入框(对齐 web 端拖文件的 `/api/fs/upload` 路径)。
+         失败文案由 data/FileUpload.kt 拼,跟同屏「最多只能带 N 张图片」一样
+         走硬编码,不进 strings。 -->
+    <string name="agent_input_pick_file">文件</string>
     <string name="agent_camera_close_cd">关闭取景框</string>
     <string name="agent_camera_flip_cd">切换前后摄像头</string>
     <string name="agent_camera_failed">拍照失败</string>

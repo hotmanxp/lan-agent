@@ -2489,7 +2489,23 @@ internal fun AgentInputBar(
     onPickImage: () -> Unit,
     /** 打开全屏取景框。与 [onPickImage] 共用同一份 attachments 管道。 */
     onTakePhoto: () -> Unit,
+    /**
+     * 选一个文档上传到 Mac,拿回绝对路径内嵌进输入框(0.27.0)。
+     *
+     * **不产生附件 chip** —— 这条通道不往 `attachments` 走,只往输入框塞一段
+     * 文本,所以它跟 [onPickImage] / [onTakePhoto] 是两条独立的管道。
+     */
+    onPickFile: () -> Unit,
     onPaste: () -> Unit,
+    /**
+     * 自增计数:每次变化就请求一次输入框焦点(0.27.0,「文件」通道专用)。
+     *
+     * **为什么不用布尔**:上传是异步的 —— 点方砖时 sheet 当场就关了,系统文件
+     * 选择器再弹起来,等 base64 传完路径落进输入框,sheet 早就摘出 composition。
+     * 布尔意图会被那次 LaunchedEffect 提前消费掉,所以只能靠「变化了就是一次
+     * 新事件」的计数器。
+     */
+    refocusTick: Int,
     /**
      * 当前 session 的模型 + 后端可选项。picker 直接用 `(providerId, model)`
      * 元组判「当前」(见 [tupleKey]),`availableModels` 为空时 chip 退化为
@@ -2626,6 +2642,11 @@ internal fun AgentInputBar(
             refocusInput = false
             runCatching { focusRequester.requestFocus() }
         }
+    }
+
+    // 「文件」通道的回焦:上传完成、路径落进输入框之后。见 [refocusTick]。
+    LaunchedEffect(refocusTick) {
+        if (refocusTick > 0) runCatching { focusRequester.requestFocus() }
     }
 
     // 每次关掉 `+` 弹层都退回主菜单页。不重置的话,用户在清单页选完一条
@@ -2862,9 +2883,13 @@ internal fun AgentInputBar(
         ) {
             when (morePage) {
                 MorePage.MENU -> Column(modifier = Modifier.navigationBarsPadding()) {
-                    // Trae 式布局(0.26.5):标题栏 + 「拍照 / 相册」两块大 tile 打头,
-                    // 下面才是一行一个的清单项。之前只有一行「添加图片」直接进系统
+                    // Trae 式布局(0.26.5):标题栏 + 三块大 tile 打头,下面才是
+                    // 一行一个的清单项。之前只有一行「添加图片」直接进系统
                     // 选择器,想拍张屏幕就得先退出 sheet 去相册翻 —— 路径多一跳。
+                    //
+                    // 0.27.0 加第三块「文件」:前两块走 contentBlocks 附件管道,
+                    // 这块走 `/api/fs/upload` 把文件副本落到 Mac 再把绝对路径
+                    // 塞进输入框,两条路互不干扰(所以它没有附件 chip)。
                     SheetHeader(
                         title = stringResource(R.string.agent_input_sheet_title),
                         onClose = { showMoreMenu = false },
@@ -2891,6 +2916,15 @@ internal fun AgentInputBar(
                             onClick = {
                                 showMoreMenu = false
                                 onPickImage()
+                            },
+                        )
+                        AttachTile(
+                            icon = Lucide.FileText,
+                            label = stringResource(R.string.agent_input_pick_file),
+                            modifier = Modifier.weight(1f),
+                            onClick = {
+                                showMoreMenu = false
+                                onPickFile()
                             },
                         )
                     }

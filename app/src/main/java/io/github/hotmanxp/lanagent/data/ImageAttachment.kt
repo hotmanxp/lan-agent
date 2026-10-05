@@ -17,13 +17,16 @@
 // **黑色**，深色主题下看着像图坏了。
 package io.github.hotmanxp.lanagent.data
 
+import android.content.ContentResolver
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Rect
+import android.media.ExifInterface
 import android.net.Uri
 import android.util.Base64
 import kotlinx.coroutines.Dispatchers
@@ -93,7 +96,7 @@ object ImageAttachments {
             inSampleSize = sample
             inPreferredConfig = Bitmap.Config.ARGB_8888
         }
-        val src = resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, opts) }
+        val src = decodeOriented(resolver, uri, opts)
             ?: throw IllegalStateException("图片解码失败")
 
         val scale = MAX_EDGE.toFloat() / maxOf(src.width, src.height)
@@ -137,13 +140,11 @@ object ImageAttachments {
             var sample = 1
             val longEdge = maxOf(bounds.outWidth, bounds.outHeight)
             while (longEdge / (sample * 2) >= THUMB_EDGE) sample *= 2
-            context.contentResolver.openInputStream(uri)?.use {
-                BitmapFactory.decodeStream(
-                    it,
-                    null,
-                    BitmapFactory.Options().apply { inSampleSize = sample },
-                )
-            }
+            decodeOriented(
+                context.contentResolver,
+                uri,
+                BitmapFactory.Options().apply { inSampleSize = sample },
+            )
         }.getOrNull()
     }
 
@@ -162,13 +163,58 @@ object ImageAttachments {
             var sample = 1
             val longEdge = maxOf(bounds.outWidth, bounds.outHeight)
             while (longEdge / (sample * 2) >= MAX_EDGE) sample *= 2
-            context.contentResolver.openInputStream(uri)?.use {
-                BitmapFactory.decodeStream(
-                    it,
-                    null,
-                    BitmapFactory.Options().apply { inSampleSize = sample },
-                )
-            }
+            decodeOriented(
+                context.contentResolver,
+                uri,
+                BitmapFactory.Options().apply { inSampleSize = sample },
+            )
         }.getOrNull()
     }
+}
+
+/**
+ * 解码 + 按 EXIF 摆正。
+ *
+ * **BitmapFactory 完全不认 EXIF 方向**(0.26.6 加这层的直接原因):传感器
+ * 原生是横的,CameraX 竖屏拍出来的是「横像素 + EXIF 旋转角」,直接
+ * decode 出来的图是躺着的。相机侧见 `ui/CameraCapture.kt` 的
+ * `targetRotation`,摆正只能在这儿做 —— 附带把相册里那些「像素没转、
+ * 只靠 EXIF 说明方向」的机型照片一起修了。
+ *
+ * 读 EXIF 也包 runCatching:数据流损坏 / 厂商私有格式时
+ * [ExifInterface] 会抛,这时按未旋转处理,别让整个附件失败。
+ */
+private fun decodeOriented(
+    resolver: ContentResolver,
+    uri: Uri,
+    opts: BitmapFactory.Options,
+): Bitmap? {
+    val raw = resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, opts) }
+        ?: return null
+    val orientation = runCatching {
+        resolver.openInputStream(uri)?.use {
+            ExifInterface(it).getAttributeInt(
+                ExifInterface.TAG_ORIENTATION,
+                ExifInterface.ORIENTATION_NORMAL,
+            )
+        }
+    }.getOrNull() ?: ExifInterface.ORIENTATION_NORMAL
+    val matrix = exifMatrix(orientation) ?: return raw
+    val upright = Bitmap.createBitmap(raw, 0, 0, raw.width, raw.height, matrix, true)
+    if (upright !== raw) raw.recycle()
+    return upright
+}
+
+/** EXIF 方向值 → 变换矩阵。正常 / 未知值返回 null(按不转处理)。 */
+private fun exifMatrix(orientation: Int): Matrix? = when (orientation) {
+    ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> Matrix().apply { setScale(-1f, 1f) }
+    ExifInterface.ORIENTATION_ROTATE_180 -> Matrix().apply { setRotate(180f) }
+    // 下面三个镜像值:先转再翻。Matrix 的 post* 作用在已设的变换**之后**,
+    // 顺序反了就是「翻完再转」,对 TRANSPOSE / TRANSVERSE 会得到镜像错向。
+    ExifInterface.ORIENTATION_FLIP_VERTICAL -> Matrix().apply { setRotate(180f); postScale(-1f, 1f) }
+    ExifInterface.ORIENTATION_TRANSPOSE -> Matrix().apply { setRotate(90f); postScale(-1f, 1f) }
+    ExifInterface.ORIENTATION_ROTATE_90 -> Matrix().apply { setRotate(90f) }
+    ExifInterface.ORIENTATION_TRANSVERSE -> Matrix().apply { setRotate(270f); postScale(-1f, 1f) }
+    ExifInterface.ORIENTATION_ROTATE_270 -> Matrix().apply { setRotate(270f) }
+    else -> null
 }

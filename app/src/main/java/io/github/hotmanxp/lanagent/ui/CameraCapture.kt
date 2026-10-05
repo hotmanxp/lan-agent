@@ -11,6 +11,14 @@
 // 输出是 cacheDir 里的 `file://` Uri —— `ImageAttachments.load` 走
 // `ContentResolver.openInputStream`,该方法对 SCHEME_FILE 同样有效(走
 // FileInputStream 分支),所以不需要 FileProvider。
+//
+// ⚠️ **竖屏拍照出横图**(0.26.6 修):传感器原生是横的,CameraX 默认
+// `targetRotation = ROTATION_0` 时既不旋转像素**也不写 EXIF 方向**,
+// 落盘就是一张躺着的 1856×836。所以下面显式绑定 ImageCapture 并把
+// `targetRotation` 设成 `display.rotation`(竖屏 = 90°);CameraX 会把这个
+// 旋转角写进 EXIF,像素仍是横的 —— 摆正由 `ImageAttachments` 读 EXIF 完成,
+// 两边缺一不可。也因此不能用 `LifecycleCameraController`:它不暴露内部的
+// ImageCapture,改不了 targetRotation。
 package io.github.hotmanxp.lanagent.ui
 
 import android.net.Uri
@@ -18,8 +26,8 @@ import androidx.activity.compose.BackHandler
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
-import androidx.camera.view.CameraController
-import androidx.camera.view.LifecycleCameraController
+import androidx.camera.core.Preview
+import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -36,7 +44,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -74,33 +81,54 @@ internal fun CameraCaptureDialog(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    val cameraController = remember {
-        LifecycleCameraController(context).apply {
-            setEnabledUseCases(CameraController.IMAGE_CAPTURE)
-        }
-    }
     var lensFacing by remember { mutableIntStateOf(CameraSelector.LENS_FACING_BACK) }
     var capturing by remember { mutableStateOf(false) }
     // bind 失败(设备没摄像头 / 被别的应用占着)只报一次,别在每次重组里重复弹 toast。
     var reported by remember { mutableStateOf(false) }
 
-    DisposableEffect(cameraController) {
-        onDispose { cameraController.unbind() }
+    /**
+     * 自己拿 [ImageCapture],**不用** `LifecycleCameraController`。
+     *
+     * 0.26.5 用 controller 拍出来的是横的,原因就在这:controller 内部的
+     * `ImageCapture.targetRotation` 默认 `ROTATION_0`,相机于是既不旋转像素
+     * 也不写 EXIF 方向 —— 落盘就是 1856×836 的传感器原图,谁解都摆不正。
+     * 显式绑定才能把 `targetRotation` 设成当前 display 的旋转角。
+     */
+    val imageCapture = remember {
+        ImageCapture.Builder()
+            .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+            .build()
     }
-    // 翻转镜头走「重绑」而不是在 update 里调 bindToLifecycle —— update 每次
-    // 重组都跑,那里调等于不停重绑。
-    LaunchedEffect(lensFacing, lifecycleOwner) {
-        runCatching {
-            cameraController.cameraSelector = CameraSelector.Builder()
-                .requireLensFacing(lensFacing)
-                .build()
-            cameraController.bindToLifecycle(lifecycleOwner)
-        }.onFailure {
-            if (!reported) {
-                reported = true
-                onError(context.getString(R.string.agent_camera_unavailable))
+
+    // AndroidView 的 factory 在组合阶段跑,DisposableEffect 在其后 —— 首帧
+    // 这里还是 null,靠 previewView 这个 key 再触发一次。
+    var previewView by remember { mutableStateOf<PreviewView?>(null) }
+
+    DisposableEffect(lensFacing, previewView, lifecycleOwner) {
+        val view = previewView ?: return@DisposableEffect onDispose {}
+        val providerFuture = ProcessCameraProvider.getInstance(context)
+        providerFuture.addListener({
+            runCatching {
+                val provider = providerFuture.get()
+                val preview = Preview.Builder().build().also {
+                    it.setSurfaceProvider(view.surfaceProvider)
+                }
+                imageCapture.targetRotation = view.display.rotation
+                provider.unbindAll()
+                provider.bindToLifecycle(
+                    lifecycleOwner,
+                    CameraSelector.Builder().requireLensFacing(lensFacing).build(),
+                    preview,
+                    imageCapture,
+                )
+            }.onFailure {
+                if (!reported) {
+                    reported = true
+                    onError(context.getString(R.string.agent_camera_unavailable))
+                }
             }
-        }
+        }, ContextCompat.getMainExecutor(context))
+        onDispose { runCatching { providerFuture.get().unbindAll() } }
     }
 
     Dialog(
@@ -122,8 +150,7 @@ internal fun CameraCaptureDialog(
                     PreviewView(viewContext).apply {
                         scaleType = PreviewView.ScaleType.FILL_CENTER
                         implementationMode = PreviewView.ImplementationMode.COMPATIBLE
-                        controller = cameraController
-                    }
+                    }.also { previewView = it }
                 },
             )
 
@@ -167,9 +194,11 @@ internal fun CameraCaptureDialog(
                     .noRippleClickable(enabled = !capturing) {
                         capturing = true
                         val photo = cameraPhotoFile(context.cacheDir)
-                        val output = ImageCapture.OutputFileOptions.Builder(photo).build()
-                        cameraController.takePicture(
-                            output,
+                        // 每次快门前重取:targetRotation 是拍照那一刻读的,Activity
+                        // 锁竖屏时恒为 90°,但放开屏幕方向后不用改这里。
+                        previewView?.let { imageCapture.targetRotation = it.display.rotation }
+                        imageCapture.takePicture(
+                            ImageCapture.OutputFileOptions.Builder(photo).build(),
                             ContextCompat.getMainExecutor(context),
                             object : ImageCapture.OnImageSavedCallback {
                                 override fun onImageSaved(results: ImageCapture.OutputFileResults) {

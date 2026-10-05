@@ -42,6 +42,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -61,6 +63,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -69,7 +72,6 @@ import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.ModalDrawerSheet
@@ -94,6 +96,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -148,9 +151,10 @@ import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.ArrowLeft
 import com.composables.icons.lucide.ArrowUpRight
 import com.composables.icons.lucide.ChevronRight
+import com.composables.icons.lucide.Ellipsis
 import com.composables.icons.lucide.Folder
-import com.composables.icons.lucide.NotebookTabs
-import com.composables.icons.lucide.PanelTopOpen
+import com.composables.icons.lucide.Menu
+import com.composables.icons.lucide.MessageSquarePlus
 import com.composables.icons.lucide.RefreshCw
 
 /** 会话详情路由的薄包装 —— 从实例栏 / 卡片进来时实例与会话都是已知的。 */
@@ -265,6 +269,17 @@ fun AgentSessionPane(
     var approveFileLoading by remember { mutableStateOf(false) }
     var showInfo by remember { mutableStateOf(false) }
     val infoSheetState = rememberModalBottomSheetState()
+
+    // 「详情」弹层(0.26.3)—— 会话流里那行摘要点开后的全部内容。
+    //
+    // 存的是**段的 key,不是下标也不是成员快照**:
+    //   - 存成员快照 → 工具输出是原地替换(`applyToolResult` 换掉 items 里的对象),
+    //     快照会让「点开一条正在跑的命令、等它跑完看输出」永远停在点开那一刻;
+    //   - 存下标     → 段是**活的**,Agent 接着在同一段里又调了几次工具,
+    //     冻结的下标只覆盖点开那一刻已有的那些,后面的静默不出现。
+    // 按 key 每次重组重新从 [blocks] 解析,两种情况都自然是实时的。
+    var activityDetailKey by remember(currentSid) { mutableStateOf<String?>(null) }
+    val activitySheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     // PresentFile 预览层(从右侧滑入的全屏 overlay,见 ui/FileViewerOverlay.kt)。
     // **关闭时只把 previewOpen 置 false,previewTarget 保留** —— 滑出动画期间内容
@@ -895,24 +910,24 @@ fun AgentSessionPane(
                         navigationIcon = {
                             // 抽屉在最左,back 在其次 —— 对齐 WorkBuddy 的顶栏顺序。
                             // tab 根用法(onBack == null)只有抽屉按钮。
-                            // 图标从 Lucide.Menu(三条横线)换成 NotebookTabs:抽屉里是
-                            // 实例切换 + 多条会话,「带标签页的笔记本」比横线更贴切。
-                            Row {
-                                IconButton(onClick = { scope.launch { drawerState.open() } }) {
-                                    Icon(
-                                        imageVector = Lucide.NotebookTabs,
-                                        contentDescription = stringResource(
-                                            R.string.agent_session_open_sessions_cd
-                                        ),
-                                    )
-                                }
+                            //
+                            // 0.26.3:图标从 Lucide.NotebookTabs(带标签页的笔记本)
+                            // 换成 Lucide.Menu(三条杠),并套上圆形底 —— 顶栏左右两侧
+                            // 现在是同一套「圆形/药丸容器 + 线性图标」语言。
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                TopBarCircleButton(
+                                    imageVector = Lucide.Menu,
+                                    contentDescription = stringResource(
+                                        R.string.agent_session_open_sessions_cd
+                                    ),
+                                    onClick = { scope.launch { drawerState.open() } },
+                                )
                                 if (onBack != null) {
-                                    IconButton(onClick = onBack) {
-                                        Icon(
-                                            imageVector = Lucide.ArrowLeft,
-                                            contentDescription = stringResource(R.string.webview_back_cd),
-                                        )
-                                    }
+                                    TopBarCircleButton(
+                                        imageVector = Lucide.ArrowLeft,
+                                        contentDescription = stringResource(R.string.webview_back_cd),
+                                        onClick = onBack,
+                                    )
                                 }
                             }
                         },
@@ -966,19 +981,54 @@ fun AgentSessionPane(
                             }
                         },
                         actions = {
-                            // 0.24.11:这里原本是「+ 新建会话」。抽屉里的
-                            // NewSessionPill 和无会话空态的按钮已经覆盖了新建入口,
-                            // 顶栏这个位置换给「工作区」(文件 / Bash / git)。
-                            IconButton(
-                                onClick = { toolsOpen = true },
-                                // `currentSid != null` 是硬条件:没有会话时
-                                // sessionId 是空串,`/api/bash/repl//events` 匹配不上
-                                // 路由 → 每 15s 一次 404 无限重连,面板开着就一直烧。
-                                enabled = api != null && currentSid != null,
+                            // 0.26.3 照 Trae 把这一格从「单个工作区按钮」改成
+                            // **一个药丸里的两个图标**:左边气泡+ = 新增会话,
+                            // 右边「…」= 工作区(文件 / Bash / git)。
+                            //
+                            // 历史:0.24.11 这里原本就是「+ 新建会话」,当时因为抽屉里的
+                            // NewSessionPill 和空态按钮已经覆盖了入口而被换成工作区;
+                            // 现在两格并列,两个入口都不再藏在抽屉里。
+                            //
+                            // 尺寸刻意不用 IconButton:`minimumInteractiveComponentSize`
+                            // 会把每个按钮撑到 48dp,两个加起来 ~96dp,顶栏标题
+                            // 在 360dp 宽的屏上只剩 ~150dp。这里自绘 38dp 圆形
+                            // + noRippleClickable(同浮刷新按钮那套做法)。
+                            val dark = LocalWbDarkTheme.current
+                            val pillSurface =
+                                if (dark) WbPalette.CardDark else WbPalette.CardLight
+                            val pillBorder =
+                                if (dark) WbPalette.HairlineDark else WbPalette.HairlineLight
+                            Row(
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .background(pillSurface)
+                                    .border(1.dp, pillBorder, CircleShape)
+                                    // 内边距 1dp 撑开药丸描边,末端 4dp 让药丸到屏幕
+                                    // 右边距跟左边那个圆钮到左边距看着一样宽。
+                                    .padding(start = 1.dp, top = 1.dp, bottom = 1.dp, end = 5.dp),
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Icon(
-                                    imageVector = Lucide.PanelTopOpen,
+                                TopBarPillButton(
+                                    imageVector = Lucide.MessageSquarePlus,
+                                    contentDescription = stringResource(R.string.agent_sessions_new),
+                                    // 实例离线时点下去必然失败,跟抽屉里那个 Pill
+                                    // 同一个判据;`creating` 期间也不让连点。
+                                    enabled = api != null && active?.online != false && !creating,
+                                    onClick = { startNewSession() },
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .size(width = 1.dp, height = 16.dp)
+                                        .background(pillBorder)
+                                )
+                                TopBarPillButton(
+                                    imageVector = Lucide.Ellipsis,
                                     contentDescription = stringResource(R.string.agent_tools_cd),
+                                    // `currentSid != null` 是硬条件:没有会话时
+                                    // sessionId 是空串,`/api/bash/repl//events` 匹配不上
+                                    // 路由 → 每 15s 一次 404 无限重连,面板开着就一直烧。
+                                    enabled = api != null && currentSid != null,
+                                    onClick = { toolsOpen = true },
                                 )
                             }
                         },
@@ -1059,6 +1109,7 @@ fun AgentSessionPane(
                                                 api?.let { revealOnMac(it, file.path) }
                                             },
                                             onCopy = { text -> copyText(text) },
+                                            onShowActivity = { activityDetailKey = it },
                                         )
                                     }
                                 }
@@ -1304,6 +1355,20 @@ fun AgentSessionPane(
         )
     }
 
+    // 「详情」弹层(0.26.3)—— 一行摘要点开后看全部内容。挂在抽屉外面,
+    // 与「选择实例」弹层同理(ModalBottomSheet 是独立窗口)。
+    activityDetailKey?.let { key ->
+        // 段找不到了(切会话 / hydrate 重来,key 对不上)→ 空列表,弹层显示空的
+        // 「详情」而不是上一个会话的内容。不可达路径,兜底而已。
+        val indices = (blocks.firstOrNull { it.key == key } as? AgentBlock.ToolGroup)?.indices.orEmpty()
+        ActivityDetailSheet(
+            indices = indices,
+            items = store.items,
+            sheetState = activitySheetState,
+            onDismiss = { activityDetailKey = null },
+        )
+    }
+
     // 重启确认 —— 重启会 SIGINT 掉子进程,当前会话的 SSE 随之断开(下面会自动
     // 重挂),但正在跑的 agent 任务确实会丢。破坏性动作,先问一句。
     restartConfirm?.let { target ->
@@ -1405,6 +1470,74 @@ private suspend fun Context.awaitInstanceOnline(
         delay(intervalMs)
     }
     return null
+}
+
+/**
+ * 顶栏圆形按钮 / 药丸按钮的直径(0.26.3)。
+ *
+ * 刻意小于 M3 的 48dp `minimumInteractiveComponentSize`:顶栏左右一共四个
+ * 按钮(左 1–2 个 + 右药丸 2 个),按 48dp 算要吃掉 190dp+,360dp 宽的屏上
+ * 标题只剩一条。同 `ui/WebViewScreen.kt` 浮刷新按钮那套做法 —— 自绘 + clickable。
+ */
+private val TOP_BAR_BUTTON_SIZE = 38.dp
+
+/**
+ * 顶栏圆形按钮:白卡圆底 + hairline 边 + 线性图标(0.26.3)。
+ *
+ * 不用 `IconButton` 的原因见 [TOP_BAR_BUTTON_SIZE]。
+ */
+@Composable
+private fun TopBarCircleButton(
+    imageVector: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val dark = LocalWbDarkTheme.current
+    val surface = if (dark) WbPalette.CardDark else WbPalette.CardLight
+    val border = if (dark) WbPalette.HairlineDark else WbPalette.HairlineLight
+    Box(
+        modifier = modifier
+            .size(TOP_BAR_BUTTON_SIZE)
+            .clip(CircleShape)
+            .background(surface)
+            .border(1.dp, border, CircleShape)
+            .noRippleClickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = imageVector,
+            contentDescription = contentDescription,
+            modifier = Modifier.size(19.dp),
+        )
+    }
+}
+
+/**
+ * 药丸里的图标按钮(0.26.3)。底色和边框由外层药丸统一给,这里只画图标 + 命中区。
+ * 禁用态靠 icon tint 压到 38% —— 自绘按钮没有 M3 的 disabled contentColor。
+ */
+@Composable
+private fun TopBarPillButton(
+    imageVector: ImageVector,
+    contentDescription: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .size(TOP_BAR_BUTTON_SIZE)
+            .clip(CircleShape)
+            .noRippleClickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = imageVector,
+            contentDescription = contentDescription,
+            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.38f),
+            modifier = Modifier.size(19.dp),
+        )
+    }
 }
 
 /** 空会话的占位:WorkBuddy 机器人 + 问候语(对齐 WorkBuddy 欢迎页)。 */
@@ -1752,19 +1885,18 @@ private fun AgentBlockView(
     onOpenFile: (PresentedFile) -> Unit,
     onReveal: (PresentedFile) -> Unit,
     onCopy: (String) -> Unit,
+    onShowActivity: (String) -> Unit,
 ) {
     when (block) {
         is AgentBlock.Single ->
             items.getOrNull(block.index)?.let { AgentItemView(it, api, listState, onOpenFile, onReveal, onCopy) }
 
-        is AgentBlock.ToolGroup -> ToolGroupCard(
+        // 精简模式 = 一行摘要 + 点开看详情(0.26.3)。本变体只在 compact 时产生
+        // (buildAgentBlocks 的规则),关掉精简时 store 侧就把段拆回 Single,
+        // 渲染层不再兜一份旧卡片。
+        is AgentBlock.ToolGroup -> ActivityLine(
             members = block.indices.mapNotNull { items.getOrNull(it) },
-            groupKey = block.key,
-            api = api,
-            listState = listState,
-            onOpenFile = onOpenFile,
-            onReveal = onReveal,
-            onCopy = onCopy,
+            onClick = { onShowActivity(block.key) },
         )
 
         is AgentBlock.Artifacts ->

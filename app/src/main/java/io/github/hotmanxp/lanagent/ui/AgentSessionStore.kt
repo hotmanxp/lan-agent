@@ -162,6 +162,9 @@ sealed interface AgentBlock {
      * **下标而不是快照** —— 工具输出是原地替换(`applyToolResult`),存快照
      * 会渲染出过期内容。key 取首条成员的 key,所以段落继续增长时 key 不变,
      * 展开状态与滚动位置都稳。
+     *
+     * 渲染形态取决于 `compact`:开 = 一行摘要(见 [ui.ActivitySummary]);
+     * 关 = 永远不产生本变体(逐条 [Single])。
      */
     data class ToolGroup(val indices: List<Int>, override val key: String) : AgentBlock
 
@@ -180,13 +183,14 @@ sealed interface AgentBlock {
  *
  * 规则:
  *   - `compact = true` 时,一段**连续的工作**(工具调用 + 夹在中间的思考过程)
- *     里只要有 **>= 2** 次工具调用,整段合成一个 [ToolGroup];
+ *     整段合成一个 [ToolGroup] —— **不再要求 >= 2 次工具调用**(0.26.3):
+ *     渲染层已经改成 Trae 式的一行摘要(见 `ui/ActivitySummary.kt`),单条工具
+ *     与纯思考段同样是「一行 + 点开看详情」,留它们走 [Single] 只会让屏幕上
+ *     一半是新样式、一半是老卡片;
  *   - **思考过程不打断段落**(0.15.2 定稿):编码会话里最常见的形态是
  *     「Bash → 思考 → Bash → 思考」,若按严格连续分组,整屏还是单张工具卡,
- *     聚合形同没做。展开后思考卡按原顺序排在工具卡之间,内容一点没少;
- *   - 只有一条工具调用时保持 [Single] —— 它本来就是一张卡,再套一层聚合行
- *     只是让用户多点一次(要治的是截图里那种 7 连击);
- *   - `compact = false` 时全部 [Single],即改动前的逐条渲染;
+ *     聚合形同没做。详情弹层里思考段按原顺序排在工具之间,内容一点没少;
+ *   - `compact = false` 时全部 [Single],即最老的逐条工具卡渲染(逃生口);
  *   - 正文 / 用户消息 / 提示条会断开段落 —— 段落是「这一轮的一段工作」,
  *     助手开始说话或用户插话就该断。
  *
@@ -212,12 +216,8 @@ internal fun buildAgentBlocks(
             continue
         }
         var j = i
-        var tools = 0
-        while (j < items.size && items[j].isWork) {
-            if (items[j] is AgentItem.ToolCall) tools++
-            j++
-        }
-        if (compact && tools >= 2) {
+        while (j < items.size && items[j].isWork) j++
+        if (compact) {
             base.add(AgentBlock.ToolGroup((i until j).toList(), "tgroup-${items[i].key}"))
         } else {
             for (k in i until j) base.add(AgentBlock.Single(k, items[k].key))
@@ -250,8 +250,8 @@ private val AgentBlock.lastItemIndex: Int
  * 段落成员:工具调用,以及夹在它们之间的思考过程。
  *
  * **`PresentFile` 除外**:它自带内容(图片 / 文本 / 网页在卡内直接渲染,见
- * `PresentFileCard`),收进「工具调用 · N 次」等于把用户要看的东西藏进折叠卡
- * —— 对齐 web 端 `presentFileRenderer.skipOuterGroup` 的语义。所以它像正文一样
+ * `PresentFileCard`),收进一行摘要等于把用户要看的东西藏进弹层 —— 对齐 web
+ * 端 `presentFileRenderer.skipOuterGroup` 的语义。所以它像正文一样
  * **打断段落**,永远单独成卡。
  */
 private val AgentItem.isWork: Boolean

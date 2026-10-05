@@ -2,7 +2,7 @@
 //
 // 抄 Agents-Anywhere `ui/designsystem/NoRippleClickable.kt`(19 行,零依赖)。
 //
-// 为什么需要:底栏 tab、`ToolGroupCard` 的折叠箭头、代码块右上角的「复制」
+// 为什么需要:底栏 tab、工具卡的折叠箭头、代码块右上角的「复制」
 // 这些位置的点击反馈**不需要**水波纹 ——
 //   - 底栏:AGENTS.md §16 明确「去水波纹」,M3 默认的 ripple 在浅色主题下是
 //     一颗灰底胶囊,跟 WorkBuddy 的克制风格不搭;

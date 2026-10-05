@@ -43,6 +43,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -51,12 +52,14 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SheetState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -87,6 +90,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.window.Dialog
@@ -149,7 +153,7 @@ import com.composables.icons.lucide.AudioLines
 import com.composables.icons.lucide.Bot
 import com.composables.icons.lucide.Check
 import com.composables.icons.lucide.ChevronDown
-import com.composables.icons.lucide.ChevronDown
+import com.composables.icons.lucide.ChevronRight
 import com.composables.icons.lucide.ChevronUp
 import com.composables.icons.lucide.ClipboardPaste
 import com.composables.icons.lucide.Code
@@ -625,17 +629,17 @@ internal fun ToolCallCard(item: AgentItem.ToolCall, listState: LazyListState) {
                 val codeLang = toolCodeLabel(item)
                 Column(modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 12.dp)) {
                     item.input?.takeIf { it.isNotBlank() }?.let {
-                        SectionLabel("入参")
+                        SectionLabel(stringResource(R.string.agent_activity_input))
                         CodeBox(it, codeLang)
                     }
                     item.output?.takeIf { it.isNotBlank() }?.let {
                         Spacer(Modifier.height(8.dp))
-                        SectionLabel("输出")
+                        SectionLabel(stringResource(R.string.agent_activity_output))
                         CodeBox(it, codeLang)
                     }
                     if (item.input.isNullOrBlank() && item.output.isNullOrBlank()) {
                         Text(
-                            text = "无入参/输出记录",
+                            text = stringResource(R.string.agent_activity_no_io),
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -1262,35 +1266,24 @@ internal fun decodeSampled(bytes: ByteArray, maxEdge: Int = THUMB_MAX_EDGE): and
 }
 
 /**
- * 精简模式下的**聚合工具卡**(0.15.2)。
+ * 精简模式下的**一行摘要**(0.26.3)—— 对齐 Trae 移动端 Agent 对话。
  *
- * 一整段工作(截图里那种 `mcp__cua-driver__click` × 7,以及编码会话里更常见的
- * 「Bash → 思考 → Bash → 思考」)先压成**一行**:图标 + 「工具调用 · N 次」+
- * 名字汇总 + 状态 + 箭头。点整行才铺开成一张张 [ToolCallCard] 与 [ThinkingBubble],
- * 每张再各自点开才看入参/输出 —— 两级折叠,默认只看得到「这段时间干了 N 件事」。
+ * 一整段工作(工具调用 + 夹在中间的思考过程)压成**一行灰字**:
+ * `执行 2 条命令 ›` / `搜索 6 次,读取 2 个文件 ›`,右侧一个 `›`;
+ * 正在跑时右侧换成转圈(与 [ToolCallCard] 同款 tertiary 暖橙),
+ * 有失败时整行转 error 红。点整行弹 [ActivityDetailSheet] 看全部细节。
  *
- * **成员是混合的**:思考过程不打断段落(理由见 `buildAgentBlocks`),所以展开后
- * 思考卡按原顺序排在工具卡之间,内容一点没少。
+ * 为什么这行不带图标:同屏会同时出现几十行摘要,图标不增加信息量,只堆左侧噪声
+ * —— Trae 那边也是纯文字 + 箭头。状态全交给颜色和右侧的转圈/箭头承担。
  *
  * 为什么整行可点而不是下拉手势:会话流本身就是可滚列表,下拉手势要跟
  * LazyColumn 抢纵向手势,还不好发现;整行点击无歧义、单手也好点。
- *
- * 展开状态用 `remember(groupKey)`:段落继续增长时 key 不变(取首条成员的 key),
- * 所以流式追加不会把已展开的段落合回去。滚动出屏幕被回收时状态丢失 ——
- * 与 [ToolCallCard] 的既有行为一致(都是普通 `remember`,不做持久化)。
  */
 @Composable
-internal fun ToolGroupCard(
+internal fun ActivityLine(
     members: List<AgentItem>,
-    groupKey: String,
-    api: AgentApi?,
-    listState: LazyListState,
-    onOpenFile: (PresentedFile) -> Unit,
-    onReveal: (PresentedFile) -> Unit,
-    onCopy: (String) -> Unit,
+    onClick: () -> Unit,
 ) {
-    val anchor = rememberCardTopAnchor()
-    var expanded by remember(groupKey) { mutableStateOf(false) }
     val tools = members.filterIsInstance<AgentItem.ToolCall>()
     val running = tools.any { it.running }
     val failed = tools.count { it.isError }
@@ -1300,88 +1293,198 @@ internal fun ToolGroupCard(
         running -> MaterialTheme.colorScheme.tertiary
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
-
-    Column(
-        modifier = Modifier.fillMaxWidth().anchorCardTop(anchor, listState),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 4.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Surface(
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            shape = RoundedCornerShape(12.dp),
-            border = androidx.compose.foundation.BorderStroke(
-                1.dp,
-                MaterialTheme.colorScheme.outlineVariant,
-            ),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { anchor.capture(); expanded = !expanded }
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Icon(
-                    imageVector = Glyph.Hammer,
-                    contentDescription = null,
-                    tint = accent,
-                    modifier = Modifier.size(16.dp),
-                )
-                Column(modifier = Modifier.weight(1f)) {
-                    // 跑中时标题扫光,让「还在执行」一眼可辨(0.22.0)。
-                    // 终态 active=false → ShimmerText 不开动画,长会话里几十个
-                    // 已完成卡片不会各自跑无限循环吃帧。
-                    ShimmerText(
-                        text = "工具调用 · ${tools.size} 次",
-                        active = running,
-                        color = accent,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1,
-                    )
-                    Text(
-                        text = summarizeToolNames(tools),
-                        fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                if (running) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(12.dp),
-                        strokeWidth = 1.5.dp,
-                        color = accent,
-                    )
-                } else {
-                    StatusChip(
-                        text = if (failed > 0) "$failed 失败" else "完成",
-                        color = accent,
-                    )
-                }
-                Icon(
-                    imageVector = if (expanded) Lucide.ChevronUp else Lucide.ChevronDown,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(16.dp),
-                )
-            }
-        }
-        if (expanded) {
-            // 按 transcript 原顺序铺开 —— 工具卡与思考卡交错,跟不聚合时的顺序一致。
-            members.forEach { AgentItemView(it, api, listState, onOpenFile, onReveal, onCopy) }
+        Text(
+            text = activitySummaryText(members),
+            fontSize = 12.sp,
+            color = accent,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            // `fill = false`:箭头**紧跟文字末尾**,不是被推到行右端 ——
+            // Trae 那边就是这么排的。fill=true 会让文字撑满整行、把箭头顶到
+            // 屏幕右边。fill=false 仍保留「文字过长时压缩 + 省略号」的能力。
+            modifier = Modifier.weight(1f, fill = false),
+        )
+        Spacer(Modifier.width(4.dp))
+        if (running) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(10.dp),
+                strokeWidth = 1.2.dp,
+                color = accent,
+            )
+        } else {
+            Icon(
+                imageVector = Lucide.ChevronRight,
+                contentDescription = null,
+                tint = accent.copy(alpha = 0.55f),
+                modifier = Modifier.size(13.dp),
+            )
         }
     }
 }
 
-/** `Bash ×3 · Read ×1` —— 按首次出现顺序合并同名工具,只给出现多次的加 `×N`。 */
-private fun summarizeToolNames(tools: List<AgentItem.ToolCall>): String {
-    val counts = LinkedHashMap<String, Int>()
-    tools.forEach { counts[it.name] = (counts[it.name] ?: 0) + 1 }
-    return counts.entries.joinToString(" · ") { (name, n) ->
-        if (n > 1) "$name ×$n" else name
+/**
+ * 「详情」底部弹层 —— 一行摘要背后的全部内容。
+ *
+ * 成员按 transcript 原顺序铺开,**不排序也不分组**:
+ *   - 思考过程 → 「思考过程」小标题 + Markdown 正文,**默认展开**;
+ *   - 工具调用 → `已执行 npm test` 这样的一行,**默认折叠**,点开才铺入参 / 输出。
+ *
+ * 工具行默认折叠是有意的:一段工作动辄七八次调用,输出全展开能把弹层撑到几千行,
+ * 真正想找的那一条反而要滚很久。折叠头带命令首行,扫一眼就能挑中要看的那次。
+ *
+ * 高度封顶 80% 屏:不封顶的话一段长 Bash 输出会把弹层顶成全屏,标题栏连同
+ * 关闭按钮一起被顶出屏幕。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun ActivityDetailSheet(
+    indices: List<Int>,
+    items: List<AgentItem>,
+    sheetState: SheetState,
+    onDismiss: () -> Unit,
+) {
+    // 按下标**每帧重取**而不是收一份成员快照:正在跑的工具输出是原地替换的
+    // (applyToolResult 换掉 items 里的对象),快照会让弹层停在点开那一刻。
+    val members = indices.mapNotNull { items.getOrNull(it) }
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+    ) {
+        Column(
+            modifier = Modifier
+                .navigationBarsPadding()
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 12.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = stringResource(R.string.agent_activity_details),
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
+                    Icon(
+                        imageVector = Lucide.X,
+                        contentDescription = stringResource(R.string.agent_activity_close),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Spacer(Modifier.height(6.dp))
+            Column(
+                modifier = Modifier
+                    .heightIn(max = (LocalConfiguration.current.screenHeightDp * 0.8f).dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                members.forEach { member ->
+                    when (member) {
+                        is AgentItem.Thinking -> ThinkingDetailSection(member)
+                        is AgentItem.ToolCall -> ToolDetailRow(member)
+                        else -> Unit
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** 弹层里的思考段:标题 + 正文,没有折叠 —— 思考是这一段里最少噪声的内容。 */
+@Composable
+private fun ThinkingDetailSection(item: AgentItem.Thinking) {
+    Column(modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)) {
+        SectionLabel(THINKING_LABEL)
+        MarkdownText(
+            markdown = item.text,
+            compact = true,
+            baseStyle = androidx.compose.ui.text.TextStyle(
+                fontSize = 12.sp,
+                lineHeight = 18.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            ),
+        )
+    }
+}
+
+/**
+ * 弹层里的一次工具调用:`已执行 <命令首行>` 一行,点开才看入参 / 输出。
+ *
+ * 复用 [toolCodeLabel] / [CodeBox] —— 与 [ToolCallCard] 同一套语言高亮与
+ * 截断规则,用户在老样式里习惯的读法在弹层里原样保留。
+ */
+@Composable
+private fun ToolDetailRow(item: AgentItem.ToolCall) {
+    var expanded by remember(item.key) { mutableStateOf(false) }
+    val accent = when {
+        item.isError -> MaterialTheme.colorScheme.error
+        item.running -> MaterialTheme.colorScheme.tertiary
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    Column(modifier = Modifier.padding(top = 4.dp)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .clickable { expanded = !expanded }
+                .padding(horizontal = 4.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "${activityStatFor(item.name).pastTense()} ${toolSubject(item)}",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            Spacer(Modifier.width(6.dp))
+            if (item.running) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(10.dp),
+                    strokeWidth = 1.2.dp,
+                    color = accent,
+                )
+            } else {
+                Icon(
+                    imageVector = if (expanded) Lucide.ChevronUp else Lucide.ChevronRight,
+                    contentDescription = null,
+                    tint = accent.copy(alpha = 0.55f),
+                    modifier = Modifier.size(13.dp),
+                )
+            }
+        }
+        if (expanded) {
+            val codeLang = toolCodeLabel(item)
+            Column(modifier = Modifier.padding(start = 4.dp, end = 4.dp, bottom = 4.dp)) {
+                item.input?.takeIf { it.isNotBlank() }?.let {
+                    SectionLabel(stringResource(R.string.agent_activity_input))
+                    CodeBox(it, codeLang)
+                }
+                item.output?.takeIf { it.isNotBlank() }?.let {
+                    Spacer(Modifier.height(6.dp))
+                    SectionLabel(stringResource(R.string.agent_activity_output))
+                    CodeBox(it, codeLang)
+                }
+                if (item.input.isNullOrBlank() && item.output.isNullOrBlank()) {
+                    Text(
+                        text = stringResource(R.string.agent_activity_no_io),
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
     }
 }
 

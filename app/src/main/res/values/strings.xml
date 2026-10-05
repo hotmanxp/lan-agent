@@ -360,11 +360,19 @@
     <string name="settings_theme_system">跟随系统</string>
     <string name="settings_theme_light">浅色</string>
     <string name="settings_theme_dark">深色</string>
-    <!-- 会话精简模式(0.15.2):连续工具调用聚合为一条,点开看全部。
+    <!-- 会话精简模式(0.15.2 起,0.26.3 改成 Trae 式一行摘要 + 详情弹层)。
          默认开 —— 关掉退回逐条工具卡。 -->
     <string name="settings_section_session">会话</string>
     <string name="settings_compact_tools">工具调用精简模式</string>
-    <string name="settings_compact_tools_sub">连续的工具调用聚合成一条,点开才展开全部;关掉退回逐条工具卡</string>
+    <string name="settings_compact_tools_sub">工具调用与思考过程收成一行摘要(如「执行 2 条命令」),点开看详情;关掉退回逐条工具卡</string>
+    <!-- 工具调用摘要 / 详情弹层(0.26.3,见 AGENTS.md §29)。摘要文案本身
+         (「执行 2 条命令」这类聚合句)在 ui/ActivitySummary.kt 里派生,那里
+         不 import Compose 拿不到 stringResource,故硬编码;弹层 chrome 走资源。 -->
+    <string name="agent_activity_details">详情</string>
+    <string name="agent_activity_close">关闭</string>
+    <string name="agent_activity_input">入参</string>
+    <string name="agent_activity_output">输出</string>
+    <string name="agent_activity_no_io">无入参/输出记录</string>
     <!-- Mermaid 流程图渲染:默认开。关掉后 ```mermaid 围栏块显示成普通代码块。 -->
     <string name="settings_mermaid_render">渲染 Mermaid 流程图</string>
     <string name="settings_mermaid_render_sub">会话里的 mermaid 代码块画成流程图;关掉显示成代码块</string>

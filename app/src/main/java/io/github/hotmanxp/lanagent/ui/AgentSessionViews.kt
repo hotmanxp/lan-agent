@@ -152,6 +152,7 @@ import com.composables.icons.lucide.ArrowUp
 import com.composables.icons.lucide.ArrowUpRight
 import com.composables.icons.lucide.AudioLines
 import com.composables.icons.lucide.Bot
+import com.composables.icons.lucide.Camera
 import com.composables.icons.lucide.Check
 import com.composables.icons.lucide.ChevronDown
 import com.composables.icons.lucide.ChevronRight
@@ -165,7 +166,7 @@ import com.composables.icons.lucide.FileText
 import com.composables.icons.lucide.FileText
 import com.composables.icons.lucide.FolderOpen
 import com.composables.icons.lucide.Image
-import com.composables.icons.lucide.ImagePlus
+import com.composables.icons.lucide.Images
 import com.composables.icons.lucide.Keyboard
 import com.composables.icons.lucide.Plus
 import com.composables.icons.lucide.Sparkles
@@ -2486,6 +2487,8 @@ internal fun AgentInputBar(
     onSend: () -> Unit,
     onStop: () -> Unit,
     onPickImage: () -> Unit,
+    /** 打开全屏取景框。与 [onPickImage] 共用同一份 attachments 管道。 */
+    onTakePhoto: () -> Unit,
     onPaste: () -> Unit,
     /**
      * 当前 session 的模型 + 后端可选项。picker 直接用 `(providerId, model)`
@@ -2859,7 +2862,40 @@ internal fun AgentInputBar(
         ) {
             when (morePage) {
                 MorePage.MENU -> Column(modifier = Modifier.navigationBarsPadding()) {
-                    // 「命令与技能」排在图片/粘贴**上面**:它是这套 `+` 里唯一的
+                    // Trae 式布局(0.26.5):标题栏 + 「拍照 / 相册」两块大 tile 打头,
+                    // 下面才是一行一个的清单项。之前只有一行「添加图片」直接进系统
+                    // 选择器,想拍张屏幕就得先退出 sheet 去相册翻 —— 路径多一跳。
+                    SheetHeader(
+                        title = stringResource(R.string.agent_input_sheet_title),
+                        onClose = { showMoreMenu = false },
+                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 24.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        AttachTile(
+                            icon = Lucide.Camera,
+                            label = stringResource(R.string.agent_input_take_photo),
+                            modifier = Modifier.weight(1f),
+                            onClick = {
+                                showMoreMenu = false
+                                onTakePhoto()
+                            },
+                        )
+                        AttachTile(
+                            icon = Lucide.Images,
+                            label = stringResource(R.string.agent_input_pick_photo),
+                            modifier = Modifier.weight(1f),
+                            onClick = {
+                                showMoreMenu = false
+                                onPickImage()
+                            },
+                        )
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    // 「命令与技能」排在粘贴**上面**:它是这套 `+` 里唯一的
                     // 「往输入框里加东西」的动作,用户想 skill 时第一眼要找它。
                     // **拿不到清单就不渲染这一项** —— 与 `/` 面板同一态度
                     // (拉 /api/slash 失败会降级成空列表),别给一个点开是空的入口。
@@ -2871,15 +2907,6 @@ internal fun AgentInputBar(
                             onClick = { morePage = MorePage.SLASH },
                         )
                     }
-                    InputSheetAction(
-                        icon = Lucide.ImagePlus,
-                        title = stringResource(R.string.agent_input_add_image),
-                        subtitle = stringResource(R.string.agent_input_add_image_sub),
-                        onClick = {
-                            showMoreMenu = false
-                            onPickImage()
-                        },
-                    )
                     InputSheetAction(
                         icon = Lucide.ClipboardPaste,
                         title = stringResource(R.string.agent_input_paste),
@@ -3233,12 +3260,91 @@ private fun InputSheetAction(
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(22.dp),
         )
-        Column {
+        Column(modifier = Modifier.weight(1f)) {
             Text(text = title, fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurface)
             Text(
                 text = subtitle,
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        // 清单行右端的箭头:跟 Trae 一致,提示「点进去是另一个面板」。
+        // 标题那栏加了 weight,长标题不会把箭头挤出屏幕。
+        Icon(
+            imageVector = Lucide.ChevronRight,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+            modifier = Modifier.size(18.dp),
+        )
+    }
+}
+
+/**
+ * 「拍照 / 相册」两块方砖(Trae 式)。
+ *
+ * 底色单开 [WbPalette.TileLight/Dark] 而不是 `surfaceVariant`:这层 sheet 自己
+ * 就是白底,`surfaceVariant`(#F3F4F6)压上去只剩约 2% 对比,方块在静态截图里
+ * 会「消失」(与 §25 骨架屏同一个坑,同一个教训值得第二次开色)。
+ */
+@Composable
+private fun AttachTile(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val tile = if (LocalWbDarkTheme.current) WbPalette.TileDark else WbPalette.TileLight
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(tile)
+            .clickable(onClick = onClick)
+            .padding(vertical = 20.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.size(26.dp),
+        )
+        Text(
+            text = label,
+            fontSize = 14.sp,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+    }
+}
+
+/** `+` 弹层顶栏:标题居中 + 右侧关闭。 */
+@Composable
+private fun SheetHeader(title: String, onClose: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 24.dp, end = 12.dp, top = 4.dp, bottom = 16.dp),
+    ) {
+        Text(
+            text = title,
+            fontSize = 17.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.align(Alignment.Center),
+        )
+        Box(
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .size(32.dp)
+                .clip(CircleShape)
+                .noRippleClickable(onClick = onClose),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = Lucide.X,
+                contentDescription = stringResource(R.string.agent_input_sheet_close_cd),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
             )
         }
     }

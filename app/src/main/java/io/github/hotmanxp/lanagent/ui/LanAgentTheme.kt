@@ -81,6 +81,13 @@ object WbPalette {
      */
     val SkeletonLineLight = Color(0xFFE6E8EC)
 
+    /**
+     * 「拍照 / 相册」方砖底色(见 `ui/AgentSessionViews.kt` 的 `AttachTile`)。
+     * 同样不能用 [SunkenLight]:这层弹层自己就是白底(ModalBottomSheet 走
+     * surfaceContainerLow = 白),#F3F4F6 压白底同样只剩 2% 对比,方块会「消失」。
+     */
+    val TileLight = Color(0xFFEDEFF2)
+
     // ---- 暗色 ----
     val PageDark = Color(0xFF141517)
     val CardDark = Color(0xFF1F2124)
@@ -94,6 +101,9 @@ object WbPalette {
 
     /** 骨架屏占位条底色(暗色版),理由同 [SkeletonLineLight]。 */
     val SkeletonLineDark = Color(0xFF31343A)
+
+    /** 方砖底色(暗色版),压 CardDark #1F2124。理由同 [TileLight]。 */
+    val TileDark = Color(0xFF2B2E33)
 }
 
 /**

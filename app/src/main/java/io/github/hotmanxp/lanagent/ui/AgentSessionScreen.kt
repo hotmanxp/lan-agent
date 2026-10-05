@@ -35,8 +35,10 @@
 // transcript 补回来)。
 package io.github.hotmanxp.lanagent.ui
 
+import android.Manifest
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.pm.PackageManager
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -107,6 +109,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
@@ -741,18 +744,41 @@ fun AgentSessionPane(
 
     // Photo Picker：Android 13+ 走系统选择器（不需要任何存储权限），
     // 低版本自动回落到 ACTION_OPEN_DOCUMENT，同样不需要权限。
-    val pickImageLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickVisualMedia()
-    ) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
+    // 拍照与选图**共用这一条管道** —— 两个 launcher 的回调只差一个 uri。
+    fun attachImage(uri: android.net.Uri) {
         if (attachments.size >= ImageAttachments.MAX_COUNT) {
             toast("最多只能带 ${ImageAttachments.MAX_COUNT} 张图片")
-            return@rememberLauncherForActivityResult
+            return
         }
         scope.launch {
             runCatching { ImageAttachments.load(context, uri) }
                 .onSuccess { attachments = attachments + it }
                 .onFailure { toast("读取图片失败:${it.message ?: it}") }
+        }
+    }
+    val pickImageLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        attachImage(uri)
+    }
+
+    // 拍照（Trae 的「拍照」方砖）。CAMERA 权限清单里已声明（为 ScanQrScreen），
+    // 这里补运行时申请：已授权直接开取景框，未授权先发一次请求，
+    // 拒了只 toast —— 不做二次教育弹窗，用户再点一次方砖会重新触发。
+    var showCamera by remember { mutableStateOf(false) }
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) showCamera = true else toast("没有相机权限，无法拍照")
+    }
+    fun openCamera() {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA)
+            == PackageManager.PERMISSION_GRANTED
+        ) {
+            showCamera = true
+        } else {
+            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
         }
     }
 
@@ -1247,6 +1273,13 @@ fun AgentSessionPane(
                                         )
                                     }
                                 },
+                                onTakePhoto = {
+                                    if (attachments.size >= ImageAttachments.MAX_COUNT) {
+                                        toast("最多只能带 ${ImageAttachments.MAX_COUNT} 张图片")
+                                    } else {
+                                        openCamera()
+                                    }
+                                },
                                 onPaste = { pasteFromClipboard() },
                                 currentModel = currentModel,
                                 availableModels = availableModels,
@@ -1328,6 +1361,22 @@ fun AgentSessionPane(
             onClose = { previewOpen = false },
             modifier = Modifier.fillMaxSize(),
         )
+
+        // 拍照取景框(`+` → 添加到对话 → 拍照)。独立 Dialog 窗口,盖在一切之上;
+        // 拍完直接把 uri 交给 attachImage,与相册选图同一条重编码管道。
+        if (showCamera) {
+            CameraCaptureDialog(
+                onDismiss = { showCamera = false },
+                onCaptured = { uri ->
+                    showCamera = false
+                    attachImage(uri)
+                },
+                onError = { msg ->
+                    showCamera = false
+                    toast(msg)
+                },
+            )
+        }
     }
 
     // 系统返回键的优先级 = **后注册的赢**(Compose 的 BackHandler 语义)。

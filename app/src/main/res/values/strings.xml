@@ -392,6 +392,14 @@
     <!-- Mermaid 流程图渲染:默认开。关掉后 ```mermaid 围栏块显示成普通代码块。 -->
     <string name="settings_mermaid_render">渲染 Mermaid 流程图</string>
     <string name="settings_mermaid_render_sub">会话里的 mermaid 代码块画成流程图;关掉显示成代码块</string>
+    <!-- Mermaid 卡片 chrome(0.28.0)。%1$s 是图类型中文名,由 ui/MermaidBlock.kt
+         的 mermaidDiagramLabel() 从首行声明派生。 -->
+    <string name="mermaid_card_title">Mermaid · %1$s</string>
+    <string name="mermaid_card_scaled_to">缩至 %1$d%%</string>
+    <string name="mermaid_card_expand_cd">全屏查看流程图</string>
+    <string name="mermaid_fullscreen_title">Mermaid · %1$s · 全屏预览</string>
+    <string name="mermaid_copy_source">复制源码</string>
+    <string name="mermaid_fullscreen_close">关闭全屏预览</string>
     <!-- 对话字号(0.26.0):三档(小/标准/大)。仿 AA `compact` 二态(17sp↔14sp)落
          三档(0.85 / 1.0 / 1.15),详见 MessageFontScale 注释。只影响正文,
          工具卡 chrome 不动(对齐 AA 的 compact 只动 markdownStyles.body)。 -->

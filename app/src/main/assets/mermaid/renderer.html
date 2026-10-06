@@ -13,6 +13,11 @@
 <body>
 <script src="mermaid.min.js"></script>
 <script>
+// 宿主页:离线 mermaid 光栅化。一次只放一个图进去(见下面 chain 的注释)。
+//
+// 运行时版本锁 **mermaid 12.1.0**,必须跟 opencc-web packages/zai 一致 ——
+// 服务端 prompt 的图型清单是照着某个版本的 detector 注册表写的,两端错开就会
+// 出现「web 出图、app 静默回退成代码块」。改版本走 `tools/fetch-mermaid.sh`。
 (function () {
   var currentTheme = null;
 
@@ -50,13 +55,18 @@
   }
 
   /**
-   * 从 SVG 文本里取固有尺寸 —— **走正则而不是 DOMParser**。
+   * 从 SVG 文本里猜固有尺寸 —— **只在浏览器给不出答案时用**(见 rasterize 里
+   * `img.naturalWidth` 那条主路径)。
    *
-   * mermaid 写的是 `width="100%"`,而 `parseFloat("100%")` 返回 100 而不是 NaN,
-   * 拿它当固有宽度会把整张图纵向拉长成一根柱子。所以优先信 viewBox,
-   * 宽高属性只在 viewBox 缺失时兜底,且带 % 的跳过。
+   * ⚠️ 这段推断有覆盖不到的图型,别当权威。0.28.0 之前它是唯一的尺寸来源,
+   * 结果**甘特图整块渲成空白**:`gantt` 写出来的根 svg **既没有 viewBox,
+   * 宽高也不是像素值**,于是这里落到 800×600 的兜底,而实际图约 2000×1100 ——
+   * 画布比图小,内容全落在画布外,渲出来只剩一层底色。flowchart / sequence /
+   * treemap / radar 这些恰好都带 viewBox,所以只有甘特图中招,「大部分图都好」
+   * 的错觉一直持续到用户拿真实甘特图来试。
    *
-   * 不用 DOMParser 是因为它按 XML 解析,遇到 `&nbsp;` 会整个失败(见 toValidXml)。
+   * 所以:主路径改成问浏览器(`Image.naturalWidth/Height`,SVG 规范里就是固有尺寸的
+   * 定义),这里退成兜底。**不要把主路径改回正则。**
    */
   function svgSize(svgText) {
     var w = 0, h = 0;
@@ -70,7 +80,14 @@
       if (ah && ah[1].indexOf('%') < 0) h = parseFloat(ah[1]) || 0;
     }
 
-    if (!w || !h) { w = 800; h = 600; diag('svgSize: 没找到 viewBox,退回 800x600'); }
+    if (!w || !h) {
+      // 兜底命中时把根标签打出来 —— 下次再遇到没 viewBox 的图型,这一行直接
+      // 告诉你该信哪个属性,不用再从头推。
+      var root = /<svg\b[^>]*>/.exec(svgText);
+      diag('svgSize 兜底: 没 viewBox,宽高也不是像素值,退回 800x600');
+      diag('svgSize 兜底: 根 svg 标签 = ' + (root ? root[0].slice(0, 300) : '(没找到)'));
+      w = 800; h = 600;
+    }
     return { w: Math.max(1, Math.ceil(w)), h: Math.max(1, Math.ceil(h)) };
   }
 
@@ -82,34 +99,102 @@
     catch (e) {}
   }
 
+  /**
+   * mermaid.initialize 的完整配置。
+   *
+   * 跟 opencc-web `packages/zai/src/web/src/components/markdown/mermaidRenderer.ts`
+   * 的 initialize 保持同一条尺寸与错误路径 —— 那边的注释解释了每一条,这里只留
+   * 对 app 侧真正有影响的部分。
+   *
+   * ⚠️ 运行时版本必须跟 opencc-web 的 `packages/zai` 一致(现为 12.1.0,见
+   * `tools/fetch-mermaid.sh`):服务端 prompt 里那份图型清单是照着某个版本的
+   * detector 注册表写的,两端错开就会出现「web 出图、app 静默回退成代码块」。
+   *
+   * 主题**故意**不跟 web 统一:那边是 `base` + 40 项 themeVariables 映射 zai 的
+   * CSS 变量,app 这边的色板是 WbPalette,照抄会串色(AGENTS.md §25 记过同类教训)。
+   * mermaid 内置的 dark / default 两套在本页表现正常,够用。
+   */
+  function MERMAID_CONFIG(dark) {
+    // per-diagram 配置**不继承**顶层默认值 —— 漏写一个就退回默认行为,
+    // 所以这两组是「每个用到标签的图型一份」,不是「挑几个代表性的」。
+    var noHtmlLabels = { htmlLabels: false, useMaxWidth: false };
+    var fixedWidth = { useMaxWidth: false };
+
+    return {
+      startOnLoad: false,
+      theme: dark ? 'dark' : 'default',
+      securityLevel: 'strict',
+      fontFamily: '-apple-system, Roboto, "PingFang SC", sans-serif',
+
+      // ⚠️ 必须关掉 HTML 标签。默认 true 时 mermaid 用
+      // <foreignObject><div><p>…<br>…</p></div></foreignObject> 画多行标签,
+      // 而 `<br>` 是 HTML 真空元素写法 —— SVG 按 **XML** 解析,`<br>` 必须
+      // 自闭合,于是整张 SVG 解析失败,<img> 加载不出来,整块图静默回退成代码块。
+      // 症状有迷惑性:标签里**不带换行的图**一切正常,一用 `<br/>` 就挂。
+      //
+      // 关掉后 mermaid 改用纯 SVG <tspan> 断行,顺带也避开了 foreignObject
+      // 在 <img> 上下文里字体经常不生效的老问题。
+      htmlLabels: false,
+
+      // 关掉后根 svg 输出自然像素宽度。本页的 svgSize() 优先信 viewBox,
+      // 开着 useMaxWidth 时 mermaid 写 width="100%",兜底路径会读到 100 这个
+      // 荒谬的值(见 svgSize 注释)。跟 web 保持同一条尺寸路径。
+      useMaxWidth: false,
+
+      // 渲染失败时**不要**把 "Syntax error in text" 品牌 SVG 画进 document.body。
+      // mermaid 的 draw() 抛错路径会先调 errorRenderer.draw(...),而
+      // removeTempElements() 在 throw 之后才跑 —— 那个临时节点就留在 body 上。
+      // 本页的 WebView 是 detached 0 尺寸所以看不见,但流式输出时每个半截代码块
+      // 都会触发一次,几轮之后 body 堆满垃圾节点,后续渲染行为会变得不可预测。
+      suppressErrorRendering: true,
+
+      flowchart: noHtmlLabels,
+      sequence: noHtmlLabels,
+      class: noHtmlLabels,
+      state: noHtmlLabels,
+      er: noHtmlLabels,
+      gantt: fixedWidth,
+      pie: fixedWidth,
+      mindmap: fixedWidth,
+      journey: fixedWidth,
+      timeline: fixedWidth,
+      gitGraph: fixedWidth,
+      quadrantChart: fixedWidth,
+      xychart: fixedWidth,
+      sankey: fixedWidth,
+    };
+  }
+
   function renderOne(id, src, dark, bg) {
     return new Promise(function (resolve) {
-      var done = function (payload) {
+      /**
+       * 成功回 `{"png":"data:image/png;base64,…","nw":2472,"nh":309}`,
+       * 失败回空串(与之前一致,Kotlin 侧按空串判失败)。
+       *
+       * nw / nh 是 SVG 的 **viewBox 尺寸**,不是 PNG 的像素宽高 —— PNG 宽 =
+       * ceil(nw * pickScale),缩放系数只存在于本页,回传 bitmap 宽高会让 Kotlin
+       * 侧算不出「图相对原本设计尺寸被缩到百分之几」(卡片按 FillWidth 铺满,
+       * 屏上宽度恒等于卡宽,这个百分比是「缩至 NN%」提示的唯一数据来源)。
+       *
+       * base64 只含 A-Za-z0-9+/=,JSON.stringify 不会产生任何转义,大字符串
+       * 也不会有拼接开销。
+       */
+      var done = function (png, nw, nh) {
+        var payload = '';
+        if (png) {
+          try { payload = JSON.stringify({ png: png, nw: nw, nh: nh }); }
+          catch (e) { diag('payload 序列化失败 ' + (e && e.message)); }
+        }
         try { AndroidMermaid.onResult(id, payload); } catch (e) {}
         resolve();
       };
 
-      if (!window.mermaid) { diag('mermaid 未加载 id=' + id); done(''); return; }
+      if (!window.mermaid) { diag('mermaid 未加载 id=' + id); done(null); return; }
 
       // mermaid.initialize 是全局的,切主题时要重新调。
       if (currentTheme !== dark) {
         currentTheme = dark;
-        mermaid.initialize({
-          startOnLoad: false,
-          theme: dark ? 'dark' : 'default',
-          securityLevel: 'strict',
-          fontFamily: '-apple-system, Roboto, "PingFang SC", sans-serif',
-          // ⚠️ 必须关掉 HTML 标签。默认 true 时 mermaid 用
-          // <foreignObject><div><p>…<br>…</p></div></foreignObject> 画多行标签,
-          // 而 `<br>` 是 HTML 真空元素写法 —— SVG 按 **XML** 解析,`<br>` 必须
-          // 自闭合,于是整张 SVG 解析失败,<img> 加载不出来,整块图静默回退成代码块。
-          // 症状有迷惑性:标签里**不带换行的图**一切正常,一用 `<br/>` 就挂。
-          //
-          // 关掉后 mermaid 改用纯 SVG <tspan> 断行,顺带也避开了 foreignObject
-          // 在 <img> 上下文里字体经常不生效的老问题。
-          htmlLabels: false,
-          flowchart: { htmlLabels: false },
-        });
+        mermaid.initialize(MERMAID_CONFIG(dark));
       }
 
       diag('render 开始 id=' + id + ' 长度=' + src.length);
@@ -120,19 +205,19 @@
         p = mermaid.render('mmd' + id, src);
       } catch (err) {
         diag('render 同步抛出 id=' + id + ' ' + (err && (err.message || err)));
-        done('');
+        done(null);
         return;
       }
 
       Promise.resolve(p).then(function (res) {
         diag('render resolve id=' + id + ' 耗时=' + (Date.now() - t0) +
              ' 有svg=' + !!(res && res.svg));
-        if (!res || !res.svg) { done(''); return; }
+        if (!res || !res.svg) { done(null); return; }
         return rasterize(res.svg, bg, done);
       }).catch(function (err) {
         diag('render reject id=' + id + ' ' + (err && (err.message || err)) +
              ' / ' + (err && err.str));
-        done('');
+        done(null);
       });
     });
   }
@@ -164,8 +249,14 @@
   function rasterize(svgText, bg, done) {
     // ⚠️ 必须先转实体 —— <img> 加载 SVG 走的是 XML 解析,&nbsp; 会让它整个加载失败。
     var safe = toValidXml(svgText);
-    var size = svgSize(safe);
-    diag('光栅化 viewBox=' + size.w + 'x' + size.h + ' svg长度=' + svgText.length);
+    // 兜底值,只在本页算不出固有尺寸时才用(见 svgSize 的注释:甘特图会命中兜底)
+    var fallback = svgSize(safe);
+    diag('光栅化 svg长度=' + svgText.length + ' 兜底尺寸=' + fallback.w + 'x' + fallback.h);
+    // 视口宽度打出来:甘特图的宽度是容器驱动的,这里一旦是 0,整张图会塌成
+    // `viewBox="0 0 0 N"` → 渲出一张全空的图(0.28.0 实测踩到,见 Kotlin 侧
+    // MermaidRenderer 的 VIEWPORT_W 注释)。宽度异常的图先看这一行。
+    diag('视口 innerWidth=' + window.innerWidth + ' innerHeight=' + window.innerHeight +
+         ' bodyW=' + document.body.clientWidth);
 
     // 直接问 XML 解析器要错误文本 —— 别猜
     try {
@@ -180,20 +271,11 @@
       diag('XML 探测抛异常 ' + (e && e.message));
     }
 
-    var scale = pickScale(size.w, size.h);
-    var cv = document.createElement('canvas');
-    cv.width = Math.ceil(size.w * scale);
-    cv.height = Math.ceil(size.h * scale);
-    var ctx = cv.getContext('2d');
-    if (!ctx) { diag('getContext null,canvas=' + cv.width + 'x' + cv.height); done(''); return; }
-    if (bg) { ctx.fillStyle = bg; ctx.fillRect(0, 0, cv.width, cv.height); }
-
     // 两条路依次试:data URL 简单但有长度上限,blob URL 没上限但可能污染 canvas。
     // 复杂流程图的 SVG 有 20 KB+,编码后 CJK 一个字膨胀到 9 字符,很容易撞上
     // WebView 的 data URL 上限 —— 那种情况下 onerror 且拿不到任何原因。
     var dataUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(safe);
-    diag('dataURL 长度=' + dataUrl.length + ' 画布=' + cv.width + 'x' + cv.height +
-         ' scale=' + scale.toFixed(2));
+    diag('dataURL 长度=' + dataUrl.length);
 
     var settled = false;
     var tryLoad = function (url, label) {
@@ -201,14 +283,35 @@
       img.onload = function () {
         if (settled) return;
         settled = true;
+
+        // ⚠️ 固有尺寸以**浏览器解析出来的**为准,不要用 svgSize 的正则推断 ——
+        // SVG 规范里固有尺寸就是 naturalWidth/naturalHeight,而正则覆盖不到
+        // 「既没 viewBox、宽高也不是像素值」的图型(甘特图就是)。
+        // 0.28.0 之前在这里就用 svgSize 的结果定画布,甘特图整块渲成空白。
+        var nw = img.naturalWidth || 0, nh = img.naturalHeight || 0;
+        if (nw <= 0 || nh <= 0) {
+          diag('图片没有固有尺寸(naturalWidth=' + nw + '),退回兜底 ' + fallback.w + 'x' + fallback.h);
+          nw = fallback.w; nh = fallback.h;
+        }
+
+        var scale = pickScale(nw, nh);
+        var cv = document.createElement('canvas');
+        cv.width = Math.ceil(nw * scale);
+        cv.height = Math.ceil(nh * scale);
+        var ctx = cv.getContext('2d');
+        if (!ctx) { diag('getContext null,canvas=' + cv.width + 'x' + cv.height); done(null); return; }
+        if (bg) { ctx.fillStyle = bg; ctx.fillRect(0, 0, cv.width, cv.height); }
+
         try {
           ctx.drawImage(img, 0, 0, cv.width, cv.height);
           var out = cv.toDataURL('image/png');
-          diag(label + ' 成功,toDataURL 前缀=' + out.slice(0, 24) + ' 长度=' + out.length);
-          done(out);
+          diag(label + ' 成功 固有=' + nw + 'x' + nh + ' 画布=' + cv.width + 'x' + cv.height +
+               ' scale=' + scale.toFixed(2) +
+               ' toDataURL 前缀=' + out.slice(0, 24) + ' 长度=' + out.length);
+          done(out, nw, nh);
         } catch (err) {
           diag(label + ' 画到 canvas 时抛异常 ' + (err && (err.name + ': ' + err.message)));
-          done('');
+          done(null);
         }
       };
       img.onerror = function () {
@@ -221,10 +324,10 @@
             tryLoad(URL.createObjectURL(blob), 'blobURL');
           } catch (e) {
             diag('blob 也失败 ' + (e && e.message));
-            done('');
+            done(null);
           }
         } else {
-          done('');
+          done(null);
         }
       };
       img.src = url;

@@ -377,6 +377,7 @@ npx serve -l tcp://0.0.0.0:8765 app/build/outputs/apk/debug/
 
 # 分享 APK:生成带时间戳的 URL(强烈建议用这条而不是手拼)
 # 注:`ipconfig getifaddr en0` 在这台机器上会返回空串,必须用 ifconfig 兜底探测
+# ⚠️ 跑完把 **echo 输出的那行**贴给用户,不要把下面这段命令本身抄进回复
 IP=$(ifconfig | awk '/inet /{print $2}' | grep -v '^127' | grep '^192\.168' | head -1)
 [ -z "$IP" ] && IP=$(ifconfig | awk '/inet /{print $2}' | grep -v '^127' | head -1)
 echo "http://$IP:8765/app-debug.apk?t=$(date +%s)"
@@ -397,7 +398,10 @@ adb shell pm clear io.github.hotmanxp.lanagent
 - JDK 21 替代 17(AGP 8.6.1 支持),`compileOptions` 仍保持 `VERSION_17` bytecode target
 - **不写 release**(`isMinifyEnabled = false`,`proguard-rules.pro` 空);每次手动 bump `versionCode` + `versionName`(`app/build.gradle.kts`),否则手机装上看不出是新版
 - 改入口卡片 → APP 内编辑模式 / `data/Cards.kt` 的 `defaultCards`(只影响卸载重装后的首次启动)/ 网络白名单 → `res/xml/network_security_config.xml`(默认 base-config 已全放行 cleartext,多半不用动);详见 `README.md`
-- **分享 APK 的链接必须带时间戳**:`…/app-debug.apk?t=$(date +%s)`。**Why:** 用户明确要求过 —— 手机浏览器 / 下载器会按 URL 缓存,不带 `?t=` 时用户点开拿到的可能是上一个旧 APK,表现为「改了但没生效」。**How to apply:** 每次给用户 APK 链接都现生成时间戳,别复述上一轮的链接,别给不带 query 的裸 URL;serve 已经在跑也别省这一步。
+- **分享 APK 的链接必须带时间戳,而且必须把 `$(date +%s)` 真的跑一遍再贴**:先 `Bash` 执行上面那段 `echo "http://$IP:8765/app-debug.apk?t=$(date +%s)"`,**从输出里复制那条已经展开的完整 URL**(`?t=1791335596` 这种 10 位数字)给用户。
+  - **Why:** 用户明确要求过 —— 手机浏览器 / 下载器按 URL 缓存,不带 `?t=` 时点开拿到的可能是上一个旧 APK,表现为「改了但没生效」。
+  - **⚠️ 反复踩的坑(0.28.7 又犯了一次)**:把 AGENTS.md 里这段命令**当模板抄进回复**、原样输出 `…app-debug.apk?t=$(date +%s)`,shell 变量没展开,用户点开就是一个坏 URL(手机把 `$(date` 当路径的一部分)。**回复里的链接必须是你 `Bash` 跑出来的真实输出,不能是你打算执行的命令。**
+  - **How to apply:** 每次给链接都现跑一次 `date +%s`(serve 已经在跑也别省这步);别复述上一轮的链接;别给不带 query 的裸 URL;贴之前扫一眼 —— query 的值是不是 10 位数字,是字面 `$(date` 就是错的。
 
 ## 配套:opencc-web
 

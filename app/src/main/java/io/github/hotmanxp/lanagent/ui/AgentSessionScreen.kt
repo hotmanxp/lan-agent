@@ -99,7 +99,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -159,7 +165,6 @@ import com.composables.icons.lucide.ArrowUpRight
 import com.composables.icons.lucide.ChevronRight
 import com.composables.icons.lucide.Ellipsis
 import com.composables.icons.lucide.Folder
-import com.composables.icons.lucide.Menu
 import com.composables.icons.lucide.MessageSquarePlus
 import com.composables.icons.lucide.RefreshCw
 
@@ -975,15 +980,29 @@ fun AgentSessionPane(
                             // tab 根用法(onBack == null)只有抽屉按钮。
                             //
                             // 0.26.3:图标从 Lucide.NotebookTabs(带标签页的笔记本)
-                            // 换成 Lucide.Menu(三条杠),并套上圆形底 —— 顶栏左右两侧
-                            // 现在是同一套「圆形/药丸容器 + 线性图标」语言。
+                            // 换成三条杠,并套上圆形底 —— 顶栏左右两侧是同一套
+                            // 「圆形/药丸容器 + 线性图标」语言。
+                            //
+                            // 0.28.x:对齐 WorkBuddy 手机端 —— 圆钮 + 一长一短
+                            // 的两横线图标 + 左边距放开一档(start 8dp,WorkBuddy 的
+                            // 圆钮离屏边明显比 0.26.3 的贴边更远)。
+                            // 0.28.2:钮径按参考 App 实测起步,真机嫌小后放大到
+                            // 50dp(见
+                            // TOP_BAR_BUTTON_SIZE);左边距仍留 8dp 没动 —— 参考
+                            // App 两侧都是 16.2dp,但那 8dp 里含它自己的 TopAppBar
+                            // 内边距,本项目的 TopAppBar 已有等价留白,照抄会双重缩进。
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 TopBarCircleButton(
-                                    imageVector = Lucide.Menu,
+                                    // 0.28.4:自绘图标按当前主题 ink 上色
+                                    imageVector = wbMenuIcon(
+                                        if (LocalWbDarkTheme.current) WbPalette.InkDark
+                                        else WbPalette.InkLight
+                                    ),
                                     contentDescription = stringResource(
                                         R.string.agent_session_open_sessions_cd
                                     ),
                                     onClick = { scope.launch { drawerState.open() } },
+                                    modifier = Modifier.padding(start = 8.dp),
                                 )
                                 if (onBack != null) {
                                     TopBarCircleButton(
@@ -1053,12 +1072,14 @@ fun AgentSessionPane(
                             // 现在两格并列,两个入口都不再藏在抽屉里。
                             //
                             // 尺寸刻意不用 IconButton:`minimumInteractiveComponentSize`
-                            // 会把每个按钮撑到 48dp,两个加起来 ~96dp,顶栏标题
-                            // 在 360dp 宽的屏上只剩 ~150dp。这里自绘 38dp 圆形
-                            // + noRippleClickable(同浮刷新按钮那套做法)。
+                            // 会强拉到 48dp,且药丸的 disabled 压暗它给不了;自绘才
+                            // 拿得到。0.28.2 两个内钮与左侧大圆钮同为 50dp,药丸
+                            // 高 50dp,和左圆钮严格等高。
                             val dark = LocalWbDarkTheme.current
                             val pillSurface =
                                 if (dark) WbPalette.CardDark else WbPalette.CardLight
+                            // 0.28.6 描边退回 Hairline —— 0.28.4 我把"按钮改黑色"
+                            // 误读成描边,给换成了 Ink;用户要的是**图标**变黑。
                             val pillBorder =
                                 if (dark) WbPalette.HairlineDark else WbPalette.HairlineLight
                             Row(
@@ -1066,9 +1087,10 @@ fun AgentSessionPane(
                                     .clip(CircleShape)
                                     .background(pillSurface)
                                     .border(1.dp, pillBorder, CircleShape)
-                                    // 内边距 1dp 撑开药丸描边,末端 4dp 让药丸到屏幕
-                                    // 右边距跟左边那个圆钮到左边距看着一样宽。
-                                    .padding(start = 1.dp, top = 1.dp, bottom = 1.dp, end = 5.dp),
+                                    // 0.28.7 内钮改 36dp 宽([TOP_BAR_PILL_BUTTON_WIDTH]),图标间距 26.5
+                                    // → 12.5dp,药丸 110 → 74dp;内距 0 → 4dp 把两端留白
+                                    // 补回来(贴边不好看),总宽 82dp。
+                                    .padding(horizontal = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 TopBarPillButton(
@@ -1079,11 +1101,8 @@ fun AgentSessionPane(
                                     enabled = api != null && active?.online != false && !creating,
                                     onClick = { startNewSession() },
                                 )
-                                Box(
-                                    modifier = Modifier
-                                        .size(width = 1.dp, height = 16.dp)
-                                        .background(pillBorder)
-                                )
+                                // 0.28.1:参考 App 的两个图标之间**没有分隔线**,
+                                // 间距全靠 18dp 内距 + 命中区留白撑开。
                                 TopBarPillButton(
                                     imageVector = Lucide.Ellipsis,
                                     contentDescription = stringResource(R.string.agent_tools_cd),
@@ -1561,16 +1580,82 @@ private suspend fun Context.awaitInstanceOnline(
 }
 
 /**
- * 顶栏圆形按钮 / 药丸按钮的直径(0.26.3)。
+ * 顶栏按钮直径 / 图标尺寸(0.28.2):左圆钮 + 右药丸内两钮统一 50dp / 23.5dp。
  *
- * 刻意小于 M3 的 48dp `minimumInteractiveComponentSize`:顶栏左右一共四个
- * 按钮(左 1–2 个 + 右药丸 2 个),按 48dp 算要吃掉 190dp+,360dp 宽的屏上
- * 标题只剩一条。同 `ui/WebViewScreen.kt` 浮刷新按钮那套做法 —— 自绘 + clickable。
+ * 尺寸是**量出来的**,不是估的 —— 参考 App 的 1440px 截图 ÷ 4(360dp 宽)
+ * 得出:左圆钮 174px=43.5dp、右药丸高 176px=44dp、左图标 82px=20.5dp。
+ * 历程:0.26.3 是 38dp,0.28.x 先照 WorkBuddy 放到 56dp(嫌大)→ 48dp →
+ * 44dp(照图仍嫌小)→ **50dp 落定**,图标按 47% 同步跟到 23.5dp。
+ *
+ * 仍不用 `IconButton`:`minimumInteractiveComponentSize` 会强拉到 48dp,
+ * 且管不了药丸的 disabled 压暗和圆钮的无描边投影,自绘才拿得到。
  */
-private val TOP_BAR_BUTTON_SIZE = 38.dp
+private val TOP_BAR_BUTTON_SIZE = 50.dp
+
+/** 顶栏按钮里的线性图标:50dp 钮配 23.5dp(47%),同参考 App 的比例。 */
+private val TOP_BAR_ICON_SIZE = 23.5.dp
 
 /**
- * 顶栏圆形按钮:白卡圆底 + hairline 边 + 线性图标(0.26.3)。
+ * 药丸里两个内钮的**宽度**(0.28.7):高度仍是 [TOP_BAR_BUTTON_SIZE] 50dp(与左圆钮
+ * 等高),宽度从 50 收到 36。
+ *
+ * **为什么方钮看着那么散**:两个图标之间的距离 = 按钮宽 − 图标宽 = 50 − 23.5 =
+ * **26.5dp**,比图标本身(23.5dp)还宽 —— 每个图标左右各压着 13.25dp 留白。药丸
+ * 那点内距(4→0)在它面前可以忽略,所以只收内距几乎看不出变化(110→102dp)。
+ * 想让两个图标靠拢,唯一的杠杆就是压按钮宽度。
+ *
+ * 宽度 → 图标间距 / 药丸总宽(含 1dp×2 描边):
+ * - 50dp(方钮,原样):26.5dp / 102dp
+ * - 38dp:14.5dp / 78dp
+ * - **36dp(落定)**:12.5dp / 74dp
+ *
+ * 36dp 是命中区还能好按的下限附近(38×50 → 36×50 竖条,拇指点得到)。高度不动
+ * 是为了跟左边 50dp 圆钮齐平,压高度会让顶栏看着塌一块。
+ */
+private val TOP_BAR_PILL_BUTTON_WIDTH = 36.dp
+
+/**
+ * WorkBuddy 顶栏那个「一长一短」图标(0.28.x):不是汉堡 —— 只有**两条**横线,
+ * 上长下短、左对齐、粗线条圆头。Lucide 没有同款(Menu 三行 / TextAlignLeft 三行),
+ * 自绘一份;线宽 2.5 比 Lucide 默认的 2 粗一档,对齐 WorkBuddy 的厚重感。
+ *
+ * 0.28.4 从 `val` 改成**带色参数**:stroke 颜色写死在 path 上,`Icon(tint=)`
+ * 只染 fill 不染 stroke —— 原来硬编码 `Color.Black`,深色主题下就是黑线画在
+ * 深色底上。改成按传入色重建,两态各存一份(`remember` 避免每帧重建)。
+ */
+@Composable
+private fun wbMenuIcon(stroke: Color): ImageVector = remember(stroke) {
+    ImageVector.Builder(
+        name = "WbMenuTwoLines",
+        defaultWidth = 24.dp,
+        defaultHeight = 24.dp,
+        viewportWidth = 24f,
+        viewportHeight = 24f,
+    ).apply {
+        path(
+            fill = null,
+            stroke = SolidColor(stroke),
+            strokeLineWidth = 2.5f,
+            strokeLineCap = StrokeCap.Round,
+            strokeLineJoin = StrokeJoin.Round,
+        ) {
+            // 上长(4→20)下短(4→13.5,60%),左对齐;两条整体在 24 视口垂直居中
+            moveTo(4f, 9f)
+            horizontalLineToRelative(16f)
+            moveTo(4f, 15f)
+            horizontalLineToRelative(9.5f)
+        }
+    }.build()
+}
+
+/**
+ * 顶栏圆形按钮(0.28.6):白圆底 + **无描边** + 黑色线性图标。
+ *
+ * 0.26.3 是 38dp + hairline 边;0.28.x 照 WorkBuddy 改成无描边,靠白底 + 投影
+ * 从浅灰页底上浮(深色下才补 hairline)。
+ *
+ * 0.28.4 我把"按钮改黑色"误读成描边,给加了黑边 —— 用户要的是**中间的图标**
+ * 变黑,不是外框。0.28.6 描边退回原状(浅色下不加),只保留图标 tint=ink。
  *
  * 不用 `IconButton` 的原因见 [TOP_BAR_BUTTON_SIZE]。
  */
@@ -1583,20 +1668,30 @@ private fun TopBarCircleButton(
 ) {
     val dark = LocalWbDarkTheme.current
     val surface = if (dark) WbPalette.CardDark else WbPalette.CardLight
-    val border = if (dark) WbPalette.HairlineDark else WbPalette.HairlineLight
+    val ink = if (dark) WbPalette.InkDark else WbPalette.InkLight
     Box(
         modifier = modifier
             .size(TOP_BAR_BUTTON_SIZE)
+            // shadow 在 clip 之前且 clip=false,投影才不会被裁进圆里
+            .shadow(3.dp, CircleShape, clip = false)
             .clip(CircleShape)
             .background(surface)
-            .border(1.dp, border, CircleShape)
+            .then(
+                if (dark) {
+                    Modifier.border(1.dp, WbPalette.HairlineDark, CircleShape)
+                } else {
+                    Modifier
+                },
+            )
             .noRippleClickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
             imageVector = imageVector,
             contentDescription = contentDescription,
-            modifier = Modifier.size(19.dp),
+            // 0.28.5 起:显式给 tint,图标恒为 ink(黑/白随主题),不跟 onSurface
+            tint = ink,
+            modifier = Modifier.size(TOP_BAR_ICON_SIZE),
         )
     }
 }
@@ -1604,6 +1699,9 @@ private fun TopBarCircleButton(
 /**
  * 药丸里的图标按钮(0.26.3)。底色和边框由外层药丸统一给,这里只画图标 + 命中区。
  * 禁用态靠 icon tint 压到 38% —— 自绘按钮没有 M3 的 disabled contentColor。
+ *
+ * 0.28.7:`size(50)` 改成 `height(50).width(36)` —— 方钮的内部留白才是图标间距的
+ * 大头,压宽度才收得窄(推导见 [TOP_BAR_PILL_BUTTON_WIDTH])。
  */
 @Composable
 private fun TopBarPillButton(
@@ -1614,7 +1712,8 @@ private fun TopBarPillButton(
 ) {
     Box(
         modifier = Modifier
-            .size(TOP_BAR_BUTTON_SIZE)
+            .height(TOP_BAR_BUTTON_SIZE)
+            .width(TOP_BAR_PILL_BUTTON_WIDTH)
             .clip(CircleShape)
             .noRippleClickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
@@ -1622,8 +1721,11 @@ private fun TopBarPillButton(
         Icon(
             imageVector = imageVector,
             contentDescription = contentDescription,
-            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.38f),
-            modifier = Modifier.size(19.dp),
+            // 0.28.4:跟药丸描边同色(InkLight/InkDark),不再走 onSurface;
+            // disabled 仍压到 38% —— 自绘按钮没有 M3 的 disabled contentColor。
+            tint = (if (LocalWbDarkTheme.current) WbPalette.InkDark else WbPalette.InkLight)
+                .copy(alpha = if (enabled) 1f else 0.38f),
+            modifier = Modifier.size(TOP_BAR_ICON_SIZE),
         )
     }
 }

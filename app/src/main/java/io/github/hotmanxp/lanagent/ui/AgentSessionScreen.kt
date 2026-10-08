@@ -986,8 +986,8 @@ fun AgentSessionPane(
                             // 0.28.x:对齐 WorkBuddy 手机端 —— 圆钮 + 一长一短
                             // 的两横线图标 + 左边距放开一档(start 8dp,WorkBuddy 的
                             // 圆钮离屏边明显比 0.26.3 的贴边更远)。
-                            // 0.28.2:钮径按参考 App 实测起步,真机嫌小后放大到
-                            // 50dp(见
+                            // 0.28.2:钮径按参考 App 实测起步,0.28.8 回退到
+                            // 44dp(见
                             // TOP_BAR_BUTTON_SIZE);左边距仍留 8dp 没动 —— 参考
                             // App 两侧都是 16.2dp,但那 8dp 里含它自己的 TopAppBar
                             // 内边距,本项目的 TopAppBar 已有等价留白,照抄会双重缩进。
@@ -1073,8 +1073,8 @@ fun AgentSessionPane(
                             //
                             // 尺寸刻意不用 IconButton:`minimumInteractiveComponentSize`
                             // 会强拉到 48dp,且药丸的 disabled 压暗它给不了;自绘才
-                            // 拿得到。0.28.2 两个内钮与左侧大圆钮同为 50dp,药丸
-                            // 高 50dp,和左圆钮严格等高。
+                            // 拿得到。0.28.8 两个内钮与左侧大圆钮同为 44dp,药丸
+                            // 高 44dp,和左圆钮严格等高。
                             val dark = LocalWbDarkTheme.current
                             val pillSurface =
                                 if (dark) WbPalette.CardDark else WbPalette.CardLight
@@ -1580,23 +1580,27 @@ private suspend fun Context.awaitInstanceOnline(
 }
 
 /**
- * 顶栏按钮直径 / 图标尺寸(0.28.2):左圆钮 + 右药丸内两钮统一 50dp / 23.5dp。
+ * 顶栏按钮直径 / 图标尺寸(0.28.2):左圆钮 + 右药丸内两钮统一 44dp / 23.5dp。
  *
  * 尺寸是**量出来的**,不是估的 —— 参考 App 的 1440px 截图 ÷ 4(360dp 宽)
  * 得出:左圆钮 174px=43.5dp、右药丸高 176px=44dp、左图标 82px=20.5dp。
  * 历程:0.26.3 是 38dp,0.28.x 先照 WorkBuddy 放到 56dp(嫌大)→ 48dp →
- * 44dp(照图仍嫌小)→ **50dp 落定**,图标按 47% 同步跟到 23.5dp。
+ * 44dp(照图仍嫌小)→ 50dp 落定,图标按 47% 同步跟到 23.5dp。0.28.8 按要求
+ * 回退到 **44dp**(恰好是上面测出的右药丸高度 176px=44dp),**图标尺寸不动**。
  *
  * 仍不用 `IconButton`:`minimumInteractiveComponentSize` 会强拉到 48dp,
  * 且管不了药丸的 disabled 压暗和圆钮的无描边投影,自绘才拿得到。
  */
-private val TOP_BAR_BUTTON_SIZE = 50.dp
+private val TOP_BAR_BUTTON_SIZE = 44.dp
 
-/** 顶栏按钮里的线性图标:50dp 钮配 23.5dp(47%),同参考 App 的比例。 */
+/**
+ * 顶栏按钮里的线性图标:0.28.8 钮降到 44dp 后图标仍是 23.5dp(53%)—— 比 50dp
+ * 时的 47% 视觉上略满,比例问题真机看着不对再说。
+ */
 private val TOP_BAR_ICON_SIZE = 23.5.dp
 
 /**
- * 药丸里两个内钮的**宽度**(0.28.7):高度仍是 [TOP_BAR_BUTTON_SIZE] 50dp(与左圆钮
+ * 药丸里两个内钮的**宽度**(0.28.7):高度是 [TOP_BAR_BUTTON_SIZE] 44dp(与左圆钮
  * 等高),宽度从 50 收到 36。
  *
  * **为什么方钮看着那么散**:两个图标之间的距离 = 按钮宽 − 图标宽 = 50 − 23.5 =
@@ -1609,8 +1613,8 @@ private val TOP_BAR_ICON_SIZE = 23.5.dp
  * - 38dp:14.5dp / 78dp
  * - **36dp(落定)**:12.5dp / 74dp
  *
- * 36dp 是命中区还能好按的下限附近(38×50 → 36×50 竖条,拇指点得到)。高度不动
- * 是为了跟左边 50dp 圆钮齐平,压高度会让顶栏看着塌一块。
+ * 36dp 是命中区还能好按的下限附近(36×44 竖条,拇指点得到)。宽度不动是因为
+ * 药丸高度跟随 [TOP_BAR_BUTTON_SIZE],压宽度才收得窄(见上面推导)。
  */
 private val TOP_BAR_PILL_BUTTON_WIDTH = 36.dp
 

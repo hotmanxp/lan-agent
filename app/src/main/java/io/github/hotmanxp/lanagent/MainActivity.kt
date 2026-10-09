@@ -2,8 +2,10 @@
 package io.github.hotmanxp.lanagent
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color as AndroidColor
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -13,6 +15,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
@@ -25,9 +28,16 @@ import io.github.hotmanxp.lanagent.data.themeModeFlow
 import io.github.hotmanxp.lanagent.ui.LanAgentTheme
 import io.github.hotmanxp.lanagent.ui.LocalMermaidEnabled
 import io.github.hotmanxp.lanagent.ui.LocalMessageFontScale
+import io.github.hotmanxp.lanagent.ui.LocalOauthCallbackUri
 import io.github.hotmanxp.lanagent.ui.MainScaffold
 
 class MainActivity : ComponentActivity() {
+
+    // AA OAuth 回调深链(`agents-anywhere://oauth/callback`)。做法照官方 AA
+    // MainActivity:持一份 state,onCreate / onNewIntent 两处写入,由
+    // `LocalOauthCallbackUri` 透给 AaHostScreen → AgentsAnywhereApp 消费。
+    // 消费方读完会回写 null,所以同一个 URI 不会被处理两次。
+    private val oauthCallbackUri = mutableStateOf<Uri?>(null)
 
     // 媒体读权限: WebView 进程读系统选择器返回的 content:// 图片 URI 时,
     // 只靠 Intent.FLAG_GRANT_READ_URI_PERMISSION 在部分国产 ROM 上不够,
@@ -41,6 +51,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // 冷启动(系统浏览器直接拉起本 app 完成 OAuth)时回调就在启动 Intent 里。
+        oauthCallbackUri.value = oauthCallbackUriFrom(intent)
         // Draw under status bar so we control the background ourselves; the
         // navigation bar stays in its normal slot.
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -78,10 +90,36 @@ class MainActivity : ComponentActivity() {
                 CompositionLocalProvider(
                     LocalMermaidEnabled provides mermaidEnabled,
                     LocalMessageFontScale provides messageFontScale.factor,
+                    LocalOauthCallbackUri provides oauthCallbackUri,
                 ) {
                     MainScaffold()
                 }
             }
+        }
+    }
+
+    /**
+     * 已在本 app 内运行时,系统浏览器(或 WebView 交给系统处理)的回调 Intent 走这里。
+     * 依赖 manifest 上的 `android:launchMode="singleTop"`,否则会新建实例而不是回调这里。
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        oauthCallbackUri.value = oauthCallbackUriFrom(intent)
+    }
+
+    /**
+     * 只认 `agents-anywhere://oauth/callback`。MainActivity 是 exported 的,
+     * 别的 app 也能往它发任意 `Intent`,所以这里必须校验 scheme + host + path,
+     * 不能因为 manifest 有 intent-filter 就当成可信 —— 那只约束「谁来触发」,
+     * 不约束「传了什么进来」。
+     */
+    private fun oauthCallbackUriFrom(intent: Intent?): Uri? {
+        val uri = intent?.takeIf { it.action == Intent.ACTION_VIEW }?.data ?: return null
+        return uri.takeIf {
+            it.scheme.equals(OAUTH_SCHEME, ignoreCase = true) &&
+                it.host.equals(OAUTH_HOST, ignoreCase = true) &&
+                it.path == OAUTH_PATH
         }
     }
 
@@ -107,5 +145,14 @@ class MainActivity : ComponentActivity() {
         if (needed.isNotEmpty()) {
             mediaPermLauncher.launch(needed.toTypedArray())
         }
+    }
+
+    private companion object {
+        // 与 AndroidManifest.xml 里那条 VIEW intent-filter、以及 AA 端
+        // WebLoginModels.kt 的 WEB_LOGIN_CALLBACK_URI("agents-anywhere://oauth/callback")
+        // 三处必须一致。
+        const val OAUTH_SCHEME = "agents-anywhere"
+        const val OAUTH_HOST = "oauth"
+        const val OAUTH_PATH = "/callback"
     }
 }

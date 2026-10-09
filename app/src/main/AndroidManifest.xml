@@ -83,12 +83,31 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTop"
             android:screenOrientation="portrait"
             android:theme="@style/Theme.LanAgent"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- AA OAuth(PKCE)的回调地址。scheme/host/path 与 AA 官方 Android 端
+                 逐项一致 —— 官方 MainActivity 就有这一条,本项目原先没有。
+                 此前登录回调全靠登录 WebView 的 shouldOverrideUrlLoading 在进程内
+                 拦下,所以缺了也不报错;补上后:① 与官方行为对齐;② 官方云登录若改走
+                 系统浏览器(Custom Tabs),回调才有地方可回。
+                 配套接线见 MainActivity.onNewIntent 与 AaHostScreen。
+                 singleTop 是必需的:没有它,深链会新建一个 MainActivity 实例而不是
+                 走 onNewIntent,现有实例里的 WebLoginViewModel 收不到回调。 -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:host="oauth"
+                    android:path="/callback"
+                    android:scheme="agents-anywhere" />
             </intent-filter>
         </activity>
 

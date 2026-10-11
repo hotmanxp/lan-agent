@@ -85,6 +85,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -106,8 +107,10 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
@@ -972,9 +975,28 @@ fun AgentSessionPane(
                 }
             },
         ) {
+            // 0.28.9:顶栏改半透明纯色 —— 之前走 Haze 真磨砂(0.28.12),真机上
+            // 观感"糊"且在深色下发脏,回退成一块 alpha 0.5 的页底色。
+            //
+            // ⚠️ 半透明的前提是**内容能滚到顶栏底下**:顶栏若仍占位,内容被 Scaffold
+            // 的 top padding 挡在外面,0.5 的 alpha 叠在同色背景上 = 视觉零变化。
+            // 所以下面 Column 只吃 bottom padding,透明才真的透出滚动内容。
+            val pageBg =
+                if (LocalWbDarkTheme.current) WbPalette.PageDark else WbPalette.PageLight
+            // 顶栏实测高度(px,含状态栏 inset),给列表顶部的余量 item 用。
+            // 写死 64.dp 会在状态栏高度不同的机型上错位 —— 而且 material3 1.3.1
+            // 的 TopAppBarDefaults **没有** TopAppBarHeight 常量(只有 Expanded /
+            // Medium / Large 三个变体的),只能量。
+            var topBarHeightPx by remember { mutableIntStateOf(0) }
             Scaffold(
                 topBar = {
                     TopAppBar(
+                        modifier = Modifier.onSizeChanged { topBarHeightPx = it.height },
+                        // material3 1.3.x 的 TopAppBar 没有 containerColor 参数,
+                        // 底色统一走 colors。
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = pageBg.copy(alpha = 0.5f),
+                        ),
                         navigationIcon = {
                             // 抽屉在最左,back 在其次 —— 对齐 WorkBuddy 的顶栏顺序。
                             // tab 根用法(onBack == null)只有抽屉按钮。
@@ -1128,7 +1150,15 @@ fun AgentSessionPane(
                 // 录音动效层（HoldToTalkOverlay）盖在整个内容区上：无 pointerInput，
                 // 不吃触摸，按住手势仍在胶囊上。
                 Box(modifier = Modifier.fillMaxSize()) {
-                    Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+                    // 0.28.9:只吃 Scaffold 的 **bottom** padding —— top 故意丢掉,
+                    // 消息列表才会一路滑到顶栏(和状态栏)底下,顶栏的 alpha 才透得出效果。
+                    // 左右不补:Scaffold 本来就是 0,而 `calculateLeftPadding` 得传
+                    // LayoutDirection,为两个恒为 0 的值把它引进来不划算。
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(bottom = padding.calculateBottomPadding()),
+                    ) {
 
                         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                             when {
@@ -1192,6 +1222,20 @@ fun AgentSessionPane(
                                             },
                                             onCopy = { text -> copyText(text) },
                                             onShowActivity = { activityDetailKey = it },
+                                        )
+                                    }
+                                    // 0.28.9:列表**末尾**补一块顶栏等高的余量。
+                                    // reverseLayout 下 index 0 贴底,所以末尾 = 视觉最顶端,
+                                    // 滚到头时把最后一条消息顶到顶栏下沿,不被状态栏压住。
+                                    // **不能用 contentPadding** —— 那是常驻空区,内容永远
+                                    // 进不了顶栏底下,半透明的效果会被整个抵消。
+                                    item(key = "top-headroom") {
+                                        Spacer(
+                                            Modifier.height(
+                                                with(LocalDensity.current) {
+                                                    topBarHeightPx.toDp()
+                                                }
+                                            )
                                         )
                                     }
                                 }

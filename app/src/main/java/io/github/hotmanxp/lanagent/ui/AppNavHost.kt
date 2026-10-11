@@ -222,11 +222,31 @@ fun AppNavHost(
             WebViewScreen(
                 url = decoded.ifBlank { "about:blank" },
                 onBack = { navController.popBackStack() },
-                // 页面顶栏的「回到原生 APP 对话」: 无条件切任务栏,而不是
-                // popBackStack —— WebView 可能就是从设置栏 / 实例栏点开的,
-                // 那 pop 回去并不是用户想去的对话页。onSelectTab 走 MainScaffold
-                // 的 selectTab,currentTab 状态会跟着更新,底栏高亮不会错位。
-                onGoToAgent = { onSelectTab(TabDestination.Tasks) },
+                // 页面顶栏的「回到原生 APP 对话」。
+                //
+                // ⚠️ **不能简单调 onSelectTab(Tasks)** —— MainScaffold 的
+                // selectTab 开头是 `if (target == currentTab) return@selectTab`。
+                // 而 WebView 绝大多数就是**从任务栏的「去网页」按钮点开的**
+                // (TasksTabScreen → onOpenWeb),此时 currentTab 已经是 Tasks,
+                // selectTab 命中早退什么都不做 —— 实测按钮点了没反应。
+                //
+                // 所以先判当前路由: 已经在 tab/tasks 根上就 pop 回它
+                // (WebView 是叠在任务栏之上的详情页,pop 才真的回得去);
+                // 否则(从设置栏 / 服务栏点开的)才走切 tab。
+                onGoToAgent = {
+                    // ⚠️ 这里**必须 pop,不能用 onSelectTab**。
+                    //
+                    // selectTab 走的是 `navigate(route) { popUpTo(startDestination) { saveState = true } }` ——
+                    // 它把选中 tab 切回任务栏,但**当前这个 webview 详情页仍叠在上面**。
+                    // 实测: 桥调用成功、selectTab 也执行了,界面却纹丝不动 —— 用户
+                    // 语义是「离开网页回 APP 对话」,离开的唯一动作就是弹掉这一层。
+                    //
+                    // pop 之后 currentTab 本来就该是 Tasks(WebView 多半从任务栏进来);
+                    // 只有从别的 tab 点开 WebView 时才需要补一次切 tab。
+                    val fromOtherTab = navController.currentDestination?.route != TabDestination.Tasks.route
+                    navController.popBackStack()
+                    if (fromOtherTab) onSelectTab(TabDestination.Tasks)
+                },
             )
         }
     }

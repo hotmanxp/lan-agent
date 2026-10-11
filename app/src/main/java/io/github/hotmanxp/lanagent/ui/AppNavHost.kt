@@ -221,7 +221,12 @@ fun AppNavHost(
             val decoded = Uri.decode(raw)
             WebViewScreen(
                 url = decoded.ifBlank { "about:blank" },
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                // 页面顶栏的「回到原生 APP 对话」: 无条件切任务栏,而不是
+                // popBackStack —— WebView 可能就是从设置栏 / 实例栏点开的,
+                // 那 pop 回去并不是用户想去的对话页。onSelectTab 走 MainScaffold
+                // 的 selectTab,currentTab 状态会跟着更新,底栏高亮不会错位。
+                onGoToAgent = { onSelectTab(TabDestination.Tasks) },
             )
         }
     }

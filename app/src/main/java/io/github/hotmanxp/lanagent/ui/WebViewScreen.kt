@@ -6,8 +6,11 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import android.util.Base64
 import android.util.Log
+import android.webkit.JavascriptInterface
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
@@ -41,6 +44,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -66,11 +70,44 @@ import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.RefreshCw
 
 @Composable
-fun WebViewScreen(url: String, onBack: () -> Unit) {
+fun WebViewScreen(
+    url: String,
+    onBack: () -> Unit,
+    /**
+     * 页面请求「回到原生 Agent 对话」(zai 移动端顶栏的 [Bot] 按钮,
+     * 经 window.AndroidWebview.goToAgent 调过来)。
+     *
+     * 与 [onBack] 的区别: onBack 是 popBackStack —— 回到「进入 WebView 前
+     * 那一屏」。而 WebView 可能从设置栏、实例栏点开,那 pop 回去并不是用户
+     * 想去的对话页。本回调是**无条件**切到底栏「任务」栏(TasksTabScreen,
+     * 即原生 Agent 工作区),语义明确。
+     *
+     * 默认 no-op: 调用方不接就等于该功能不存在,页面侧会因探不到桥而
+     * 隐藏按钮(见 zai 的 lib/lanAgentBridge.ts)。
+     */
+    onGoToAgent: () -> Unit = {},
+) {
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var canGoBack by remember { mutableStateOf(false) }
+    // Bridge callback runs on the WebView's JavaBridge thread (NOT the main
+    // thread) — every @JavascriptInterface method lands there. Navigating a
+    // NavController / touching Compose state from there throws, so always
+    // post back to main before invoking the caller's lambda.
+    val mainHandler = remember { Handler(Looper.getMainLooper()) }
+    // ⚠️ 用 rememberUpdatedState 而非 remember(onGoToAgent): WebView 是
+    // remember(url) 缓存的,桥在它创建那一刻就把 lambda 捕获走了。若回调
+    // 后续变化(重组时 AppNavHost 传进来的闭包换了实例),remember 出来的
+    // 旧 lambda 会永远留在桥里 —— 点击切到一个已被替换的 NavController 回调。
+    // rememberUpdatedState 每次重组都写最新值,桥里那个 lambda 读它即可。
+    val currentOnGoToAgent by rememberUpdatedState(onGoToAgent)
+    // 显式标 `() -> Unit`: Handler.post 返回 Boolean,单表达式 lambda
+    // `{ handler.post { … } }` 会推成 () -> Boolean,与 NavBridge 的
+    // () -> Unit 参数不兼容。
+    val goToAgent: () -> Unit = remember(mainHandler) {
+        { mainHandler.post { currentOnGoToAgent() }; Unit }
+    }
     // True between a user-initiated reload() and the next onPageStarted —
     // lets us surface a "已刷新" Snackbar so the user knows the WebView
     // actually re-fetched instead of silently re-painting cached content.
@@ -117,6 +154,14 @@ fun WebViewScreen(url: String, onBack: () -> Unit) {
             // Compose (see Box below) and let the WebView be transparent so
             // the surface shows the Compose-painted color through it.
             setBackgroundColor(android.graphics.Color.TRANSPARENT)
+            // 页面 → 原生的向下通道。必须注册在**本屏可见的这个** WebView 上,
+            // 不能给 WebViewKeepAliveService 那个 detached 实例加 —— 那个
+            // 没有 Surface、用户也看不见它,给它挂桥等于凭空多一个能改
+            // 导航状态的入口。
+            //
+            // JS 名 `AndroidWebview` 与 zai 侧 lib/lanAgentBridge.ts 里的
+            // `window.AndroidWebview?.goToAgent` 一一对应,改一边要改两边。
+            addJavascriptInterface(NavBridge(goToAgent), "AndroidWebview")
         }
     }
 
@@ -272,7 +317,12 @@ fun WebViewScreen(url: String, onBack: () -> Unit) {
     }
 
     DisposableEffect(webView) {
-        onDispose { webView.destroy() }
+        onDispose {
+            // 先摘桥再 destroy:桥对象持有 NavController 的 lambda,
+            // WebView 没销毁干净时页面仍可能调进来。
+            runCatching { webView.removeJavascriptInterface("AndroidWebview") }
+            webView.destroy()
+        }
     }
 
     // Keep the WebView's network stack alive after the user backgrounds the
@@ -414,6 +464,29 @@ fun WebViewScreen(url: String, onBack: () -> Unit) {
             hostState = snackbarHostState,
             modifier = Modifier.align(Alignment.BottomCenter)
         )
+    }
+}
+
+/**
+ * 页面 → 原生的向下通道(JS 名 `AndroidWebview`)。
+ *
+ * 与 [injectImagesToWebView] 那条通道方向相反: 那条是原生用
+ * evaluateJavascript 主动调页面函数,这条是页面主动调原生。
+ *
+ * ⚠️ **@JavascriptInterface 方法跑在 WebView 的 JavaBridge 线程上**,
+ * 不是主线程 —— 直接动 NavController / Compose 状态会抛异常。传入的
+ * lambda 内部已 post 回主线程(WebViewScreen 里包的),这里只负责转交。
+ *
+ * ⚠️ 本类**必须**是 `private` 且只注册在本屏可见的那个 WebView 上:
+ * addJavascriptInterface 会把对象完整暴露给页面的任意 JS,注册到
+ * WebViewKeepAliveService 那个 detached 实例等于凭空多一个没人看得见
+ * 却能改导航状态的入口。
+ */
+private class NavBridge(private val onGoToAgent: () -> Unit) {
+    @JavascriptInterface
+    fun goToAgent(): Boolean {
+        onGoToAgent()
+        return true
     }
 }
 

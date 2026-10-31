@@ -37,6 +37,14 @@
          runs, the notification just gets silently dropped by the OS. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- 本地引擎的前台服务用 specialUse 类型:它不是数据同步,也不是媒体播放,
+         就是「用户可见的常驻 agent 引擎」。Android 14 上 specialUse 必须同时
+         声明权限和下面的 PROPERTY_SPECIAL_USE_FGS_SUBTYPE,否则 startForeground
+         直接抛 SecurityException。 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- 截屏服务是 type=mediaProjection 的前台服务,Android 14 上必须声明
+         这个权限,否则 startForeground 抛 SecurityException。 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
@@ -118,6 +126,43 @@
             android:name=".service.WebViewKeepAliveService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+
+        <!-- 本地引擎(feat/local-engine)。**必须跑在独立的 :engine 进程里**:
+             node::Start 一个进程只能调一次(V8 全局状态不可重入),引擎崩了
+             没法原地重启,只能整个进程换新的 —— 独立进程是这条约束的前提。
+             引擎监听 127.0.0.1:9420,主进程用 OkHttp 直连,复用现有的
+             AgentApi / SSE 客户端。 -->
+        <service
+            android:name=".engine.EngineService"
+            android:exported="false"
+            android:process=":engine"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Runs the on-device agent engine (Node runtime embedded in the APK) while the user works with local agent sessions." />
+        </service>
+
+        <!-- 能力桥的通知读取服务。Android 上读通知栏只有这一条路:
+             NotificationListenerService,得用户在系统设置里给「通知使用权」。
+             BIND_NOTIFICATION_LISTENER_SERVICE 是系统专有的权限,不用声明
+             uses-permission;exported 必须为 true(系统要绑它)。 -->
+        <service
+            android:name=".engine.PhoneNotificationListener"
+            android:exported="true"
+            android:label="@string/notif_listener_label"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <!-- 截屏。Android 14 起 MediaProjection 必须先有 type=mediaProjection
+             的前台服务才能 getMediaProjection(),顺序反了直接 SecurityException。
+             所以这个服务不是可选的,是截屏的必经之路。 -->
+        <service
+            android:name=".engine.ScreenCaptureService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection" />
 
         <!-- ── Agents-Anywhere 官方客户端(0.24.2 移植)需要的组件 ──
              MainActivity / RemoteTerminalForegroundService 不并入:

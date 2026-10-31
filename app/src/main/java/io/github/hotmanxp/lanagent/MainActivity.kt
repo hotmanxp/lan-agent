@@ -22,6 +22,8 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import io.github.hotmanxp.lanagent.data.ThemeMode
+import io.github.hotmanxp.lanagent.engine.EngineController
+import io.github.hotmanxp.lanagent.engine.EngineInstaller
 import io.github.hotmanxp.lanagent.data.messageFontScaleFlow
 import io.github.hotmanxp.lanagent.data.mermaidRenderFlow
 import io.github.hotmanxp.lanagent.data.themeModeFlow
@@ -67,6 +69,16 @@ class MainActivity : ComponentActivity() {
         // paints behind it (used for the home screen, which already pads).
         window.statusBarColor = AndroidColor.TRANSPARENT
         requestMediaPermissionsIfNeeded()
+        // 本地引擎(:engine 进程)在这里起。
+        //
+        // 为什么在 onCreate 就起、而不是等用户点「本机引擎」再起:引擎冷启动
+        // 要解包 + 起 Node,好几秒 —— 等用户点了才起,等的功夫他已经看到
+        // 「离线」了。后台起,起来之前实例列表里它显示离线,起来之后变在线。
+        //
+        // 不阻塞 UI:EngineController 内部用 Handler 异步调度,这里只发个信号。
+        if (EngineInstaller.isInstalled(this)) {
+            EngineController.start(this)
+        }
         setContent {
             // 主题模式从 DataStore 读,所以「设置 → 深色」是即时全局生效的,
             // 不需要 recreate()。首帧会用系统默认值,深色用户最多闪一下。

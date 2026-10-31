@@ -22,6 +22,10 @@
 package io.github.hotmanxp.lanagent.data
 
 import android.content.Context
+import android.util.Log
+import io.github.hotmanxp.lanagent.engine.EngineController
+import io.github.hotmanxp.lanagent.engine.EngineInstaller
+import io.github.hotmanxp.lanagent.engine.EnginePaths
 import io.github.hotmanxp.lanagent.model.Card
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -75,19 +79,78 @@ fun AgentInstance.canRestart(): Boolean = !managerBaseUrl.isNullOrBlank() && !is
 private const val PROBE_TIMEOUT_MS = 1_500L
 
 /**
+ * 本地引擎的探活超时。它比卡片路径宽裕得多:引擎要解包 + 起 Node,
+ * 冷启动好几秒,给 1.5s 会被误判成离线。
+ */
+private const val LOCAL_ENGINE_PROBE_TIMEOUT_MS = 8_000L
+
+/** 本地引擎在实例目录里的 id。 */
+const val LOCAL_ENGINE_ID = "local-engine"
+
+/**
+ * 探一下本机引擎活着没有。
+ *
+ * 只打 127.0.0.1,一次 HTTP 调用,很便宜 —— 可以放进轻量轮询里。
+ * 冷启动那几秒会返回 false,通了就 true。
+ */
+suspend fun Context.probeLocalEngine(logFailure: Boolean = false): Boolean =
+    runCatching {
+        AgentApi(EnginePaths.baseUrl(), callTimeoutMs = LOCAL_ENGINE_PROBE_TIMEOUT_MS).listSessions()
+    }.onFailure { e ->
+        if (logFailure) Log.w("AgentInstances", "本机引擎探活失败(${EnginePaths.baseUrl()})", e)
+    }.isSuccess
+
+/**
  * 解析可切换的 Agent 实例目录。**永不抛异常** —— 拿不到就返回空列表,
  * 调用方据此走「还没有可用实例」的空态,而不是让整屏崩掉。
  */
 suspend fun Context.resolveAgentInstances(): List<AgentInstance> {
     val cards = runCatching { cardsFlow().first() }.getOrDefault(emptyList())
 
+    // 本地引擎排第一:它是「不依赖电脑」的兜底 —— 局域网实例全挂了的时候,
+    // 手机上这一个还能聊。引擎没起来就整条不出现,UI 那边的空态文案不用改。
+    val local = localEngineInstance()
+
     val manager = findManagerBaseUrl(cards)
     if (manager != null) {
         val snapshots = runCatching { InstancesApi(manager).listInstances() }.getOrNull()
-        if (!snapshots.isNullOrEmpty()) return snapshots.toAgentInstances(manager)
+        if (!snapshots.isNullOrEmpty()) {
+            return listOfNotNull(local) + snapshots.toAgentInstances(manager)
+        }
     }
 
-    return cards.discoverInstances()
+    return listOfNotNull(local) + cards.discoverInstances()
+}
+
+/**
+ * 本地引擎实例(跑在 APK 里的 :engine 进程)。
+ *
+ * baseUrl 是 127.0.0.1 —— 同设备的所有进程共享同一个 loopback,所以主进程
+ * 直连就行,跟连局域网实例在协议层完全一样(现有的 AgentApi / SSE 客户端
+ * 一行都不用改,这也是选 opencc core 而不是 dsh 的原因)。
+ */
+private suspend fun Context.localEngineInstance(): AgentInstance? {
+    // 引擎没装(没跑过 fetch-native.sh / 引擎包没进 APK)就不给这个选项 ——
+    // 与其给一个永远连不上的入口,不如不出现。
+    if (!EngineInstaller.isInstalled(this)) return null
+
+    // 顺手把引擎起起来。之前 EngineController 没有任何调用点,引擎永远
+    // 不会自己跑 —— 这里是唯一的触发点:每次解析实例列表时看一眼,
+    // 引擎没活就让它起。EngineController.start() 幂等,重复调不会起两个。
+    //
+    // 起引擎是异步的(解包 + 起 Node 要好几秒),所以这一次解析拿到的
+    // online 必然是 false —— UI 下一轮刷新(2.5s 轮询)就会变成 true。
+    EngineController.start(this)
+
+    val baseUrl = EnginePaths.baseUrl()
+    val online = probeLocalEngine(logFailure = true)
+    return AgentInstance(
+        id = LOCAL_ENGINE_ID,
+        name = "本机引擎",
+        baseUrl = baseUrl,
+        online = online,
+        isCurrent = false,
+    )
 }
 
 /**

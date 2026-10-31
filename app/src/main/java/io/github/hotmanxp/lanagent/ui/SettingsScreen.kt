@@ -144,6 +144,13 @@ fun SettingsScreen(
                 }
             }
 
+            // 本机引擎(feat/local-engine)。放在会话后面、入口卡片前面 ——
+            // 配好了这台手机就能自己跑 agent,是比「加个入口卡片」更值得
+            // 先看到的东西。
+            item("local_engine") {
+                LocalEngineSettingsSection()
+            }
+
             // 入口卡片(0.15.0 从任务栏搬来)。放在外观后面、数据前面 ——
             // 它是这一屏里唯一需要动手的东西,不该埋在最底下。
             item("cards") {

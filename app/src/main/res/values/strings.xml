@@ -116,6 +116,20 @@
     <string name="notif_keepalive_channel_name">WebView 后台保持</string>
     <string name="notif_keepalive_channel_desc">保持 WebView 长连接不中断</string>
     <string name="notif_keepalive_title">LAN Agent 后台运行中</string>
+    <!-- 本地引擎(:engine 进程)的前台通知。这个服务跑的是 APK 内嵌的
+         Node 运行时,常驻但不该出声 —— 用户不该被引擎的存在打扰。 -->
+    <string name="notif_engine_channel_name">本地引擎</string>
+    <string name="notif_engine_channel_desc">在手机上跑本地 agent 引擎</string>
+    <string name="notif_engine_title">本地引擎运行中</string>
+    <string name="notif_engine_desc">Agent 引擎跑在设备本地</string>
+    <!-- 通知监听服务的名字。用户到「设置 → 通知使用权」里看到的条目。 -->
+    <string name="notif_listener_label">局域网 Agent(通知读取)</string>
+    <!-- 截屏前台服务的通知。Android 14 上 MediaProjection 类型的前台服务
+         必须有通道,否则 startForeground 直接抛异常。 -->
+    <string name="notif_capture_channel_name">屏幕捕获</string>
+    <string name="notif_capture_channel_desc">授权后 agent 可以读取屏幕内容</string>
+    <string name="notif_capture_title">屏幕捕获运行中</string>
+    <string name="notif_capture_desc">Agent 可以读取屏幕内容</string>
     <!-- Instances 实例管理 -->
     <string name="instances_title">实例管理</string>
     <string name="instances_refresh">刷新</string>
@@ -379,6 +393,21 @@
     <!-- 会话精简模式(0.15.2 起,0.26.3 改成 Trae 式一行摘要 + 详情弹层)。
          默认开 —— 关掉退回逐条工具卡。 -->
     <string name="settings_section_session">会话</string>
+    <!-- 本机引擎(feat/local-engine):模型接入配置。
+         「本机引擎」是跑在设备上的 zai server,它要知道自己该调哪个
+         模型服务 —— 地址 / 模型名 / 密钥三个值,存在 DataStore,起引擎
+         前物化成引擎认得的 settings.json。 -->
+    <string name="settings_section_local_engine">本机引擎</string>
+    <string name="settings_local_engine_subtitle">在设备上跑 agent 引擎,配置它用的模型服务</string>
+    <string name="settings_local_engine_not_installed">这个 APK 里没带引擎包,「本机引擎」不可用</string>
+    <string name="settings_local_engine_running">引擎运行中</string>
+    <string name="settings_local_engine_stopped">引擎未运行</string>
+    <string name="settings_local_engine_provider">模型服务协议</string>
+    <string name="settings_local_engine_base_url">服务地址(Base URL)</string>
+    <string name="settings_local_engine_model">模型名</string>
+    <string name="settings_local_engine_api_key">API 密钥</string>
+    <string name="settings_local_engine_save">保存</string>
+    <string name="settings_local_engine_save_hint">保存后立刻生效,不用重启引擎</string>
     <string name="settings_compact_tools">工具调用精简模式</string>
     <string name="settings_compact_tools_sub">工具调用与思考过程收成一行摘要(如「执行 2 条命令」),点开看详情;关掉退回逐条工具卡</string>
     <!-- 工具调用摘要 / 详情弹层(0.26.3,见 AGENTS.md §29)。摘要文案本身

@@ -52,6 +52,11 @@ lan-agent/
     ├── src/test/                      # JVM 单测基建(0.9.1 起)
     └── src/main/
         ├── AndroidManifest.xml        # 单 Activity + 6 类权限 + service
+        ├── assets/
+        │   ├── mermaid/               # 离线 Mermaid 渲染运行时(fetch-mermaid.sh 装)
+        │   ├── terminal/              # 终端相关静态资源
+        │   └── engine/                # 本地引擎包(构建产物,gitignore)
+        ├── jniLibs/arm64-v8a/          # Node 运行时等原生库(fetch-native.sh 装,gitignore)
         ├── res/
         │   ├── values/{strings,themes,colors}.xml
         │   ├── values-night/{themes,colors}.xml          # 深色冷启动底色 #141517
@@ -61,15 +66,19 @@ lan-agent/
         │   └── drawable-nodpi/
         │       ├── wb_mascot.png                 # WorkBuddy 机器人形象
         │       └── ic_launcher_foreground.png    # 自适应前景(108dp 画布,66dp 安全区)
-        └── java/io/github/hotmanxp/lanagent/
-            ├── MainActivity.kt        # setContent + immersive + 媒体权限申请
-            ├── LanAgentApp.kt         # Application;注册 WebViewKeepAlive 通知 channel
-            ├── ui/                    # 屏幕 + 渲染组件
-            ├── data/                  # 状态机 + DataStore + wire 模型 + API 客户端
-            ├── model/                 # @Serializable 数据类
-            ├── ssh/                   # JSch 封装 + zai 启动 + 端口探测
-            ├── service/               # WebView 配置单源 + 后台保活 service
-            └── voice/                 # 语音输入(平台 SpeechRecognizer + 云 ASR)
+        └── java/io/github/
+            ├── jackwener/dsh/engine/  # ⚠️ 包名不能改:JNI 符号对不上(见 local-engine.md)
+            │   └── NodeRuntime.kt     # libdshengine.so 的 JNI 入口
+            └── hotmanxp/lanagent/
+                ├── MainActivity.kt        # setContent + immersive + 媒体权限申请
+                ├── LanAgentApp.kt         # Application;注册 WebViewKeepAlive 通知 channel
+                ├── ui/                    # 屏幕 + 渲染组件
+                ├── data/                  # 状态机 + DataStore + wire 模型 + API 客户端
+                ├── model/                 # @Serializable 数据类
+                ├── ssh/                   # JSch 封装 + zai 启动 + 端口探测
+                ├── service/               # WebView 配置单源 + 后台保活 service
+                ├── engine/                # 本地引擎(Node 跑在 :engine 进程,见 local-engine.md)
+                └── voice/                 # 语音输入(平台 SpeechRecognizer + 云 ASR)
 ```
 
 ## AppNavHost 路由清单

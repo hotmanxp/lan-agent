@@ -76,3 +76,12 @@ lint/tmp/
 
 # Local tool indexes / caches
 .codegraph/
+# Kotlin 编译器的本地缓存(报错快照 / 会话),跟 .gradle 一样是机器本地的东西
+.kotlin/
+
+# ── 本地引擎(feat/local-engine)────────────────────────────────────────────────
+# 引擎包:tools/build-engine-pkg.mjs 产出。12MB 的构建产物,进 APK 但不入 git
+# (git 里只留脚本,谁想跑本地引擎自己构建一次)。
+app/src/main/assets/engine/
+# 原生 .so:tools/fetch-native.sh 拉下来。libnode.so 单个就 82MB,更不能入库。
+app/src/main/jniLibs/

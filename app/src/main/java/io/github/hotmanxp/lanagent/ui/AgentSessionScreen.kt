@@ -130,6 +130,9 @@ import io.github.hotmanxp.lanagent.data.AgentSessionMeta
 import io.github.hotmanxp.lanagent.data.AttachedImage
 import io.github.hotmanxp.lanagent.data.FileUploads
 import io.github.hotmanxp.lanagent.data.InstancesApi
+import io.github.hotmanxp.lanagent.data.LOCAL_ENGINE_ID
+import io.github.hotmanxp.lanagent.data.probeLocalEngine
+import io.github.hotmanxp.lanagent.engine.EngineInstaller
 import io.github.hotmanxp.lanagent.data.mergeIntoInput
 import io.github.hotmanxp.lanagent.data.CMD_TYPE_CLEARED
 import io.github.hotmanxp.lanagent.data.CMD_TYPE_COMPACTED
@@ -356,6 +359,32 @@ fun AgentSessionPane(
             }
         }
         bootstrapDone = true
+    }
+
+    // 本机引擎的在线状态补一轮轮询。
+    //
+    // 为什么需要:引擎冷启动要解包 12MB + 起 V8,好几秒 —— 上面那次目录解析
+    // 必然探到「离线」,而目录**不会**自己再刷新(任务页没有 2.5s 轮询,
+    // 那是实例管理屏才有的)。不补这一轮,「本机引擎」在实例列表里会永远
+    // 显示离线,用户点了也连不上。
+    //
+    // 为什么只探 127.0.0.1:重扫局域网实例很贵(`/api/instances` 或逐卡片探活),
+    // 而且与引擎起没起无关。只探本机是一次 HTTP 调用,可以放心轮询。
+    LaunchedEffect(bootstrapTick) {
+        // 引擎没装进 APK 就别轮询了(目录里也不会有这一行)。
+        if (!EngineInstaller.isInstalled(context)) return@LaunchedEffect
+        repeat(90) {
+            delay(2_000)
+            // 目录解析可能还没跑完(它是另一个 coroutine),此时这一行还不存在 ——
+            // 那不算「已在线」,继续等。
+            val local = instances.firstOrNull { it.id == LOCAL_ENGINE_ID }
+            if (local != null && local.online) return@LaunchedEffect
+            if (!context.probeLocalEngine()) return@repeat
+            instances = instances.map {
+                if (it.id == LOCAL_ENGINE_ID) it.copy(online = true) else it
+            }
+            return@LaunchedEffect
+        }
     }
 
     // hydrate + SSE。两个阶段串行(理由见文件头注释),整体随 STARTED 起停。

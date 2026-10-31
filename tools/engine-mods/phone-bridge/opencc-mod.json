@@ -1,0 +1,9 @@
+{
+  "name": "phone-bridge",
+  "version": "1.0.0",
+  "description": "把 Android 手机能力接进本地引擎:截图、通知、打开 App、读剪贴板",
+  "entry": "./index.mjs",
+  "requires": {
+    "env": ["LANAGENT_CAP_BASE"]
+  }
+}

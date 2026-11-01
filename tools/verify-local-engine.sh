@@ -51,13 +51,15 @@ step "1. 原生库(node 运行时)"
 NATIVE_DIR="$APP_DIR/files/native"
 if sh_ok "run-as $PKG sh -c \"test -d '$NATIVE_DIR'\""; then
   ok "原生库目录 = $NATIVE_DIR"
-  for so in libnode.so libdshengine.so libdshnode.so libc++_shared.so librg.so; do
+  for so in libnode.so libdshengine.so libdshnode.so libc++_shared.so; do
     if sh_ok "run-as $PKG sh -c \"test -f '$NATIVE_DIR/$so'\""; then
       ok "$so 在"
     else
       bad "$so 缺 —— 在 App 设置页点「下载引擎」"
     fi
   done
+  # librg.so 不再要求下载 —— 0.29.3 起它随 APK 走(nativeLibraryDir),
+  # 见下面第 3 步。下载目录里那份还在的话只是多一个回落。
   # node --version:libdshnode.so 是 node 启动器(要 LD_LIBRARY_PATH 才找得到 libnode.so)
   VER="$(sh_ "run-as $PKG sh -c \"cd '$NATIVE_DIR' && LD_LIBRARY_PATH='$NATIVE_DIR' ./libdshnode.so --version\"")"
   if printf '%s' "$VER" | grep -qE '^v[0-9]+\.'; then
@@ -101,6 +103,24 @@ if sh_ok "run-as $PKG sh -c \"test -d '$BIN_DIR'\""; then
       bad "$link 软链没建 —— BashTool / Grep 工具会废"
     fi
   done
+
+  # ⚠️ **软链存在 ≠ 能执行** —— 真机上踩过的坑。
+  #
+  # 放在 app 私有目录(files/native/librg.so,app_data_file 标签)里的 .so,
+  # 部分 Android 版本(Android 15/16)的 SELinux 策略禁止 untrusted_app 执行
+  # 自己数据目录里的文件:`deny untrusted_app app_data_file:file execute`。
+  # 症状是引擎起来、BashTool 照常(它 exec 的是 /system/bin/sh),
+  # 但 Grep / Glob 全废,报 `spawn rg EACCES`。
+  #
+  # 解法:librg.so 进 APK,`useLegacyPackaging=true` 让它解到 nativeLibraryDir
+  # (apk_data_file 标签,平台自己也执行那里的 .so)。
+  # 所以这里**必须真的 exec 一次**,不能只看软链在不在。
+  RG_VER="$(sh_ "run-as $PKG sh -c \"'$BIN_DIR/rg' --version\"")"
+  if printf '%s' "$RG_VER" | grep -qE '^ripgrep '; then
+    ok "rg 能执行:$(printf '%s' "$RG_VER" | head -1)"
+  else
+    bad "rg 跑不起来(SELinux 拒绝执行?):$(printf '%s' "$RG_VER" | head -1)"
+  fi
 else
   bad "bin 目录不存在 —— 软链没建"
 fi

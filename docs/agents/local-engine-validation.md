@@ -262,3 +262,52 @@ header 值 → 请求在发出前就炸,而且报错里把**整个 key** 打了�
 model 存成了空)。改成 `remember(stored.x)`,flow 一发值就回填,保存后回填的是
 去空白的干净值。
 
+---
+
+## 0.29.3:真机上 Grep / Glob 工具不可用(SELinux 拒绝 exec app_data_file)
+
+真机现象:引擎起来、BashTool 正常,但 **Grep / Glob 全废**,报
+`spawn rg EACCES`。AVC 日志里两条 deny:
+
+```
+deny { execute }        untrusted_app → app_data_file(自己数据目录里的文件)
+deny { execute_no_trans } untrusted_app
+```
+
+**根因**:原生库改成按需下载后,`librg.so` 解到 `filesDir/native/`
+(`app_data_file` 标签),软链 `files/bin/rg` 指过去。部分 Android 版本
+(Android 15/16)的策略禁止 `untrusted_app` 执行自己数据目录里的文件。
+
+**迷惑性**:BashTool 照常 —— 它 exec 的是 `/system/bin/sh`(系统分区);
+引擎照常起 —— Node 运行时是 `dlopen`(不需要 exec 权限)。
+只有「exec 自己目录里的二进制」这一类工具废掉。**模拟器(Android 14)完全
+测不出来**,那边策略宽松。
+
+### 修法
+
+1. `librg.so` 回 APK 的 `app/src/main/jniLibs/arm64-v8a/`(4.4MB,已入库);
+2. `packaging { jniLibs { useLegacyPackaging = true } }` —— 让它解到
+   `nativeLibraryDir`(`/data/app/<pkg>/lib/arm64`,`apk_data_file` 标签,
+   平台自己就执行那里的 .so);
+3. `EngineShims` 优先软链 `applicationInfo.nativeLibraryDir/librg.so`,
+   拿不到再退回下载的那份。
+
+95MB 的 Node 运行时**仍然不进 APK**。
+
+### 实测(模拟器 asr_repro,0.29.3)
+
+| 项 | 结果 |
+|---|---|
+| APK 体积 | 39.5MB(0.29.2 是 40.9MB) |
+| `nativeLibraryDir/arm64/librg.so` | 在,`-rwxr-xr-x`,标签 `u:object_r:apk_data_file` |
+| 软链 | `files/bin/rg → /data/app/.../lib/arm64/librg.so` |
+| `files/bin/rg --version` | `ripgrep 15.2.0 (rev e89fff89ac)` ✅ |
+| **Grep 工具真跑** | SSE 里 `toolName: "Grep"` → 命中 `sample.txt:1` ✅ |
+| `tools/verify-local-engine.sh` | 22 项全过(含新增的「rg 能执行」) |
+
+### 验收脚本的教训
+
+软链**存在**不等于**能执行**。`verify-local-engine.sh` 第 3 步原来只看
+`readlink` 的结果 —— 在真机上这条照样通过,而工具是废的。现在改成真的跑一次
+`files/bin/rg --version`,跑不出来就报 fail。
+

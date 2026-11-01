@@ -19,13 +19,17 @@
 //    win32-x64,**没有 android**。但它的 resolveRgSystem()
 //    (`zn-agent-core/src/compat/vendor/ripgrep.ts:96`) 走的是 `which rg`,
 //    所以只要 PATH 里有个叫 rg 的可执行文件就行 —— 不用改 opencc 源码。
-//    librg.so 随 DSH-Android 的原生包一起(ripgrep 15.2.0,带 pcre2),
-//    0.29.0 起跟别的原生库一样是**运行时下载**的,解到 filesDir/native/。
+//    librg.so 来自 DSH-Android 的原生包(ripgrep 15.2.0,带 pcre2)。
+//    **它必须待在 APK 里**(0.29.3):放在 app 私有目录里在部分 Android 版本上
+//    根本 exec 不了(SELinux 禁止 untrusted_app 执行 app_data_file),
+//    症状是 `spawn rg EACCES` —— Grep / Glob 工具全废,BashTool 却照常。
+//    APK 里的那份解到 nativeLibraryDir(system_file 标签)才可执行。
 //
-// ## 为什么放在 app 私有目录
+// ## 为什么软链放在 app 私有目录
 //
 // filesDir 下的软链是 app 自己的东西:不碰 /system、不需要 root、卸载即清。
 // Android 允许在 app 私有目录里建指向系统路径的绝对软链。
+// 软链**本身**在 app 私有目录没关系 —— 被 exec 的是它指向的那个文件。
 
 package io.github.hotmanxp.lanagent.engine
 
@@ -55,14 +59,27 @@ object EngineShims {
         // bash → /system/bin/sh
         link(EnginePaths.shellShim(context), "/system/bin/sh", "bash")
 
-        // rg → 下载下来的 librg.so(filesDir/native/)
+        // rg → APK 里的 librg.so(nativeLibraryDir);拿不到再退回下载的那份
         //
-        // 目标不再是 nativeLibraryDir —— 0.29.0 起原生库是运行时下载的,
-        // 躺在 app 私有目录里,不在 APK 里。
+        // ⚠️ **优先 APK 里那份,不是 filesDir 里那份** —— 部分 Android 版本
+        // (Android 15/16)的 SELinux 策略禁止 untrusted_app 执行自己数据目录里的
+        // 文件(`deny untrusted_app app_data_file:file execute`),
+        // 症状是 `spawn rg EACCES` —— Grep / Glob 工具全废,而 BashTool 照常
+        // (它 exec 的是 /system/bin/sh)。真机上就是这个坑。
+        //
+        // APK 里的 .so 解到 nativeLibraryDir(/data/app/<pkg>/lib/arm64,
+        // system_file 标签)才是可执行的 —— 所以 librg.so 必须进 APK 且
+        // `useLegacyPackaging = true`(见 app/build.gradle.kts)。
         val rg = EnginePaths.rgShim(context)
-        val librg = File(EnginePaths.nativeDir(context), "librg.so")
-        if (librg.exists()) {
-            link(rg, librg.absolutePath, "rg")
+        val apkRg = File(context.applicationInfo.nativeLibraryDir, "librg.so")
+        val downloadedRg = File(EnginePaths.nativeDir(context), "librg.so")
+        val target = when {
+            apkRg.isFile -> apkRg
+            downloadedRg.isFile -> downloadedRg
+            else -> null
+        }
+        if (target != null) {
+            link(rg, target.absolutePath, "rg")
         } else {
             Log.w(TAG, "没有 librg.so,ripgrep 用不了(Grep/Glob 工具会降级)")
         }

@@ -70,8 +70,8 @@ android {
         applicationId = "io.github.hotmanxp.lanagent"
         minSdk = 26
         targetSdk = 34
-        versionCode = 139
-        versionName = "0.29.2"
+        versionCode = 140
+        versionName = "0.29.3"
 
         // ── 本地引擎(feat/local-engine)──────────────────────────────────────
         // 引擎包(13MB)与原生库(95MB)**都不进 APK**(0.29.0 起改成按需下载):
@@ -115,11 +115,23 @@ android {
     // 依赖带进来的 armeabi-v7a / x86 / x86_64 三个 ABI 一共 ~17MB。
     // 排掉它们:手机(arm64)装小一圈,APK 也小一圈。
     //
-    // 注意:**引擎的原生库不在这里** —— 它们在 dist/natives/,运行时下载,
-    // 不进 APK(0.29.0 起)。所以这里不需要 useLegacyPackaging:
-    // APK 里剩下的都是依赖树带进来的普通 .so,怎么打包都行。
+    // ⚠️ **引擎的 Node 运行时不在这里** —— libnode.so / libdshengine.so 那套
+    // (95MB)在 dist/natives/,运行时下载,不能进 APK。
+    //
+    // ⚠️ **但 librg.so 必须在 APK 里**(0.29.3):它是 Grep / Glob 工具的
+    // 可执行体,**不能放在 app 私有目录**—— 部分 Android 版本(Android 15/16)
+    // 的 SELinux 策略禁止 untrusted_app 执行自己数据目录里的文件
+    // (`deny untrusted_app app_data_file:file execute`),
+    // 症状是 `spawn rg EACCES`,而 BashTool 之类照常。
+    // APK 里的 .so 解到 nativeLibraryDir(/data/app/<pkg>/lib/arm64,
+    // system_file 标签)才是可执行的。
+    //
+    // useLegacyPackaging = true(= extractNativeLibs="true")就是为此:
+    // modern packaging(默认)把 .so 压在 APK 里不落盘,
+    // 既没法建软链也没法 exec。
     packaging {
         jniLibs {
+            useLegacyPackaging = true
             excludes += setOf(
                 "**/armeabi-v7a/**",
                 "**/x86/**",

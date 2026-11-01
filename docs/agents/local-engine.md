@@ -438,6 +438,49 @@ is an invalid header value.
 > 把已存的冲掉(实测把 baseUrl / model 存成了空)。改成 `remember(stored.x)`,
 > flow 一发值就回填。
 
+### librg.so 必须回 APK(0.29.3)⚠️ 真机才暴露的坑
+
+原生库按需下载之后,`librg.so` 也跟着进了下载包,解到 `filesDir/native/`,
+软链 `files/bin/rg → filesDir/native/librg.so`。**模拟器(Android 14)跑得好好的**,
+真机上 Grep / Glob 工具却全废:
+
+```
+spawn rg EACCES
+```
+
+AVC 日志:
+
+```
+deny  { execute }  untrusted_app  app_data_file  →  自己数据目录里的文件
+deny  { execute_no_trans }  ...
+```
+
+**根因**:部分 Android 版本(Android 15/16)的 SELinux 策略禁止 `untrusted_app`
+执行**自己 app 数据目录**里的文件(`app_data_file` 标签)。软链在 app 私有目录里
+没问题 —— 被 exec 的是它指向的那个文件,而那个文件也在 app 私有目录里。
+
+迷惑性拉满:BashTool 照常(它 exec 的是 `/system/bin/sh`,系统分区),
+引擎照常起,只有 Grep / Glob 这类**要 exec 自己目录里二进制**的工具废掉。
+
+**解法**:`librg.so` 回到 APK 的 `lib/arm64-v8a/`,并开
+`useLegacyPackaging = true`(0.29.0 之前那条 `extractNativeLibs` 的坑,
+当时是为了内嵌引擎,现在为了 ripgrep 又得开回来)—— .so 解到
+`nativeLibraryDir`(`/data/app/<pkg>/lib/arm64`,`apk_data_file` 标签,
+平台自己就执行那里的 .so),软链指向它。
+
+```kotlin
+// EngineShims:优先 APK 里那份,拿不到再退回下载的那份
+val apkRg = File(context.applicationInfo.nativeLibraryDir, "librg.so")
+val downloadedRg = File(EnginePaths.nativeDir(context), "librg.so")
+```
+
+Node 运行时那 95MB **仍然不进 APK** —— 只有 4.4MB 的 librg.so 回来。
+APK 39.5MB(比 0.29.2 的 40.9MB 还小一点:legacy packaging 把 .so 改成
+不压缩存储,但 dex 那部分省回来的更多)。
+
+**验收脚本必须真的 exec 一次**:软链存在 ≠ 能跑。`verify-local-engine.sh`
+第 3 步现在跑 `files/bin/rg --version`,跑不出来就是坏了。
+
 ### 换下载源不用改 App
 
 App 只认「一个 manifest 地址」。清单里写着 zip 的文件名与 sha256,App 按清单下载。

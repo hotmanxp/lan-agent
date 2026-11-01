@@ -70,8 +70,8 @@ android {
         applicationId = "io.github.hotmanxp.lanagent"
         minSdk = 26
         targetSdk = 34
-        versionCode = 141
-        versionName = "0.29.4"
+        versionCode = 142
+        versionName = "0.29.5"
 
         // ── 本地引擎(feat/local-engine)──────────────────────────────────────
         // 引擎包(13MB)与原生库(95MB)**都不进 APK**(0.29.0 起改成按需下载):

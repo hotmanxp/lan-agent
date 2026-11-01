@@ -138,20 +138,23 @@ object EngineCredentialsStore {
      *
      * 幂等:每次起引擎前都会调一遍,用户改了设置不用管缓存。
      *
-     * 没配完整就不写 —— 写半个配置比不写更糟(引擎会去调一个空 baseUrl,
-     * 报错信息还特别难懂)。
+     * ⚠️ **settings.json 总是写**,即使凭据没配全:
+     * 那个文件里的 `permissions` 段必须落,否则 zai 启动时的回填会塞一份
+     * 桌面默认(询问模式),而手机上没有批准界面 —— 每个工具调用都卡住。
+     * `env`(模型地址 / 密钥)只在配全时写 —— 写半个比不写更糟(引擎会去调一个
+     * 空 baseUrl,报错信息还特别难懂)。
      *
-     * @return true = 写了文件;false = 没配 / 写失败
+     * @return true = 凭据配全且已物化;false = 没配全 / 写失败
      */
     fun apply(context: Context, credentials: EngineCredentials = current(context)): Boolean {
         // 物化前再去一次空白 —— 老版本存进去的值可能带空格(用户升级前
         // 填过),不在这儿掐掉的话引擎会拿着非法 header 去调模型。
         val clean = credentials.sanitized()
-        if (!clean.isComplete) return false
         return try {
             EnginePaths.ensureDirs(context)
-            writeGlobalConfig(context, clean)
             writeSettings(context, clean)
+            if (!clean.isComplete) return false
+            writeGlobalConfig(context, clean)
             true
         } catch (e: Throwable) {
             false
@@ -193,25 +196,30 @@ object EngineCredentialsStore {
      */
     private fun writeSettings(context: Context, credentials: EngineCredentials) {
         val file = File(EnginePaths.dataDir(context), "settings.json")
-        val env = JSONObject().apply {
-            put("ANTHROPIC_BASE_URL", credentials.baseUrl.trimEnd('/'))
-            put("ANTHROPIC_AUTH_TOKEN", credentials.apiKey)
-            put("ANTHROPIC_DEFAULT_SONNET_MODEL", credentials.model)
-            put("OPENAI_BASE_URL", credentials.baseUrl.trimEnd('/'))
-            put("OPENAI_API_KEY", credentials.apiKey)
+        val root = JSONObject()
+        // env 只在配全时写 —— 写一半比不写更糟(引擎会去调一个空 baseUrl)。
+        if (credentials.isComplete) {
+            val env = JSONObject().apply {
+                put("ANTHROPIC_BASE_URL", credentials.baseUrl.trimEnd('/'))
+                put("ANTHROPIC_AUTH_TOKEN", credentials.apiKey)
+                put("ANTHROPIC_DEFAULT_SONNET_MODEL", credentials.model)
+                put("OPENAI_BASE_URL", credentials.baseUrl.trimEnd('/'))
+                put("OPENAI_API_KEY", credentials.apiKey)
+            }
+            root.put("env", env)
         }
-        val root = JSONObject().apply {
-            put("env", env)
-            // 引擎跑在手机上,没有「人」点确认 —— 直接放行,否则每个工具调用
-            // 都在等一个永远不会来的批准。
-            put(
-                "permissions",
-                JSONObject().apply {
-                    put("defaultMode", "bypassPermissions")
-                    put("allow", JSONArray())
-                },
-            )
-        }
+        // 引擎跑在手机上,没有「人」点确认 —— 直接放行,否则每个工具调用
+        // 都在等一个永远不会来的批准。
+        //
+        // ⚠️ 这段**必须无条件写**:settings.json 里没有 permissions 时,zai 启动
+        // 回填会塞一份桌面默认(询问模式),手机上没有批准界面 → 工具调用全卡住。
+        root.put(
+            "permissions",
+            JSONObject().apply {
+                put("defaultMode", "bypassPermissions")
+                put("allow", JSONArray())
+            },
+        )
         file.writeText(root.toString())
     }
 }

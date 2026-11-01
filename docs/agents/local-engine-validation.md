@@ -371,3 +371,53 @@ App 升级后路径就变了,旧的 `files/bin/rg` / `files/bin/node` 全变悬�
 | `tools/verify-local-engine.sh` | **24 项全过**(新增「rg 能执行」「node 能执行」) |
 
 
+
+---
+
+## 0.29.5:手机端专用主 Agent
+
+参考 core 的 `mainAgents-weixin.ts`,给手机做一份专用主 Agent:提示词讲清
+「你在 Android 手机上跑」,工具池砍掉依赖电脑的那些。
+
+### 形态:外置 main-agent(不是改 core)
+
+`app/src/main/assets/local-engine/mobile-main-agent.js` →
+`EngineAgentProfile.apply()` 每次起引擎拷到
+`$ZAI_DATA_DIR/main-agents/mobile.js`,并把 `mainAgent: "mobile"` 合并进
+`settings.json`(读改写 —— 同一文件里还有 `env` 和 `permissions`)。
+
+引擎启动时 `initAgentRuntime` 扫那个目录加载外置 agent(core
+`server/agentRegistry.ts`),`settings.mainAgent` 让新会话选中它。
+
+### 实测(模拟器 asr_repro)
+
+| 项 | 结果 |
+|---|---|
+| 物化 | `files/home/.zai/main-agents/mobile.js` ✅ |
+| settings.json | `{"env":…,"permissions":{"defaultMode":"bypassPermissions"},"mainAgent":"mobile"}` ✅ |
+| agent 自述环境 | 「Android 手机上,应用包名 io.github.hotmanxp.lanagent,引擎是应用内的 Node.js 进程,仅能读写该应用的私有沙箱目录」 ✅ |
+| agent 自述工作目录 | `/data/data/io.github.hotmanxp.lanagent/files/workspace` ✅ |
+| agent 自述 node | v24.22.1,仅核心模块 ✅ |
+| **工具池(保留)** | Agent, AskUserQuestion, Bash, Edit, Glob, Grep, **PresentFile**, Read, Skill, TaskStop, TodoWrite, WebSearch, Write, `mcp__minimax-image__generate`, `mcp__phone-bridge__phone_{clipboard,list_apps,notifications,open_app,screenshot,settings}`, subagent_control |
+| **工具池(砍掉)** | CliAgent, CronCreate, CronDelete, CronList, EnterPlanMode, EnterWorktree, ExitPlanMode, ExitWorktree, Monitor, snip |
+| 单测 `EngineAgentProfileTest` | 4 例全过 |
+
+引擎日志里有一行 `[mobile-agent] tool pool = …` —— 排查工具问题时先看它。
+
+### 踩到的两件事
+
+1. **`require('@zn-ai/zn-agent-core')` 在外置 agent 里解析失败** —— 同一个
+   NODE_PATH 在普通 node 子进程里是好的(`require.resolve` 能拿到路径),
+   但在「$ZAI_DATA_DIR 里由 `import()` 加载的 CJS 文件」这个上下文里报
+   `Cannot find module`。改成**按文件 URL 动态 import**(引擎目录从
+   `OPENCC_MODS_DIR` 反推)才通。
+2. **`PresentFile` 只由 core 的 `default` agent 挂** —— core 没导出那个工具对象,
+   外置 agent 拿不到。所以手机 agent 的 tools 槽先沿用 default 的槽(拿到
+   PresentFile),再在上面做黑名单过滤。
+
+### 顺带修:settings.json 的 permissions 段必须无条件写
+
+原来 `EngineCredentialsStore.apply()` 在凭据没配全时直接 return,连
+settings.json 都不写 —— 而 zai 启动时看到文件里没有 `permissions` 会**回填一份
+桌面默认(询问模式)**,手机上没有批准界面 → 每个工具调用都卡住。现在
+settings.json 总是写(env 只在配全时写)。

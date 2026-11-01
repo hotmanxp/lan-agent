@@ -142,6 +142,14 @@ class EngineService : Service() {
         val credentialsApplied = EngineCredentialsStore.apply(this)
         Log.i(TAG, "凭据物化 = $credentialsApplied")
 
+        // 手机端专用主 Agent:提示词讲清「你在手机上跑」,工具池砍掉依赖电脑的
+        // 那些(CliAgent / 定时任务 / LSP / 桌面流程)。
+        //
+        // 必须在起 Node **之前**物化 —— 引擎启动时就扫 $ZAI_DATA_DIR/main-agents/,
+        // 晚一步就得重启引擎才生效。
+        val profileApplied = EngineAgentProfile.apply(this)
+        Log.i(TAG, "手机端 agent 配置 = $profileApplied")
+
         // 环境变量必须在 nativeStart 之前设好 —— Node 一起来就会读 HOME /
         // ZAI_DATA_DIR,晚了就写到 / 底下去了。
         EnginePaths.env(this, port).forEach { (k, v) ->

@@ -542,3 +542,99 @@ manifest 放到那儿、填新地址即可 —— App 侧一行不用改。
 - API key 仍是明文(落在 `filesDir/home/.zai.json`)
 - 截屏授权的 UI 入口(`ScreenCaptureService` 有,首页按钮没接)
 - `node-pty` / `sharp` 原生库
+
+---
+
+## 十、手机端专用主 Agent(0.29.5)
+
+参考 core 的 `server/mainAgents-weixin.ts`(微信通道的专用 agent),给手机端
+也做一份:**提示词讲清「你在手机上跑」,工具池砍掉依赖电脑的那些**。
+
+### 为什么用「外置 agent」而不是改 core
+
+core 的主 Agent 有三个插槽(systemPrompt / tools / mcp),可以被 agent 配置整体
+替换。手机专属这套有两条理由不塞进 core:
+
+1. 它是**手机专属**的(工作区是 app 私有目录、shell 是 toybox、进程随时被杀),
+   不该跟着 core 升级漂到桌面实例上;
+2. 改 core 要重打 7.5MB 的 core bundle → 引擎包换指纹 → **用户重下 34MB**。
+   外置文件跟着 APK 走,改一句提示词只要重发 APK。
+
+### 机制
+
+- 引擎启动时 `initAgentRuntime` 扫 `$ZAI_DATA_DIR/main-agents/*.js`,逐个
+  `import()`,取 default 导出(函数则 `await raw(ctx)`)注册进 AgentRegistry
+  (core: `server/agentRegistry.ts` 的 `loadUserAgents`)。
+- `settings.json` 的 `mainAgent: "mobile"` 让**新会话**选中它 —— 会话在第一次
+  prompt 时把 agent 冻结进 `transcript.meta.mainAgent`,两个插槽按会话应用。
+- 落地:`app/src/main/assets/local-engine/mobile-main-agent.js` →
+  `EngineAgentProfile.apply()` 每次起引擎把它拷到
+  `$ZAI_DATA_DIR/main-agents/mobile.js`,并把 `mainAgent` 合并进 settings.json。
+
+⚠️ **settings.json 是「读改写」不是覆盖** —— 同一个文件里还有引擎要的 `env`
+(模型地址 / 密钥)和 `permissions`(免批准模式),覆盖会把它们抹掉。
+
+### 提示词写了什么
+
+英文(项目规定系统提示词用英文,回复语言由提示词内的指令控制为中文),内容是
+**这个 agent 实际所处的环境**,不是泛泛的「你在手机上」:
+
+- 设备与工作区(`files/workspace`,不是任何项目的 checkout)
+- shell 是 toybox `sh`(以 `bash` 之名暴露),没有 apt/pip/npm/git,装不了包
+- `node`(v24)可用、只核心模块;`rg` 可用
+- 沙箱:只能读写 app 私有存储,碰不到用户的电脑
+- 手机能力层(`mcp__phone-bridge__phone_*`:截屏 / 通知 / 剪贴板 / 应用列表 /
+  启动应用 / 系统设置)
+- **进程随时会被杀** —— 长任务要增量交付,不许承诺「回头再做」
+- 明确列出「做不到」的那些:碰不到电脑、装不了包、开不了浏览器、没有外部 CLI agent
+
+### 工具策略:黑名单,不是白名单
+
+工具池随 mod / 权限 / 环境浮动(mod 贡献的工具就在里面),白名单会把手机能力层
+误杀。砍掉的是「正常工作前提在手机上不成立」的那些:
+
+| 工具 | 为什么砍 |
+|---|---|
+| `CliAgent` | 外置 CLI agent(opencc / dsh 二进制),手机上没有 |
+| `CronCreate/Delete/List` | 引擎进程随时被杀,定时任务不可靠(提示词里也写明了) |
+| `Enter/ExitWorktree` | git worktree,手机工作区不是仓库 |
+| `Enter/ExitPlanMode` | 手机 UI 没有计划审批交互 |
+| `Monitor` / `RemoteTrigger` / `WorkflowTool` / `SendUserFile` / `Brief` | 面向宿主机进程与桌面端流程 |
+| `LSP` | 要语言服务器二进制 |
+| `PowerShell` / `snip` / `WebBrowser` | 桌面平台的东西 |
+| `Config` | 模型/凭据由 App 设置页管理,引擎侧改了会被下次物化覆盖 |
+
+保留:`Read/Write/Edit/Glob/Grep/Bash`、`Agent`(子代理在同一个引擎进程里跑)、
+`AskUserQuestion`(App 原生渲染选项卡)、`PresentFile`(App 原生渲染文件卡)、
+`WebSearch`、`Skill`、`TodoWrite`、`Task*`、以及全部 mod 工具。
+
+### 一个绕路:PresentFile
+
+`PresentFile` **只由 core 的 `default` agent 挂**,外置 agent 拿不到那个工具
+对象(core 没导出它)。所以手机 agent 的 tools 槽先**沿用 default 的槽**
+(拿到 PresentFile),再在上面做过滤。
+
+拿 default 的槽要 import core。实测:`require('@zn-ai/zn-agent-core')`
+(靠 NODE_PATH)在「从 `$ZAI_DATA_DIR` 由 `import()` 加载的 CJS 文件」这个上下文里
+**解析失败**(同一个 NODE_PATH 在普通 node 子进程里是好的)—— 最后用
+**按文件 URL 动态 import**:`<引擎目录>/node_modules/@zn-ai/zn-agent-core/opencc-core.mjs`
+(引擎目录从 `OPENCC_MODS_DIR` 反推)。
+
+### 实测(模拟器)
+
+工具池(引擎日志里的 `[mobile-agent] tool pool =`):
+
+```
+Agent, AskUserQuestion, Bash, Edit, Glob, Grep, PresentFile, Read, Skill,
+TaskStop, TodoWrite, WebSearch, Write,
+mcp__minimax-image__generate,
+mcp__phone-bridge__phone_{clipboard,list_apps,notifications,open_app,screenshot,settings},
+subagent_control
+```
+
+砍掉的:`CliAgent, CronCreate, CronDelete, CronList, EnterPlanMode,
+EnterWorktree, ExitPlanMode, ExitWorktree, Monitor, snip`。
+
+问它「你在什么环境跑」,答的是 Android 手机 + app 私有沙箱 + `files/workspace`
++ node v24.22.1 + 手机能力清单 ✅。
+

@@ -83,22 +83,58 @@ object EngineShims {
         } else {
             Log.w(TAG, "没有 librg.so,ripgrep 用不了(Grep/Glob 工具会降级)")
         }
+
+        // node → APK 里的 libdshnode.so(4.6KB 的 node 启动器)
+        //
+        // 让 agent 能在 Bash 里跑 JS:`node script.js` / `node -e '…'`。
+        //
+        // 为什么启动器必须在 APK 里:私有目录里的文件**不能 exec**
+        // (SELinux 只给了 execute[给 dlopen/mmap 用],没给 execve 要的
+        // execute_no_trans)—— 跟 rg 同理,见上面那段注释。
+        //
+        // 启动器本身 DT_NEEDED 是 libnode.so / libc++_shared.so,
+        // RPATH 是 $ORIGIN —— 而 libnode.so(82MB)在下载目录里,不在 APK 里。
+        // 所以靠 LD_LIBRARY_PATH 指过去(见 EnginePaths.env):
+        // dlopen 只需要 execute,那个是允许的。
+        val node = EnginePaths.nodeShim(context)
+        val apkNode = File(context.applicationInfo.nativeLibraryDir, "libdshnode.so")
+        val downloadedNode = File(EnginePaths.nativeDir(context), "libdshnode.so")
+        val nodeTarget = when {
+            apkNode.isFile -> apkNode
+            downloadedNode.isFile -> downloadedNode
+            else -> null
+        }
+        if (nodeTarget != null) {
+            link(node, nodeTarget.absolutePath, "node")
+        } else {
+            Log.w(TAG, "没有 libdshnode.so,Bash 里用不了 node")
+        }
     }
 
     /**
      * 建软链;已经指向正确目标就什么都不做。
      *
-     * 先删再建 —— Android 的 [File.createSymbolicLink] 在目标已存在时会抛
-     * FileAlreadyExistsException,而「重建」是这里最常见的情况(每次启动都调)。
+     * 先删再建 —— Android 的 [android.system.Os.symlink] 在目标已存在时抛
+     * ErrnoException(EEXIST),而「重建」是这里最常见的情况(每次启动都调)。
+     *
+     * ⚠️ **判存在要用 readlink,不能用 exists()** —— App 升级后
+     * nativeLibraryDir 的路径会变(带随机目录名),旧软链就变成**悬空软链**:
+     * `exists()` 对悬空软链返回 false → 走「目标不存在」的分支 → symlink()
+     * 撞 EEXIST 失败 → 软链永远指向旧路径,rg / node 全废。
+     * `Os.readlink` 对悬空软链照样返回它指向的那个字符串。
      */
     private fun link(target: File, dest: String, label: String) {
         runCatching {
-            if (target.exists()) {
-                // 已经是软链且指向对了就跳过
-                val current = runCatching { target.canonicalPath }.getOrNull()
-                val want = runCatching { File(dest).canonicalPath }.getOrNull()
-                if (current != null && current == want) return
-                target.delete()
+            val current = runCatching { android.system.Os.readlink(target.absolutePath) }
+                .getOrNull()
+            if (current != null) {
+                val same = runCatching {
+                    File(current).canonicalPath == File(dest).canonicalPath
+                }.getOrDefault(current == dest)
+                if (same) return
+            }
+            if (current != null || target.exists()) {
+                if (!target.delete()) Log.w(TAG, "删旧软链 $label 失败")
             } else {
                 target.parentFile?.mkdirs()
             }

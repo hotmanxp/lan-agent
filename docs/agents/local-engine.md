@@ -455,12 +455,19 @@ deny  { execute }  untrusted_app  app_data_file  →  自己数据目录里的�
 deny  { execute_no_trans }  ...
 ```
 
-**根因**:部分 Android 版本(Android 15/16)的 SELinux 策略禁止 `untrusted_app`
-执行**自己 app 数据目录**里的文件(`app_data_file` 标签)。软链在 app 私有目录里
-没问题 —— 被 exec 的是它指向的那个文件,而那个文件也在 app 私有目录里。
+**根因**:SELinux 只给了 `untrusted_app` 对 `app_data_file` 的 **execute**
+权限(dlopen / mmap PROT_EXEC 要的那个),**没给 execve 要的 execute_no_trans**
+—— 所以「用 dlopen 加载私有目录里的 .so」行,「execve 私有目录里的可执行文件」
+不行。
+
+> ⚠️ 更正一条早先的判断:这**不是**「部分 Android 版本才严格」,模拟器
+> (Android 14)也一样拒 —— 当时只是没人测 Grep 工具本身(验收脚本只看
+> 软链在不在)。`run-as` 手工跑能成功,是因为 run-as 跑在 `runas_app` 域里,
+> 权限比 untrusted_app 宽。
 
 迷惑性拉满:BashTool 照常(它 exec 的是 `/system/bin/sh`,系统分区),
-引擎照常起,只有 Grep / Glob 这类**要 exec 自己目录里二进制**的工具废掉。
+引擎照常起(它是 **dlopen** libnode.so),只有 Grep / Glob 这类
+**要 exec 自己目录里二进制**的工具废掉。
 
 **解法**:`librg.so` 回到 APK 的 `lib/arm64-v8a/`,并开
 `useLegacyPackaging = true`(0.29.0 之前那条 `extractNativeLibs` 的坑,
@@ -480,6 +487,49 @@ APK 39.5MB(比 0.29.2 的 40.9MB 还小一点:legacy packaging 把 .so 改成
 
 **验收脚本必须真的 exec 一次**:软链存在 ≠ 能跑。`verify-local-engine.sh`
 第 3 步现在跑 `files/bin/rg --version`,跑不出来就是坏了。
+
+### 让 agent 在 Bash 里用 node(0.29.4)
+
+`node script.js` / `node -e '…'` 在 BashTool 里可用 —— 用的就是引擎自己那套
+Node 24 运行时,不是另装一个。
+
+三件事凑成的:
+
+1. **启动器进 APK**:`libdshnode.so`(4.6KB,node 启动器)放进
+   `lib/arm64-v8a/` → 解到 `nativeLibraryDir`。**必须进 APK** ——
+   私有目录里的文件 exec 不了(见上面那条 execute_no_trans)。
+   `libnode.so` 本体(82MB)仍然在下载目录里。
+2. **`files/bin/node` 软链**指向 `nativeLibraryDir/libdshnode.so`。
+   PATH 里已经有 `files/bin`,所以 `which node` 找得到。
+3. **`LD_LIBRARY_PATH` 指向下载目录**:启动器的 RPATH 只有 `$ORIGIN`
+   (= nativeLibraryDir,那儿没有 libnode.so),DT_NEEDED 是
+   `libnode.so` / `libc++_shared.so`。所以引擎进程的 env 里加
+   `LD_LIBRARY_PATH=<filesDir>/native`,bash 和 node 都继承。
+
+⚠️ **为什么 LD_LIBRARY_PATH 对引擎自己没用、对子进程却有用**:
+引擎进程是 zygote fork 来的,`AT_SECURE=1`,动态链接器会忽略它自己 env 里的
+`LD_LIBRARY_PATH`(所以引擎内的 Node 靠 `android-env.cjs` preload 猴补丁修 env)。
+但引擎 **exec 出去的子进程**(bash、node)是重新 execve 的,auxv 由内核重新算,
+`AT_SECURE=0` → `LD_LIBRARY_PATH` 正常生效。
+
+另外加了个 `NODE_PATH=<引擎目录>/node_modules` —— agent 的 node 脚本能直接
+`require('zod')` 之类引擎自带的依赖(只对 CJS 的 require 生效,ESM 不走这条)。
+
+实测(模拟器):`node -e 'console.log(process.version)'` → v24.22.1;
+`require.resolve('zod')` → 引擎的 node_modules;`node script.js` → 正常;
+`process.cwd()` → `files/workspace`(agent 的工作区)。
+
+### App 升级后软链会悬空 ⚠️
+
+`nativeLibraryDir` 的路径带随机目录名(`/data/app/~~XXXX/pkg-YYY/lib/arm64`),
+**App 升级后路径就变了**,旧的 `files/bin/rg`、`files/bin/node` 全变悬空软链。
+
+而 `File.exists()` 对悬空软链返回 **false** → 判「软链不存在」→ 直接
+`Os.symlink()` → 撞 `EEXIST` 失败 → 软链永远指着旧路径 → rg / node 全废。
+**判存在必须用 `Os.readlink()`**(悬空软链照样返回它指向的字符串)。
+
+这个坑跟 App 升级绑在一起,所以**每次升级后必须验证一遍软链指向**。
+
 
 ### 换下载源不用改 App
 

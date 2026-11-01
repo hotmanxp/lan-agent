@@ -95,7 +95,7 @@ step "3. bash / rg 软链"
 BIN_DIR="$APP_DIR/files/bin"
 if sh_ok "run-as $PKG sh -c \"test -d '$BIN_DIR'\""; then
   ok "bin 目录 = $BIN_DIR"
-  for link in bash rg; do
+  for link in bash rg node; do
     TARGET="$(sh_ "run-as $PKG readlink '$BIN_DIR/$link'")"
     if [ -n "$TARGET" ]; then
       ok "$link → $TARGET"
@@ -120,6 +120,15 @@ if sh_ok "run-as $PKG sh -c \"test -d '$BIN_DIR'\""; then
     ok "rg 能执行:$(printf '%s' "$RG_VER" | head -1)"
   else
     bad "rg 跑不起来(SELinux 拒绝执行?):$(printf '%s' "$RG_VER" | head -1)"
+  fi
+
+  # node(给 agent 在 Bash 里跑 JS 用)。启动器在 APK 的 nativeLibraryDir,
+  # libnode.so 在下载目录 —— 靠 LD_LIBRARY_PATH 串起来,跟引擎进程的 env 一致。
+  NODE_VER="$(sh_ "run-as $PKG sh -c \"LD_LIBRARY_PATH='$NATIVE_DIR' '$BIN_DIR/node' --version\"")"
+  if printf '%s' "$NODE_VER" | grep -qE '^v[0-9]+\.'; then
+    ok "node 能执行:$NODE_VER"
+  else
+    bad "node 跑不起来(LD_LIBRARY_PATH 没生效?):$(printf '%s' "$NODE_VER" | head -1)"
   fi
 else
   bad "bin 目录不存在 —— 软链没建"

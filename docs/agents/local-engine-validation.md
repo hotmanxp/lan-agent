@@ -311,3 +311,63 @@ deny { execute_no_trans } untrusted_app
 `readlink` 的结果 —— 在真机上这条照样通过,而工具是废的。现在改成真的跑一次
 `files/bin/rg --version`,跑不出来就报 fail。
 
+### 一条要更正的判断
+
+上面写「模拟器(Android 14)测不出来」**不准确**。后来在模拟器上用 BashTool
+直接 exec 私有目录里的文件,拿到的是同一个 `Permission denied`(exit 126)——
+**SELinux 只给了 `untrusted_app` 对 app_data_file 的 `execute`(dlopen/mmap
+PROT_EXEC 要的),没给 execve 要的 `execute_no_trans`**。所以这是普遍行为,
+不是「某些 Android 版本才严格」。
+
+`run-as` 手工跑能成功,是因为 run-as 跑在 `runas_app` 域,权限比 untrusted_app 宽。
+
+---
+
+## 0.29.4:让 agent 能在 Bash 里用 node
+
+需求:agent 在 BashTool 里能跑 `node script.js` / `node -e '…'`。
+
+### 三件事
+
+1. **启动器进 APK**:`libdshnode.so`(4.6KB,node 启动器)放
+   `app/src/main/jniLibs/arm64-v8a/` → 解到 `nativeLibraryDir`。
+   **必须进 APK** —— 私有目录里的文件 exec 不了(见上面那条 execute_no_trans)。
+   `libnode.so` 本体(82MB)仍在下载目录。
+2. **`files/bin/node` 软链** → `nativeLibraryDir/libdshnode.so`。
+   PATH 里已有 `files/bin`,`which node` 找得到。
+3. **引擎 env 加 `LD_LIBRARY_PATH=<filesDir>/native`**:启动器的 RPATH 只有
+   `$ORIGIN`(nativeLibraryDir,那儿没有 libnode.so),DT_NEEDED 是
+   `libnode.so` / `libc++_shared.so`。
+   另加 `NODE_PATH=<引擎目录>/node_modules`,让脚本能 require 引擎自带的依赖。
+
+### 为什么 LD_LIBRARY_PATH 对引擎自己没用、对子进程却有用
+
+引擎进程是 zygote fork 来的,`AT_SECURE=1` → 动态链接器忽略它自己 env 里的
+`LD_LIBRARY_PATH`(所以引擎内的 Node 靠 `android-env.cjs` preload 猴补丁修 env)。
+引擎 **exec 出去的子进程**(bash、node)是重新 execve 的,auxv 由内核重新算,
+`AT_SECURE=0` → `LD_LIBRARY_PATH` 正常生效。
+
+### 顺带修:App 升级后软链悬空
+
+`nativeLibraryDir` 路径带随机目录名(`/data/app/~~XXXX/pkg-YYY/lib/arm64`),
+App 升级后路径就变了,旧的 `files/bin/rg` / `files/bin/node` 全变悬空软链。
+`File.exists()` 对悬空软链返回 **false** → 判「软链不存在」→ 直接
+`Os.symlink()` → 撞 `EEXIST` 失败 → 软链永远指着旧路径。
+**判存在改用 `Os.readlink()`**(悬空软链照样返回它指向的字符串)。
+
+实测:升级 APK 后 rg 软链报 `symlink failed: EEXIST`,rg 指向旧的
+`/data/app/~~aoDIhXts…`(上一版的路径)。
+
+### 实测(模拟器 asr_repro,0.29.4)
+
+| 项 | 结果 |
+|---|---|
+| `files/bin/node` 软链 | → `nativeLibraryDir/libdshnode.so` ✅ |
+| `node -e 'console.log(process.version)'` | `v24.22.1` ✅ |
+| `node -e 'require.resolve("zod")'` | 引擎的 `node_modules/zod/index.cjs` ✅ |
+| `node script.js` | `from script 42` ✅ |
+| `process.cwd()` | `files/workspace`(agent 工作区)✅ |
+| node 写文件 | ✅ |
+| `tools/verify-local-engine.sh` | **24 项全过**(新增「rg 能执行」「node 能执行」) |
+
+

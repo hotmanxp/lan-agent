@@ -159,6 +159,29 @@ object EnginePaths {
         // 会去找 ~/.zai/mods,那儿是空的,工具一个都不会注册。
         "LANAGENT_CAP_BASE" to "http://127.0.0.1:$CAPABILITY_PORT",
         "OPENCC_MODS_DIR" to modsDir(context).absolutePath,
+        // LD_LIBRARY_PATH:给 `files/bin/node`(APK 里的 libdshnode.so 启动器)
+        // 找 libnode.so / libc++_shared.so —— 那两个在下载目录里(nativeDir),
+        // 启动器的 RPATH 只有 $ORIGIN(指向 APK 的 nativeLibraryDir)。
+        //
+        // 为什么这条能生效:引擎进程本身是 AT_SECURE=1(zygote fork 来的),
+        // 动态链接器会忽略它自己 env 里的 LD_LIBRARY_PATH —— 所以引擎内的
+        // Node 靠 android-env.cjs preload 修 env。但**引擎 exec 出去的子进程**
+        // (bash、node)是重新 execve 的,auxv 由内核重新算,AT_SECURE=0 →
+        // LD_LIBRARY_PATH 正常生效。
+        //
+        // 为什么不能把 libnode.so 放 APK:82MB,APK 直接翻三倍。
+        //
+        // 注意:dlopen 只需要 execute 权限(SELinux 给了),execve 才需要
+        // execute_no_trans(没给)—— 所以「.so 放下载目录 + 启动器放 APK」
+        // 这个组合是唯一可行的。
+        "LD_LIBRARY_PATH" to nativeDir(context).absolutePath,
+        // NODE_PATH:让 agent 的 node 脚本能 require 引擎自带的依赖
+        // (zod / fflate / @zn-ai/zn-agent-core)。只对 CJS 的 require 生效,
+        // ESM 的 import 不走这条。
+        "NODE_PATH" to File(
+            currentEngineDir(context) ?: File(context.filesDir, "engine"),
+            "node_modules",
+        ).absolutePath,
     )
 
     /**
@@ -202,6 +225,9 @@ object EnginePaths {
      * opencc 的 resolveRgSystem() 用 `which rg` 找,所以 PATH 里有就行。
      */
     fun rgShim(context: Context): File = File(binDir(context), "rg")
+
+    /** node 入口软链:指向 APK 里的 libdshnode.so(node 启动器,4.6KB)。 */
+    fun nodeShim(context: Context): File = File(binDir(context), "node")
 
     /** 需要预先建出来的目录(引擎自己也会建,但先建好能少一批 EACCES 噪音)。 */
     fun ensureDirs(context: Context): List<File> = listOf(

@@ -420,6 +420,8 @@
     <string name="settings_local_engine_save_hint">保存后引擎会自动重启,几秒后生效</string>
     <string name="settings_local_engine_saved">已保存,引擎重启中…</string>
     <string name="settings_local_engine_save_incomplete">还没填全(地址 / 模型名 / 密钥都要填)</string>
+    <!-- 密钥里混进空白字符(复制粘贴常见)会被自动去掉。 -->
+    <string name="settings_local_engine_whitespace_stripped">已自动去掉 %1$d 个空白字符(密钥里的空格会让请求头非法)</string>
     <string name="settings_compact_tools">工具调用精简模式</string>
     <string name="settings_compact_tools_sub">工具调用与思考过程收成一行摘要(如「执行 2 条命令」),点开看详情;关掉退回逐条工具卡</string>
     <!-- 工具调用摘要 / 详情弹层(0.26.3,见 AGENTS.md §29)。摘要文案本身

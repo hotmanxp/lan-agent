@@ -79,10 +79,15 @@ fun LocalEngineSettingsSection() {
         .collectAsState(EngineCredentials())
 
     // 编辑用的本地状态:进页面时用已存的值填,用户改完点保存才写回。
-    var provider by remember { mutableStateOf(stored.provider) }
-    var baseUrl by remember { mutableStateOf(stored.baseUrl) }
-    var model by remember { mutableStateOf(stored.model) }
-    var apiKey by remember { mutableStateOf(stored.apiKey) }
+    //
+    // ⚠️ key 必须是 `stored` —— DataStore 的 flow 是异步的,首帧拿到的还是
+    // 默认的空值;没有 key 的 `remember` 会把那个空值**永远**留住,于是用户
+    // 打开设置页看到的是三个空框,以为凭据没存上,重填一遍还会把已存的
+    // 冲掉。带上 key 后 flow 一发值就回填,保存后也回填成去空白的干净值。
+    var provider by remember(stored.provider) { mutableStateOf(stored.provider) }
+    var baseUrl by remember(stored.baseUrl) { mutableStateOf(stored.baseUrl) }
+    var model by remember(stored.model) { mutableStateOf(stored.model) }
+    var apiKey by remember(stored.apiKey) { mutableStateOf(stored.apiKey) }
 
     // 保存后的反馈文案(成功 / 失败)。不给反馈的话用户点了「保存」看到界面
     // 一点变化都没有,只会觉得「保存不了」。
@@ -90,6 +95,7 @@ fun LocalEngineSettingsSection() {
     // stringResource 只能在 composable 上下文里调 —— 先取出来,协程里用。
     val savedText = stringResource(R.string.settings_local_engine_saved)
     val incompleteText = stringResource(R.string.settings_local_engine_save_incomplete)
+    val strippedText = stringResource(R.string.settings_local_engine_whitespace_stripped)
 
     SettingsCard(
         title = stringResource(R.string.settings_section_local_engine),
@@ -254,15 +260,23 @@ fun LocalEngineSettingsSection() {
         Row(verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = {
                 scope.launch {
-                    EngineCredentialsStore.save(
-                        context,
-                        EngineCredentials(
-                            provider = provider,
-                            baseUrl = baseUrl.trim(),
-                            model = model.trim(),
-                            apiKey = apiKey.trim(),
-                        ),
+                    val entered = EngineCredentials(
+                        provider = provider,
+                        baseUrl = baseUrl,
+                        model = model,
+                        apiKey = apiKey,
                     )
+                    // 复制粘贴常把密钥里的下划线打成空格 —— Node 的
+                    // Headers.append 直接拒收,报 "invalid header value"
+                    // 还把整个 key 打进日志。存之前统一去空白。
+                    val stripped = entered.strippedWhitespaceCount()
+                    val clean = entered.sanitized()
+                    // 输入框回填干净的值,不然用户看着自己刚粘的空格还在。
+                    baseUrl = clean.baseUrl
+                    model = clean.model
+                    apiKey = clean.apiKey
+
+                    EngineCredentialsStore.save(context, clean)
                     // 立刻物化一次 —— 不用等下次重启引擎才生效。
                     val applied = EngineCredentialsStore.apply(context)
                     if (applied) {
@@ -274,7 +288,11 @@ fun LocalEngineSettingsSection() {
                         //
                         // node::Start 一个进程只能调一次,只能换整个进程。
                         EngineController.restart(context)
-                        savedHint = savedText
+                        savedHint = if (stripped > 0) {
+                            strippedText.format(stripped)
+                        } else {
+                            savedText
+                        }
                     } else {
                         savedHint = incompleteText
                     }

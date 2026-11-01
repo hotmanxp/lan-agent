@@ -411,6 +411,33 @@ UnsatisfiedLinkError,也没有 `dlopen failed: cannot locate symbol`。
 
 `node::Start` 一个进程只能调一次,所以只能换整个进程,不能原地重启。
 
+### 密钥里的空白字符必须去掉(0.29.2)
+
+真机报出来的错:
+
+```
+API Error: Headers.append: "sk-cp-…ZsBvp dKQHRkJBa9…M1e9 bPMY4Avp3Fhwzf6Es"
+is an invalid header value.
+```
+
+用户复制 key 时,下划线被打成了空格(输入法联想 / 软键盘长按空格 / PDF 复制
+都会干这事)。Node 的 `Headers.append` **拒绝含空白字符的 header 值**,于是整个
+请求在发出之前就炸了 —— 而且报错里会把**整个 key 打出来**,既难查又漏密钥。
+
+修法在 `EngineCredentials.sanitized()`:`apiKey` 去掉**所有**空白字符
+(`baseUrl` / `model` 只 trim 两端)。入口有三道:
+
+- `EngineCredentialsStore.save()` —— 存进 DataStore 前就去掉;
+- `EngineCredentialsStore.apply()` —— 物化文件前再去一次(**老版本存进去的
+  带空格的值靠这一道洗掉**,否则用户升级 App 也不生效);
+- 设置页保存时把去空白的值回填进输入框,并提示「已自动去掉 N 个空白字符」。
+
+> 顺带修了一个 UI bug:凭据输入框原本用 `remember { mutableStateOf(stored.x) }`
+> —— DataStore 的 flow 是异步的,首帧拿到的还是默认空值,`remember` 把它
+> **永远留住**,于是用户打开设置页看到的是三个空框,以为没存上,重填一遍还会
+> 把已存的冲掉(实测把 baseUrl / model 存成了空)。改成 `remember(stored.x)`,
+> flow 一发值就回填。
+
 ### 换下载源不用改 App
 
 App 只认「一个 manifest 地址」。清单里写着 zip 的文件名与 sha256,App 按清单下载。

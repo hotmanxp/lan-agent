@@ -225,3 +225,40 @@ Node 的 ICU 会落到 UTC,时间上下文和预算日切都跟着错)。
 软键盘弹起时**屏幕下半部分被键盘盖住**,按屏幕坐标 tap 会打到键盘上,不是输入框。
 `adb shell input text` 于是把内容打进了上一个字段。**用 TAB 键在字段之间挪焦点**
 (`KEYCODE_TAB`)比按坐标 tap 稳得多 —— Compose 的 focus traversal 支持它。
+
+---
+
+## 0.29.2:真机报的 `invalid header value`(密钥里的空格)
+
+真机(不是模拟器)发消息报:
+
+```
+API Error: Headers.append: "sk-cp-3CTQOc1rT2UAOCZ8x-fpZSd14wXqzL6F_1y5C3ZaUNWc-4bR7ne6qqlupv9v7bRfEP2ZsBvp dKQHRkJBa9ueENjYpk2Hq8ZRriM1e9 bPMY4Avp3Fhwzf6Es"
+is an invalid header value.
+```
+
+用户复制 key 时下划线被打成了空格。Node 的 `Headers.append` 拒绝含空白字符的
+header 值 → 请求在发出前就炸,而且报错里把**整个 key** 打了出来。
+
+修法:`EngineCredentials.sanitized()` 去掉 `apiKey` 的所有空白字符,
+`save()` 与 `apply()` 两道都过(后者洗掉老版本存进去的脏值)。
+
+### 实测(模拟器 asr_repro,0.29.2)
+
+| 项 | 结果 |
+|---|---|
+| 单元测试 `EngineCredentialsTest` | 4 例全过 |
+| 设置页填 `ZW ZW` + 保存 | 提示「已自动去掉 1 个空白字符(密钥里的空格会让请求头非法)」 |
+| 物化后的 `$HOME/.zai.json` | `"apiKey":"ABZWZW"` —— **空格没了** |
+| 引擎重启 | `凭据物化 = true` → `LISTENING 127.0.0.1:9420` |
+| 真实模型回复 | `runtime.delta` → `O` ✅(无 header 报错) |
+| `tools/verify-local-engine.sh` | 22 项全过(未传 `MANIFEST_URL`,带下载源可达性共 23 项) |
+
+### 顺带修的 UI bug:凭据输入框不回填已存的值
+
+原来写的是 `remember { mutableStateOf(stored.x) }`。DataStore 的 flow 是异步的,
+首帧拿到的还是默认空值,`remember` 把那个空值**永远**留住 —— 用户打开设置页
+看到的是三个空框,以为凭据没存上;重填一遍还会把已存的冲掉(实测把 baseUrl /
+model 存成了空)。改成 `remember(stored.x)`,flow 一发值就回填,保存后回填的是
+去空白的干净值。
+

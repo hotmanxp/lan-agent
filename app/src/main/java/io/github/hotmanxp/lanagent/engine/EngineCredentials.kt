@@ -62,6 +62,28 @@ data class EngineCredentials(
     val isComplete: Boolean
         get() = baseUrl.isNotBlank() && model.isNotBlank() && apiKey.isNotBlank()
 
+    /**
+     * 去掉 key 里的**所有**空白字符(baseUrl / model 只 trim 两端)。
+     *
+     * 为什么必须去:用户复制 key 时,下划线常被打成空格 —— 输入法联想、软键盘
+     * 长按空格、PDF/聊天记录复制都会干这事。Node 的 `Headers.append` 拒绝
+     * 含空白字符的 header 值,于是报:
+     *
+     *   API Error: Headers.append: "sk-…Bvp dKQHRk…M1e9 bPMY4…" is an
+     *   invalid header value
+     *
+     * 报错里还会把整个 key 打出来 —— 既难查又漏密钥。所以入口处就掐掉。
+     */
+    fun sanitized(): EngineCredentials = copy(
+        baseUrl = baseUrl.trim(),
+        model = model.trim(),
+        apiKey = apiKey.filterNot { it.isWhitespace() },
+    )
+
+    /** [sanitized] 相对当前值去掉几个空白字符(给设置页提示用)。 */
+    fun strippedWhitespaceCount(): Int =
+        apiKey.length - apiKey.filterNot { it.isWhitespace() }.length
+
     companion object {
         const val PROVIDER_ANTHROPIC = "anthropic"
         const val PROVIDER_OPENAI = "openai"
@@ -94,11 +116,13 @@ object EngineCredentialsStore {
 
     /** 保存配置。空字符串表示清空。 */
     suspend fun save(context: Context, credentials: EngineCredentials) {
+        // 存之前先去空白 —— 见 EngineCredentials.sanitized() 的说明。
+        val clean = credentials.sanitized()
         context.engineCredentialsDataStore.edit { prefs ->
-            prefs[KEY_PROVIDER] = credentials.provider
-            prefs[KEY_BASE_URL] = credentials.baseUrl
-            prefs[KEY_MODEL] = credentials.model
-            prefs[KEY_API_KEY] = credentials.apiKey
+            prefs[KEY_PROVIDER] = clean.provider
+            prefs[KEY_BASE_URL] = clean.baseUrl
+            prefs[KEY_MODEL] = clean.model
+            prefs[KEY_API_KEY] = clean.apiKey
         }
     }
 
@@ -120,11 +144,14 @@ object EngineCredentialsStore {
      * @return true = 写了文件;false = 没配 / 写失败
      */
     fun apply(context: Context, credentials: EngineCredentials = current(context)): Boolean {
-        if (!credentials.isComplete) return false
+        // 物化前再去一次空白 —— 老版本存进去的值可能带空格(用户升级前
+        // 填过),不在这儿掐掉的话引擎会拿着非法 header 去调模型。
+        val clean = credentials.sanitized()
+        if (!clean.isComplete) return false
         return try {
             EnginePaths.ensureDirs(context)
-            writeGlobalConfig(context, credentials)
-            writeSettings(context, credentials)
+            writeGlobalConfig(context, clean)
+            writeSettings(context, clean)
             true
         } catch (e: Throwable) {
             false

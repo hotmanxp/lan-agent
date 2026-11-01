@@ -82,14 +82,18 @@ object EngineAgentProfile {
      */
     private fun setMainAgentSetting(context: Context): Boolean {
         val file = File(EnginePaths.dataDir(context), "settings.json")
-        val root = if (file.isFile) {
-            runCatching { JSONObject(file.readText()) }.getOrElse { JSONObject() }
-        } else {
-            JSONObject()
+        // 跟 EngineCredentialsStore 写 settings.json 用同一把锁 —— 两个进程
+        // (主进程 / :engine 进程)都在读改写同一个文件,不加锁会丢更新。
+        withEngineFileLock(file) {
+            val root = if (file.isFile) {
+                runCatching { JSONObject(file.readText()) }.getOrElse { JSONObject() }
+            } else {
+                JSONObject()
+            }
+            root.put("mainAgent", MAIN_AGENT_NAME)
+            file.parentFile?.mkdirs()
+            file.writeText(root.toString())
         }
-        root.put("mainAgent", MAIN_AGENT_NAME)
-        file.parentFile?.mkdirs()
-        file.writeText(root.toString())
         return true
     }
 }

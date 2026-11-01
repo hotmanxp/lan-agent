@@ -133,12 +133,15 @@ class EngineService : Service() {
         // bash / rg 的软链必须在起 Node **之前**建好:引擎一起来就可能
         // 解析 shell(opencc 的 findSuitableShell 在启动早期就会跑)。
 
-        // 凭据物化:把用户在设置页填的「服务地址 / 模型名 / key」写成
+        // 凭据物化:把用户在设置页填的「服务地址 / 模型名 / key」合并进
         // 引擎认得的两个文件($HOME/.zai.json 和 $ZAI_DATA_DIR/settings.json)。
         //
-        // 为什么每次起引擎都重写一遍:用户在设置页改了 key 之后不必重启
+        // 为什么每次起引擎都物化一遍:用户在设置页改了 key 之后不必重启
         // App —— 引擎下次被拉起时自然用新值,不用额外的一致性维护。
         // 没配完整就跳过(引擎照样起,只是调不了模型)。
+        //
+        // 是**合并**不是重写:文件里 App 不管的字段(用户手写的 env 变量等)
+        // 原样保留,否则「改了文件但存不住」。
         val credentialsApplied = EngineCredentialsStore.apply(this)
         Log.i(TAG, "凭据物化 = $credentialsApplied")
 
@@ -149,6 +152,14 @@ class EngineService : Service() {
         // 晚一步就得重启引擎才生效。
         val profileApplied = EngineAgentProfile.apply(this)
         Log.i(TAG, "手机端 agent 配置 = $profileApplied")
+
+        // 手机能力桥的 mod:同样在起 Node 之前物化 —— core 启动时扫
+        // OPENCC_MODS_DIR 加载 mod,晚一步这轮就没有手机能力工具。
+        //
+        // mod 跟着 APK 走(不在引擎包里):加一个能力只要重发 APK,不用让用户
+        // 重下 34MB 的引擎包。详见 EngineModsInstaller 的类注释。
+        val mods = EngineModsInstaller.install(this)
+        Log.i(TAG, "手机能力 mod = $mods")
 
         // 环境变量必须在 nativeStart 之前设好 —— Node 一起来就会读 HOME /
         // ZAI_DATA_DIR,晚了就写到 / 底下去了。

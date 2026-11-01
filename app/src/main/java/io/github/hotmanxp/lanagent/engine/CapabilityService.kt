@@ -33,6 +33,8 @@ import android.content.Context
 import android.util.Log
 import org.json.JSONObject
 import java.io.BufferedReader
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
 import java.io.InputStreamReader
 import java.io.OutputStream
 import java.net.ServerSocket
@@ -59,6 +61,18 @@ class CapabilityService(private val context: Context) {
         "phone_open_app" to { PhoneCapabilities.openApp(it) },
         "phone_list_apps" to { PhoneCapabilities.listApps(it) },
         "phone_settings" to { PhoneCapabilities.settings(it) },
+        "notification_open" to { PhoneCapabilities.notificationOpen(it) },
+        "notification_dismiss" to { PhoneCapabilities.notificationDismiss(it) },
+        "notification_reply" to { PhoneCapabilities.notificationReply(it) },
+        // 屏幕操作(无障碍)
+        "screen_read" to { PhoneCapabilities.screenRead(it) },
+        "screen_tap" to { PhoneCapabilities.screenTap(it) },
+        "screen_type" to { PhoneCapabilities.screenType(it) },
+        "screen_swipe" to { PhoneCapabilities.screenSwipe(it) },
+        "screen_scroll" to { PhoneCapabilities.screenScroll(it) },
+        "screen_key" to { PhoneCapabilities.screenKey(it) },
+        "screen_wait" to { PhoneCapabilities.screenWait(it) },
+        "screen_capture" to { PhoneCapabilities.screenCapture(it) },
     )
 
     fun start() {
@@ -96,31 +110,65 @@ class CapabilityService(private val context: Context) {
     }
 
     private fun handle(client: Socket) {
+        // ⚠️ **整段必须包 try/catch** ——
+        //
+        // 之前这里一个 SocketTimeoutException 就把整个 App 干掉了(FATAL EXCEPTION):
+        // 客户端连上但没发数据(或者发了半截就断开)→ 读请求行超时 →
+        // 异常从 worker 线程逃出去 → Android 视为未捕获异常 → 进程崩。
+        //
+        // 这不只是「自己调用会崩」:同设备上**任何** App 都能连 127.0.0.1:9421,
+        // 一个畸形请求就能把 lan-agent 杀掉(DoS)。所以这里吞掉所有异常,
+        // 最多回一个错误响应。
+        try {
+            handleInner(client)
+        } catch (e: Throwable) {
+            Log.w(TAG, "处理请求出错(已忽略)", e)
+            runCatching {
+                client.getOutputStream().write(responseBody(JSONObject().put("ok", false).put("error", "请求处理失败")))
+                client.getOutputStream().flush()
+            }
+        }
+    }
+
+    private fun handleInner(client: Socket) {
         client.use { sock ->
             sock.soTimeout = 10_000
-            val reader = BufferedReader(InputStreamReader(sock.getInputStream()))
-            val requestLine = reader.readLine() ?: return
+            // ⚠️ **必须按字节读**,不能按字符读。
+            //
+            // `Content-Length` 是**字节数**,而用 BufferedReader/InputStreamReader
+            // 读出来的是**字符数** —— body 里只要有一个非 ASCII 字符(中文!
+            // agent 传中文参数是常态),字符数就比字节数少,于是「按 Content-Length
+            // 读字符」永远读不够 → 卡在 read 上 → 10 秒 SocketTimeoutException →
+            // 客户端收到空响应(curl 报 "Empty reply from server")。
+            //
+            // 症状极具迷惑性:纯 ASCII 参数的调用全部正常,只有带中文的挂 ——
+            // 看起来像「某个能力不支持中文参数」。
+            //
+            // 所以这里全程走原始字节,自己按 \r\n 切行,body 按字节数读完后
+            // 再用 UTF-8 解码。
+            val input = sock.getInputStream()
+            val requestLine = readLineBytes(input) ?: return
             // POST /cap/<name> HTTP/1.1
             val path = requestLine.split(" ").getOrNull(1) ?: return
 
             // 读完 header(到空行为止)
             var contentLength = 0
             while (true) {
-                val line = reader.readLine() ?: break
+                val line = readLineBytes(input) ?: break
                 if (line.isEmpty()) break
                 val idx = line.indexOf(':', ignoreCase = true)
                 if (idx > 0 && line.substring(0, idx).trim().equals("Content-Length", true)) {
                     contentLength = line.substring(idx + 1).trim().toIntOrNull() ?: 0
                 }
             }
-            val body = CharArray(contentLength)
+            val body = ByteArray(contentLength)
             var read = 0
             while (read < contentLength) {
-                val n = reader.read(body, read, contentLength - read)
+                val n = input.read(body, read, contentLength - read)
                 if (n < 0) break
                 read += n
             }
-            val payload = if (read > 0) JSONObject(String(body, 0, read)) else JSONObject()
+            val payload = if (read > 0) JSONObject(String(body, 0, read, Charsets.UTF_8)) else JSONObject()
 
             val name = path.removePrefix("/cap/").substringBefore('?')
             val handler = handlers[name]
@@ -141,8 +189,24 @@ class CapabilityService(private val context: Context) {
         }
     }
 
-    private fun responseBody(json: JSONObject): ByteArray {
-        val body = json.toString().toByteArray(Charsets.UTF_8)
+    /**
+     * 从原始流里读一行(到 \r\n 或 \n 为止),返回**字节**。
+     *
+     * 不用 BufferedReader:它会预读,body 的字节会被它吞进缓冲,
+     * 后面按 Content-Length 读 body 就少字节。行尾的 \r\n / \n 都算行尾。
+     */
+    private fun readLineBytes(input: InputStream): String? {
+        val buf = ByteArrayOutputStream()
+        while (true) {
+            val b = input.read()
+            if (b < 0) return if (buf.size() == 0) null else buf.toString("UTF-8")
+            if (b == '\n'.code) return buf.toString("UTF-8")
+            if (b == '\r'.code) continue
+            buf.write(b)
+        }
+    }
+
+    private fun responseBody(json: JSONObject): ByteArray {        val body = json.toString().toByteArray(Charsets.UTF_8)
         val head = buildString {
             append("HTTP/1.1 200 OK\r\n")
             append("Content-Type: application/json; charset=utf-8\r\n")

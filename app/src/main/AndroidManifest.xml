@@ -164,6 +164,34 @@
             android:exported="false"
             android:foregroundServiceType="mediaProjection" />
 
+        <!-- 无障碍服务:让本机 agent 能读屏 + 点按 + 输入 + 滑动。
+             这是 Android 上唯一合法的「代替用户操作别的 App」的通道 ——
+             控件树(不是像素),所以点得准、输入不依赖输入法。
+             BIND_ACCESSIBILITY_SERVICE 是系统专有权限,必须 exported=true
+             (系统要绑它);用户得在系统设置里手动打开 —— 设置页有入口。 -->
+        <service
+            android:name=".engine.PhoneAccessibilityService"
+            android:exported="true"
+            android:label="@string/a11y_service_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+
+        <!-- 截屏授权的「过桥」Activity。MediaProjection 的授权弹窗只能由
+             Activity 发起、结果只能从 Activity 的 onActivityResult 拿 ——
+             做成透明的 Activity,用户看到的仍然只有系统那个弹窗。 -->
+        <activity
+            android:name=".ui.ScreenCaptureConsentActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
         <!-- ── Agents-Anywhere 官方客户端(0.24.2 移植)需要的组件 ──
              MainActivity / RemoteTerminalForegroundService 不并入:
              前者与本项目的 .MainActivity 职责重复(AA 的根是个 composable,

@@ -16,6 +16,7 @@ import android.content.Intent
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.util.Log
+import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.CopyOnWriteArrayList
 
@@ -29,11 +30,13 @@ class PhoneNotificationListener : NotificationListenerService() {
 
     override fun onListenerConnected() {
         connected = true
+        instance = this
         Log.i(TAG, "通知使用权拿到了")
     }
 
     override fun onListenerDisconnected() {
         connected = false
+        instance = null
         entries.clear()
         Log.i(TAG, "通知使用权没了")
     }
@@ -55,11 +58,17 @@ class PhoneNotificationListener : NotificationListenerService() {
                 .put("title", title)
                 .put("text", text)
                 .put("postTime", n.postTime)
+                .put("actions", JSONArray().also { arr -> actionLabels(n).forEach { arr.put(it) } })
         }.getOrNull() ?: return
         synchronized(entries) {
             entries.removeAll { it.optString("key") == record.optString("key") }
             entries.add(record)
             while (entries.size > MAX_CACHED) entries.removeAt(0)
+        }
+        live.put(n.key, n)
+        while (live.size > MAX_CACHED) {
+            val oldest = live.keys.firstOrNull() ?: break
+            live.remove(oldest)
         }
     }
 
@@ -68,6 +77,7 @@ class PhoneNotificationListener : NotificationListenerService() {
         synchronized(entries) {
             entries.removeAll { it.optString("key") == key }
         }
+        live.remove(key)
     }
 
     companion object {
@@ -75,6 +85,14 @@ class PhoneNotificationListener : NotificationListenerService() {
         private const val MAX_CACHED = 200
 
         private val entries = CopyOnWriteArrayList<JSONObject>()
+
+        /** 活的 StatusBarNotification —— 动作(打开 / 清除 / 回复)要用原对象。 */
+        private val live = java.util.concurrent.ConcurrentHashMap<String, StatusBarNotification>()
+
+        /** 服务实例(系统 bind 上来才有)。 */
+        @Volatile
+        var instance: PhoneNotificationListener? = null
+            private set
 
         @Volatile
         var connected: Boolean = false
@@ -86,6 +104,76 @@ class PhoneNotificationListener : NotificationListenerService() {
         /** 最近的通知(新的在前)。 */
         fun recent(limit: Int): List<JSONObject> = synchronized(entries) {
             entries.takeLast(limit).reversed()
+        }
+
+        /**
+         * 打开一条通知(像点它那样)。
+         *
+         * @param actionTitle 点某个动作按钮的标题(比如「标记已读」);null = 点通知本身
+         * @return null = 成功;否则是错误原因
+         */
+        fun open(key: String, actionTitle: String?): String? {
+            val sbn = live[key] ?: return "通知已经不在了(可能已经被清掉)"
+            val notification = sbn.notification ?: return "这条通知没有可打开的内容"
+            val pending = if (actionTitle.isNullOrBlank()) {
+                notification.contentIntent
+            } else {
+                val action = notification.actions?.firstOrNull {
+                    it.title?.toString()?.equals(actionTitle, ignoreCase = true) == true
+                } ?: return "这条通知上没有「$actionTitle」这个按钮"
+                action.actionIntent
+            } ?: return "这条通知点不开"
+            return runCatching { pending.send() }.exceptionOrNull()?.let {
+                "点不开这条通知:${it.message}"
+            }
+        }
+
+        /**
+         * 清除通知。
+         *
+         * @return 清掉了几条
+         */
+        fun dismiss(keys: List<String>): Int {
+            val svc = instance ?: return 0
+            var n = 0
+            for (key in keys) {
+                runCatching { svc.cancelNotification(key); n++ }
+            }
+            return n
+        }
+
+        /**
+         * 回一条通知(走它的 inline reply —— 微信 / QQ / 短信这类)。
+         *
+         * 只有带 RemoteInput 的动作才能回 —— 那是通知栏里那个「回复」输入框
+         * 的后端。没有这种动作就回不了。
+         */
+        fun reply(key: String, text: String): String? {
+            val sbn = live[key] ?: return "通知已经不在了(可能已经被清掉)"
+            val notification = sbn.notification ?: return "这条通知不能回"
+            val action = notification.actions?.firstOrNull { it.remoteInputs?.isNotEmpty() == true }
+                ?: return "这条通知没有可以回复的输入框(只有能回的通知才行)"
+            val remoteInput = action.remoteInputs?.firstOrNull() ?: return "这条通知的回复框取不到"
+            val svc = instance ?: return "通知使用权没了"
+            // ⚠️ 用公开 API 的静态版 `android.app.RemoteInput.addResultsToIntent` ——
+            // 实例版 `(Context, Bundle, Intent)` 只在隐藏的
+            // `android.service.notification.RemoteInput` 上有,公开 SDK 里没有
+            // (SDK 把 getRemoteInputs() 的返回类型标成了 android.app.RemoteInput)。
+            val results = android.os.Bundle()
+            results.putCharSequence(remoteInput.resultKey, text)
+            val fillIn = Intent()
+            android.app.RemoteInput.addResultsToIntent(arrayOf(remoteInput), fillIn, results)
+            return runCatching { action.actionIntent.send(svc, 0, fillIn) }
+                .exceptionOrNull()?.let { "回复失败:${it.message}" }
+        }
+
+        /** 通知上有哪些动作按钮(标题 + 是否能回复)。 */
+        private fun actionLabels(sbn: StatusBarNotification): List<String> {
+            val actions = sbn.notification?.actions ?: return emptyList()
+            return actions.mapNotNull { a ->
+                val title = a.title?.toString()?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                if (a.remoteInputs?.isNotEmpty() == true) "$title (可回复)" else title
+            }
         }
 
         /**

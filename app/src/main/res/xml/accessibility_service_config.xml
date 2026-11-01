@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  无障碍服务的能力声明。
+
+  每一条都对应本机 agent 的一组屏幕操作能力:
+    canRetrieveWindowContent —— 读屏(读当前屏的控件树)
+    canPerformGestures       —— 滑动 / 点按(Android 7.0+ 的 dispatchGesture)
+    canTakeScreenshot        —— 无障碍自带截图(Android 11+,零用户授权)
+    eventTypes               —— 只订阅我们要的事件(窗口状态变化)
+    notificationTimeout      —— 通知的响应时限
+
+  ⚠️ **别乱加 flag**:用户在系统设置里看到的是这份声明,写得越宽,用户越不敢开。
+  我们只声明真正用到的这几条。
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagDefault|flagReportViewIds|flagRetrieveInteractiveWindows"
+    android:canPerformGestures="true"
+    android:canRetrieveWindowContent="true"
+    android:canTakeScreenshot="true"
+    android:description="@string/a11y_service_desc"
+    android:notificationTimeout="100" />

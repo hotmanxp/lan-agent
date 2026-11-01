@@ -678,22 +678,23 @@ async function main() {
   await copyFile(preloadSrc, join(opt.out, 'android-env.cjs'))
   info(`        android-env.cjs (AT_SECURE env 修复)`)
 
-  // 4c) 手机能力桥的 mod
+  // 4c) 手机能力桥的 mod —— **不在引擎包里**
   //
   // core 的 mods 系统从磁盘目录加载 mod(App 侧用 OPENCC_MODS_DIR 指过来)。
-  // 这个 mod 把「截图 / 通知 / 剪贴板 / 启动 App / 系统设置」注册成引擎
+  // 这个 mod 把「截屏 / 通知 / 剪贴板 / 启动 App / 系统设置」注册成引擎
   // 的工具,实现是调主进程上的能力服务(127.0.0.1:9421)。
   //
-  // 不打进去的话 OPENCC_MODS_DIR 指向空目录,core 那句「没找到 mod」是
+  // ⚠️ **0.29.6 起这个 mod 跟着 APK 走,不再打进引擎包** ——
+  // 加一个手机能力 = 改这个 mod;mod 在引擎包里的话,每次加能力都要
+  // 重打引擎包 → 换指纹 → **用户重下 34MB**。一个循环转不起来。
+  //
+  // 现在它在 `app/src/main/assets/local-engine/mods/phone-bridge/`,
+  // 起引擎时由 EngineModsInstaller 拷进 <引擎目录>/mods/。
+  //
+  // 不拷的后果:OPENCC_MODS_DIR 指向空目录,core 那句「没找到 mod」是
   // 日志里一行,模型那边表现为「工具列表里没有手机能力」—— 没有报错,
   // 只是功能不在,很难联想到是构建时少拷了一个目录。
-  const modsSrc = resolve(REPO_ROOT, 'tools/engine-mods')
-  const modsOut = join(opt.out, 'mods')
-  await rm(modsOut, { recursive: true, force: true })
-  await cp(modsSrc, modsOut, { recursive: true })
-  const modCount = (await readdir(modsOut, { withFileTypes: true }))
-    .filter((d) => d.isDirectory()).length
-  info(`        mods/ (${modCount} 个 mod)`)
+  info(`        mods/ 不打进引擎包(随 APK 走,见 EngineModsInstaller)`)
 
   // 5) 指纹:App 侧拿它当解压目录名,内容变了就重新解压
   const sha = await treeFingerprint(opt.out)

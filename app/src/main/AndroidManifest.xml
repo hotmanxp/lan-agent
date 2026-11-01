@@ -55,6 +55,16 @@
          Android 6+ 是危险权限，运行时申请（VoiceInputEffect 里发）。 -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
+    <!-- 「修改系统设置」:本机 agent 要能改亮度 / 息屏时间 / 飞行模式 / 音量。
+         这是 **特殊权限**(appop),不是危险权限 —— 声明只是拿到资格,真正
+         生效还得用户去「设置 → 应用 → 特殊应用权限 → 修改系统设置」里开,
+         代码代劳不了。设置页有入口(跳 ACTION_MANAGE_WRITE_SETTINGS)。
+
+         ⚠️ 不声明这一条的后果很隐蔽:Settings.System.canWrite() 恒为 false,
+         于是「写系统设置」这一整组能力只报一句「没权限」,而**读**是好的 ——
+         看起来像「这个功能不支持写」,实际是 manifest 少了一行。 -->
+    <uses-permission android:name="android.permission.WRITE_SETTINGS" />
+
     <!-- SpeechRecognizer.createSpeechRecognizer() / isRecognitionAvailable()
          内部走 PackageManager.queryIntentServices 找 SpeechService。targetSdk
          30+ 的包可见性过滤会把没声明的服务直接藏掉 —— 漏掉这段会在真机上

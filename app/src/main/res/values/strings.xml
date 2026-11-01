@@ -426,7 +426,7 @@
     <string name="settings_local_engine_save_incomplete">还没填全(地址 / 模型名 / 密钥都要填)</string>
     <!-- 密钥里混进空白字符(复制粘贴常见)会被自动去掉。 -->
     <string name="settings_local_engine_whitespace_stripped">已自动去掉 %1$d 个空白字符(密钥里的空格会让请求头非法)</string>
-    <!-- 手机能力的三项系统权限。这三项系统只允许用户手动给,代码代劳不了 ——
+    <!-- 手机能力的系统权限。这些系统只允许用户手动给,代码代劳不了 ——
          设置页给入口,免得 agent 回一句「没权限」而用户不知道去哪开。 -->
     <string name="settings_local_engine_permissions">手机能力权限</string>
     <string name="settings_local_engine_perm_a11y">无障碍服务</string>
@@ -436,6 +436,10 @@
     <string name="settings_local_engine_perm_capture">截屏</string>
     <string name="settings_local_engine_perm_capture_desc">截当前屏幕。agent 已能用无障碍截图,这项只是兜底</string>
     <string name="settings_local_engine_perm_capture_action">授权</string>
+    <!-- 「修改系统设置」是特殊权限(appop):声明只拿到资格,真正生效还得用户
+         在系统设置里手动开,代码代劳不了 —— 只能跳系统页。 -->
+    <string name="settings_local_engine_perm_write_settings">修改系统设置</string>
+    <string name="settings_local_engine_perm_write_settings_desc">改亮度、息屏时间、飞行模式、音量 —— agent 改系统设置靠它</string>
     <string name="settings_local_engine_perm_granted">已开启</string>
     <string name="settings_local_engine_perm_missing">未开启</string>
     <string name="settings_local_engine_perm_go">去开启</string>

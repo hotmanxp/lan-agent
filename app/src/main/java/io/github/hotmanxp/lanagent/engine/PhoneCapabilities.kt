@@ -138,9 +138,11 @@ object PhoneCapabilities {
         val value = args.optString("value", "")
 
         if (write && !Settings.System.canWrite(ctx())) {
+            // 这个权限是 appop 特殊权限,代码代劳不了 —— 只能跳系统页让用户开。
+            // App 自己的设置页里有这一项(跳 ACTION_MANAGE_WRITE_SETTINGS)。
             return err(
-                "还没有「修改系统设置」权限。点这句去开:" +
-                    "设置 → 应用 → 特殊应用权限 → 修改系统设置 → 打开 lan-agent",
+                "还没有「修改系统设置」权限,写不了。去「设置 → 应用 → 特殊应用权限 → " +
+                    "修改系统设置 → 局域网 Agent」打开(或者在 App 设置页的「手机能力权限」里点「去开启」)。",
             )
         }
 
@@ -176,26 +178,66 @@ object PhoneCapabilities {
             }
 
             "airplane_mode" -> {
+                // ⚠️ 飞行模式的状态在 **Global** 表里,不在 System 表。
+                // 原来那段写的是 Settings.System.putInt(AIRPLANE_MODE_ON) ——
+                // 写的是另一个表里的另一个键,系统不读,于是「写成功了」但飞行
+                // 模式纹丝不动;读也一样:从 System 读永远读到默认值 0。
+                //
+                // 写 Global 要 WRITE_SETTINGS(已声明 + 用户在系统设置里授权)。
+                // 某些 ROM 上 Global 写入仍被拒,那就退回 System 写一次(无害)。
                 if (write) {
                     val on = value.toBooleanish() ?: return err("airplane_mode 的值要 true / false")
-                    Settings.System.putInt(
-                        ctx().contentResolver,
-                        Settings.System.AIRPLANE_MODE_ON,
-                        if (on) 1 else 0,
-                    )
+                    val wrote = runCatching {
+                        Settings.Global.putInt(
+                            ctx().contentResolver,
+                            Settings.Global.AIRPLANE_MODE_ON,
+                            if (on) 1 else 0,
+                        )
+                        true
+                    }.getOrElse { e ->
+                        Log.w(TAG, "写 Global 飞行模式失败,退回 System", e)
+                        runCatching {
+                            Settings.System.putInt(
+                                ctx().contentResolver,
+                                Settings.System.AIRPLANE_MODE_ON,
+                                if (on) 1 else 0,
+                            )
+                        }.getOrDefault(false)
+                    }
                     // 光改 Settings 不生效,得发广播让系统重新读。
+                    // ACTION_AIRPLANE_MODE 是「请求切换」,ACTION_AIRPLANE_MODE_CHANGED
+                    // 是「状态已变」的通知 —— 两个都发,覆盖不同 ROM 的响应方式。
+                    runCatching {
+                        ctx().sendBroadcast(
+                            Intent("android.intent.action.AIRPLANE_MODE")
+                                .putExtra("state", on),
+                        )
+                    }
                     runCatching {
                         ctx().sendBroadcast(
                             Intent(Intent.ACTION_AIRPLANE_MODE_CHANGED).putExtra("state", on),
                         )
                     }
-                    ok(JSONObject().put("key", key).put("value", on))
-                } else {
                     ok(
                         JSONObject()
                             .put("key", key)
-                            .put("value", Settings.System.getInt(ctx().contentResolver, Settings.System.AIRPLANE_MODE_ON) == 1),
+                            .put("value", on)
+                            .put("settings_written", wrote)
+                            .put(
+                                "note",
+                                "飞行模式是系统级设置,部分 ROM 上应用改不动;" +
+                                    "如果没反应,系统设置里手动切一下。",
+                            ),
                     )
+                } else {
+                    val on = runCatching {
+                        Settings.Global.getInt(
+                            ctx().contentResolver,
+                            Settings.Global.AIRPLANE_MODE_ON,
+                            0,
+                        )
+                    }.getOrDefault(0) == 1
+                    ok(JSONObject().put("key", key).put("value", on))
                 }
             }
 

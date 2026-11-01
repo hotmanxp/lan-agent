@@ -12,6 +12,7 @@
 package io.github.hotmanxp.lanagent.ui
 
 import android.content.Intent
+import android.net.Uri
 import android.provider.Settings
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -93,6 +94,9 @@ fun LocalEngineSettingsSection() {
     val a11yGranted = remember(permTick) { PhoneAccessibilityService.isConnected }
     val notifGranted = remember(permTick) { PhoneNotificationListener.isConnected() }
     val captureReady = remember(permTick) { ScreenCaptureService.isReady() }
+    // 「修改系统设置」是 appop 特殊权限:manifest 里声明只是拿到资格,真正
+    // 生效靠用户在系统设置里开。canWrite 读的就是这个真实状态。
+    val writeSettingsGranted = remember(permTick) { Settings.System.canWrite(context) }
 
     // 编辑用的本地状态:进页面时用已存的值填,用户改完点保存才写回。
     //
@@ -217,6 +221,23 @@ fun LocalEngineSettingsSection() {
                     context.startActivity(
                         Intent(context, ScreenCaptureConsentActivity::class.java)
                             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
+                }
+            },
+        )
+        // 「修改系统设置」:appop 特殊权限,只能跳系统页让用户自己开 ——
+        // data 必须是 package:<包名>,否则系统不知道该给谁开。
+        PermissionRow(
+            label = stringResource(R.string.settings_local_engine_perm_write_settings),
+            desc = stringResource(R.string.settings_local_engine_perm_write_settings_desc),
+            granted = writeSettingsGranted,
+            onClick = {
+                runCatching {
+                    context.startActivity(
+                        Intent(
+                            Settings.ACTION_MANAGE_WRITE_SETTINGS,
+                            Uri.parse("package:${context.packageName}"),
+                        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                     )
                 }
             },

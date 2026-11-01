@@ -154,6 +154,15 @@ object EnginePaths {
         "DSH_ANDROID_TZ" to TimeZone.getDefault().id,
         "TZ" to TimeZone.getDefault().id,
         "NODE_COMPILE_CACHE" to compileCacheDir(context).absolutePath,
+        // CLAUDE_CODE_GLOB_TIMEOUT_SECONDS:ripgrep 单次搜索的超时秒数。
+        //
+        // core 默认 20s(`utils/ripgrep.ts` 的 defaultTimeout),这个 env
+        // 一旦有值就整个替换掉它。手机上放宽到 30s:存储 I/O 比桌面慢得多,
+        // 目录一大的话 20s 容易被打断,搜索结果只出来半截。
+        //
+        // 超时本身不是 bug —— core 侧有看门狗兜底,超时会以 ETIMEDOUT 正常
+        // 报错返回,不会挂死不响应(见 opencc-web 3e534f03)。
+        "CLAUDE_CODE_GLOB_TIMEOUT_SECONDS" to "30",
         // 能力桥:phone-bridge mod 靠这两个 env 找到主进程上的能力服务。
         // OPENCC_MODS_DIR 指向引擎包里自带的 mod 目录 —— 不指的话 core
         // 会去找 ~/.zai/mods,那儿是空的,工具一个都不会注册。

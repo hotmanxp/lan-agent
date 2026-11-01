@@ -3,6 +3,14 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Package visibility (Android 11+): without QUERY_ALL_PACKAGES the
+         system filters package queries to "visible" packages only, so the
+         installed-app list the agent reads is silently incomplete — the user
+         asks "which apps do I have" and gets a partial answer. This app is a
+         sideloaded personal tool (never published to Play), so the policy
+         concern that blocks Play does not apply. -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+
     <!-- WebView reads the content:// URIs returned by the system image
          picker (ACTION_GET_CONTENT) before injecting them as File objects
          into the page's <input type="file">. On Android 13+ scoped storage

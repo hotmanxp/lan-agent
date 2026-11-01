@@ -79,35 +79,106 @@ object PhoneCapabilities {
     /**
      * 列手机上装了的 App。
      *
-     * ⚠️ 这里**没有**声明 QUERY_ALL_PACKAGES(那是要用户单独授权的高危权限,
-     * Play 上架会被拒),但列全仍然成立 —— 因为 `getInstalledApplications(0)`
-     * 对**自己发起的**查询豁免包可见性过滤。实测(android-34)能列到 83 个。
+     * ## 为什么默认只返回「用户装的」
      *
-     * ⚠️ 这个豁免只对 `getInstalledApplications` / `getApplicationInfo` 成立。
-     * 换成 `queryIntentActivities` 之类按 Intent 查的受限 API 就只能看到
-     * 自己 + 声明过的包了 —— 到那天要么声明 QUERY_ALL_PACKAGES,要么改用
-     * `getLaunchIntentForPackage` 逐个试。
+     * 一台国产 ROM 上装满之后 `getInstalledPackages(0)` 会返回 300+ 个包,
+     * 其中 90% 是系统组件(ColorOS / 高通 / AOSP 那一坨)。全量丢给模型,
+     * 模型只能**靠包名前缀猜**哪些是用户装的 —— 猜错的直接表现为
+     * 「你手机上一共装了 278 个包,真正你手动装的第三方 App 只有 8 个左右」
+     * 这种看着有板有眼、实际是编的结论(0.29.6 修的就是这个)。
+     *
+     * 所以分类由系统给,不由模型猜:
+     *  - `ApplicationInfo.FLAG_SYSTEM` → 系统预装
+     *  - `FLAG_UPDATED_SYSTEM_APP` → 预装但被用户更新过(浏览器之类)
+     *  - 其余 → 用户装的
+     *
+     * ## scope
+     *
+     *  - `user`(默认)→ 只列用户装的
+     *  - `system` → 只列系统预装的
+     *  - `all` → 全列
+     *
+     * 包可见性:清单里声明了 QUERY_ALL_PACKAGES(Android 11+ 不声明的话
+     * 系统会把查询结果过滤成「可见包」,列表静默不全)。这 App 是侧载自用,
+     * 不上 Play,那个政策顾虑不成立。
      */
     fun listApps(args: JSONObject): JSONObject {
         val pm = ctx().packageManager
         val query = args.optString("query", "").trim()
-        val apps = runCatching { pm.getInstalledApplications(0) }.getOrElse { e ->
+        val scope = args.optString("scope", "user").trim().lowercase().let {
+            if (it == "all" || it == "system") it else "user"
+        }
+        val packages = runCatching { pm.getInstalledPackages(0) }.getOrElse { e ->
             return err("列应用失败:${e.message}")
         }
-        val out = JSONArray()
-        for (info in apps) {
-            val pkg = info.packageName ?: continue
-            val label = runCatching { pm.getApplicationLabel(info).toString() }.getOrDefault(pkg)
+        val launchable = runCatching { launcherPackages(pm) }.getOrDefault(emptySet())
+
+        var userCount = 0
+        var systemCount = 0
+        val rows = ArrayList<JSONObject>()
+        for (pi in packages) {
+            val ai = pi.applicationInfo ?: continue
+            val pkg = ai.packageName ?: continue
+            val isSystem = (ai.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0
+            val updatedSystem =
+                (ai.flags and android.content.pm.ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0
+            val userInstalled = !isSystem
+            if (userInstalled) userCount++ else systemCount++
+
+            val inScope = when (scope) {
+                "all" -> true
+                "system" -> isSystem
+                else -> userInstalled
+            }
+            if (!inScope) continue
+
+            val label = runCatching { pm.getApplicationLabel(ai).toString() }
+                .getOrDefault(pkg)
             if (query.isNotEmpty() &&
                 !label.contains(query, ignoreCase = true) &&
                 !pkg.contains(query, ignoreCase = true)
             ) {
                 continue
             }
-            out.put(JSONObject().put("package", pkg).put("name", label))
+            rows.add(
+                JSONObject()
+                    .put("package", pkg)
+                    .put("name", label)
+                    .put("userInstalled", userInstalled)
+                    .put("updatedSystemApp", updatedSystem)
+                    .put("launchable", pkg in launchable)
+                    .put("versionName", pi.versionName ?: "")
+                    .put("firstInstallTime", pi.firstInstallTime)
+            )
         }
-        return ok(JSONObject().put("apps", out).put("count", out.length()))
+        // 用户装的、能从桌面点开的排前面,按应用名排 —— 模型读到的顺序
+        // 就是人读 App 列表的顺序。
+        rows.sortWith(
+            compareByDescending<JSONObject> { it.optBoolean("userInstalled") }
+                .thenByDescending { it.optBoolean("launchable") }
+                .thenBy { it.optString("name") }
+        )
+        val out = JSONArray()
+        rows.forEach { out.put(it) }
+        return ok(
+            JSONObject()
+                .put("scope", scope)
+                .put("apps", out)
+                .put("count", out.length())
+                .put("totalInstalled", packages.size)
+                .put("userInstalledCount", userCount)
+                .put("systemAppCount", systemCount)
+        )
     }
+
+    /** 有桌面图标的包(用户能点开的那些)。 */
+    private fun launcherPackages(pm: android.content.pm.PackageManager): Set<String> =
+        runCatching {
+            pm.queryIntentActivities(
+                Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER),
+                0
+            ).map { it.activityInfo?.packageName }.filterNotNull().toSet()
+        }.getOrDefault(emptySet())
 
     /**
      * 按包名启动 App。
@@ -254,6 +325,10 @@ object PhoneCapabilities {
             JSONObject()
                 .put("package", pkg)
                 .put("name", label)
+                .put(
+                    "userInstalled",
+                    (info.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) == 0
+                )
                 .put("versionName", versionName)
                 .put("versionCode", versionCode)
                 .put("firstInstallTime", firstInstall)

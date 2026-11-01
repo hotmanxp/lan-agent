@@ -344,6 +344,36 @@ coroutine**,effect 启动时 `instances` 还是空列表 → `firstOrNull` 返�
 已删掉旧的两份(`git` 里没入库,备份在 `/tmp/lan-agent-deadcode/`),manifest 改成
 注册 `PhoneNotificationListener`。
 
+### 5. 「我手机装了哪些 App」答不准(0.31.2)
+
+**症状**:用户问「看看我手机上安装了哪些 APP」,agent 回「一共 278 个包,绝大部分是系统
+组件,真正你手动装的第三方 App 只有 8 个左右」—— 用户装了那么多,明显不对。
+
+**根因两层**:
+
+1. **包可见性**:Android 11+ 不声明 `QUERY_ALL_PACKAGES` 时,系统会把包查询结果
+   过滤成「可见包」,列表静默不全。这 App 是侧载自用不上 Play,所以该权限直接
+   声明了(Play 上架会被拒,这里不 care)。
+2. **分类靠模型猜**:`getInstalledApplications(0)` 把 200+ 个系统组件一起丢给模型,
+   模型只能**按包名前缀猜**哪些是用户装的 —— 猜出来「只有 8 个」。
+
+**改法**:分类交给系统。`ApplicationInfo.FLAG_SYSTEM` → 系统预装,
+`FLAG_UPDATED_SYSTEM_APP` → 预装但被用户更新过,其余 → 用户装的。
+`phone_list_apps` 加 `scope` 参数:
+
+| scope | 返回 |
+|-------|------|
+| `user`(默认) | 只列用户装的 |
+| `system` | 只列系统预装的 |
+| `all` | 全列 |
+
+每条多带 `userInstalled` / `updatedSystemApp` / `launchable` / `versionName` /
+`firstInstallTime`;顶层多带 `totalInstalled` / `userInstalledCount` /
+`systemAppCount` —— 回答「装了几个」用这两个数,别让模型数条目。
+
+⚠️ 用 `getInstalledPackages(0)` 而不是 `getInstalledApplications(0)`:后者拿不到
+`firstInstallTime` / `versionName`。
+
 
 ---
 

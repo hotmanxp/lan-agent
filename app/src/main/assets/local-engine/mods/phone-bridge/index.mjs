@@ -127,10 +127,19 @@ export function register(ctx) {
   ctx.registerTool(
     capTool({
       capability: 'phone_list_apps',
-      description: '列出手机上安装的 App(包名 + 应用名)。',
+      description:
+        '列出手机上安装的 App(包名 + 应用名 + 是否用户安装 + 是否能点开 + 版本号)。' +
+        '默认 scope="user" —— 只列用户自己装的 App(系统预装件已由系统判定过滤,别再靠包名前缀猜)。' +
+        '要连系统预装的一起看把 scope 设成 "all",只看系统组件用 "system"。' +
+        '返回里带 totalInstalled / userInstalledCount / systemAppCount —— 回答「我装了几个 App」时用这两个数,别自己数条目。',
       schema: {
         properties: {
-          query: { type: 'string', description: '按名字过滤,不传则全列' },
+          query: { type: 'string', description: '按名字或包名过滤,不传则全列' },
+          scope: {
+            type: 'string',
+            enum: ['user', 'system', 'all'],
+            description: 'user(默认)=只列用户装的;system=只列系统预装;all=全列',
+          },
         },
       },
     }),

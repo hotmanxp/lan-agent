@@ -129,6 +129,71 @@ object PhoneCapabilities {
     }
 
     /**
+     * 打开某个系统权限的授权页。
+     *
+     * 「修改系统设置」这类是**特殊权限**(appop)—— 代码代劳不了,只能把用户
+     * 带到系统页,让他自己拨开关。以前 agent 只能口头说「去设置里开」,
+     * 用户得自己在设置里翻三层菜单找;现在一步跳到对应的那个页面。
+     *
+     * 支持的 permission:
+     *   - write_settings —— 「修改系统设置」(写亮度 / 息屏 / 飞行模式等)
+     *   - notification_access —— 「通知使用权」(NotificationListenerService)
+     *   - accessibility —— 「无障碍」(读屏 / 点按 / 输入)
+     *   - post_notifications —— 「通知」权限(Android 13+ 发通知要)
+     *
+     * ⚠️ **后台起 Activity 会被系统拦**(Android 10+ 的后台启动限制)。
+     * 用户在 App 聊天界面时 App 是前台的 → 能起;App 在后台时会被拒 ——
+     * 所以这里把失败原因如实报回去,而不是假装跳过去了。
+     */
+    fun permissionPage(args: JSONObject): JSONObject {
+        val which = args.optString("permission", "").trim().lowercase()
+        if (which.isEmpty()) {
+            return err("要传 permission。可用的有 write_settings / notification_access / accessibility / post_notifications")
+        }
+        val pkg = ctx().packageName
+        val intent = when (which) {
+            "write_settings", "settings", "modify_system_settings" -> android.content.Intent(
+                Settings.ACTION_MANAGE_WRITE_SETTINGS,
+                android.net.Uri.parse("package:$pkg"),
+            )
+            "notification_access", "notification_listeners", "notification_use" -> android.content.Intent(
+                Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS,
+            )
+            "accessibility", "a11y" -> android.content.Intent(
+                Settings.ACTION_ACCESSIBILITY_SETTINGS,
+            )
+            "post_notifications", "notifications" -> android.content.Intent(
+                Settings.ACTION_APP_NOTIFICATION_SETTINGS,
+                android.net.Uri.parse("package:$pkg"),
+            )
+            else -> return err(
+                "不知道的权限:$which。可用的有 write_settings / notification_access / " +
+                    "accessibility / post_notifications",
+            )
+        }
+        intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        return runCatching {
+            ctx().startActivity(intent)
+            ok(
+                JSONObject()
+                    .put("permission", which)
+                    .put("opened", true)
+                    .put(
+                        "note",
+                        "已经打开系统权限页。用户拨完开关回来后你可以重试刚才的操作。" +
+                            "用 hand_to_user 提醒他一下他就在旁边。",
+                    ),
+            )
+        }.getOrElse { e ->
+            err(
+                "打开权限页失败:${e.message}。" +
+                    "多半是 App 现在在后台 —— Android 不让后台起 Activity。" +
+                    "让用户切回 App 再试,或者直接口头告诉他去哪开。",
+            )
+        }
+    }
+
+    /**
      * 写剪贴板。
      *
      * DSH 的 Clipboard 组是 get + set 两个,我们原来只有 get。
@@ -435,10 +500,15 @@ object PhoneCapabilities {
 
         if (write && !Settings.System.canWrite(ctx())) {
             // 这个权限是 appop 特殊权限,代码代劳不了 —— 只能跳系统页让用户开。
-            // App 自己的设置页里有这一项(跳 ACTION_MANAGE_WRITE_SETTINGS)。
+            //
+            // 提示里给出**具体动作**:先调 phone_permission_page 把用户带到
+            // 系统那个页面(一步),别让他自己在设置里翻三层菜单找。
             return err(
-                "还没有「修改系统设置」权限,写不了。去「设置 → 应用 → 特殊应用权限 → " +
-                    "修改系统设置 → 局域网 Agent」打开(或者在 App 设置页的「手机能力权限」里点「去开启」)。",
+                "还没有「修改系统设置」权限,写不了。" +
+                    "这是特殊权限,只能用户手动开 —— " +
+                    "先调 phone_permission_page(permission=write_settings)把用户带到那个页面," +
+                    "再用 hand_to_user 告诉他要拨哪个开关,然后**停下等用户回话**。" +
+                    "别在没授权的情况下反复重试这次写入 —— 结果都一样,只会白烧轮次。",
             )
         }
 
@@ -447,14 +517,70 @@ object PhoneCapabilities {
                 if (write) {
                     val v = value.toIntOrNull()?.coerceIn(0, 255)
                         ?: return err("brightness 要 0-255 的整数")
+                    // ⚠️ **写亮度必须先关掉自动亮度** —— 自动亮度开着时,系统
+                    // 会按环境光重新算,把刚写的值盖掉(表现为「写了没反应」)。
+                    //
+                    // 这不是假设:agent「把亮度打到最高」时用户看到的就是亮度
+                    // 没变 —— 系统把 255 又调回 120。所以写亮度时连带把
+                    // SCREEN_BRIGHTNESS_MODE 置 0(手动)。
+                    //
+                    // 原值一并带回去,方便调用方之后还原。
+                    val autoMode = Settings.System.getInt(
+                        ctx().contentResolver,
+                        Settings.System.SCREEN_BRIGHTNESS_MODE,
+                        0,
+                    )
+                    Settings.System.putInt(
+                        ctx().contentResolver,
+                        Settings.System.SCREEN_BRIGHTNESS_MODE,
+                        0,
+                    )
                     Settings.System.putInt(ctx().contentResolver, Settings.System.SCREEN_BRIGHTNESS, v)
-                    ok(JSONObject().put("key", key).put("value", v))
+                    ok(
+                        JSONObject()
+                            .put("key", key)
+                            .put("value", v)
+                            .put("auto_brightness_was", autoMode == 1)
+                            .put(
+                                "note",
+                                if (autoMode == 1) {
+                                    "原来开着自动亮度,已经关掉(否则系统会立刻把亮度调回去)。" +
+                                        "要还原的话把 auto_brightness 设回 true。"
+                                } else {
+                                    ""
+                                },
+                            ),
+                    )
                 } else {
                     ok(
                         JSONObject()
                             .put("key", key)
                             .put("value", Settings.System.getInt(ctx().contentResolver, Settings.System.SCREEN_BRIGHTNESS)),
                     )
+                }
+            }
+
+            // 自动亮度开关。写 brightness 时会连带关掉它,所以这个 key 是
+            // 「还原」时用的 —— agent 记下 auto_brightness_was,还原时写回来。
+            "auto_brightness", "brightness_mode" -> {
+                val on = when {
+                    write -> value.toBooleanish()
+                        ?: return err("$key 的值要 true / false")
+                    else -> Settings.System.getInt(
+                        ctx().contentResolver,
+                        Settings.System.SCREEN_BRIGHTNESS_MODE,
+                        0,
+                    ) == 1
+                }
+                if (write) {
+                    Settings.System.putInt(
+                        ctx().contentResolver,
+                        Settings.System.SCREEN_BRIGHTNESS_MODE,
+                        if (on) 1 else 0,
+                    )
+                    ok(JSONObject().put("key", key).put("value", on))
+                } else {
+                    ok(JSONObject().put("key", key).put("value", on))
                 }
             }
 
@@ -595,7 +721,10 @@ object PhoneCapabilities {
                 }
             }
 
-            else -> err("不知道的设置项:$key。可用的有 brightness / screen_timeout / airplane_mode / volume / ringer_mode / wifi")
+            else -> err(
+                "不知道的设置项:$key。可用的有 brightness / auto_brightness / screen_timeout / " +
+                    "airplane_mode / volume / ringer_mode / wifi",
+            )
         }
     }
 
@@ -1304,8 +1433,9 @@ object PhoneCapabilities {
                     .put("instruction", body)
                     .put(
                         "note",
-                        "已经发通知把用户叫过来了。**现在停下,别再操作屏幕** —— " +
-                            "等用户做完之后用 screen_wait 确认,或者直接问用户好了没。",
+                        "已经发通知把用户叫过来了。**现在停下**:不要再重试刚才那个失败的调用," +
+                            "不要再操作屏幕,也别再 sleep 轮询 —— 权限没开的时候重试多少次都一样。" +
+                            "告诉用户要做什么、等他回话就行(他回话后你再重试)。",
                     ),
             )
         }.getOrElse { e -> err("发通知失败:${e.message}") }

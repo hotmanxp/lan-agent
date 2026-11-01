@@ -213,15 +213,46 @@ export function register(ctx) {
     capTool({
       capability: 'phone_settings',
       description:
-        '读取/修改系统设置(Wi-Fi 开关、亮度、音量等)。读写同一套工具,' +
-        'write=true 表示写。',
+        '读取/修改系统设置。读写同一套工具,write=true 表示写。' +
+        '可用的 key:brightness / auto_brightness / screen_timeout / airplane_mode / ' +
+        'volume / ringer_mode / wifi。' +
+        '**写**需要用户先给「修改系统设置」权限(appop 特殊权限,代码代劳不了);' +
+        '没权限时返回的错误里会告诉你调 phone_permission_page 把用户带到授权页。' +
+        '写 brightness 会连带关掉自动亮度(否则系统立刻调回去),返回值里的 ' +
+        'auto_brightness_was 记着原来开没开,还原时用。',
       schema: {
         properties: {
-          key: { type: 'string', description: '设置项名,例如 wifi / brightness / volume' },
+          key: {
+            type: 'string',
+            description:
+              '设置项名,例如 brightness / auto_brightness / screen_timeout / volume / wifi',
+          },
           value: { type: 'string', description: '要写的值;读的时候不用传' },
           write: { type: 'boolean', description: 'true=写,false=读' },
         },
         required: ['key'],
+      },
+    }),
+  )
+
+  ctx.registerTool(
+    capTool({
+      capability: 'phone_permission_page',
+      description:
+        '打开某个系统权限的授权页,把用户直接送到那个开关前。' +
+        '权限是特殊权限(appop),**只能用户手动开**,代码代劳不了 —— ' +
+        '所以这一步是「带用户去开」,不是「帮他开」。' +
+        '写系统设置卡住了就调这个(permission=write_settings),别让用户自己去翻设置菜单。',
+      schema: {
+        properties: {
+          permission: {
+            type: 'string',
+            description:
+              'write_settings(修改系统设置) / notification_access(通知使用权) / ' +
+              'accessibility(无障碍) / post_notifications(通知)',
+          },
+        },
+        required: ['permission'],
       },
     }),
   )

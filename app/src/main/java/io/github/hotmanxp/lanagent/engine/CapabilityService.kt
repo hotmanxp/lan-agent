@@ -65,6 +65,7 @@ class CapabilityService(private val context: Context) {
         "app_send_intent" to { PhoneCapabilities.appSendIntent(it) },
         "share_to_app" to { PhoneCapabilities.shareToApp(it) },
         "phone_settings" to { PhoneCapabilities.settings(it) },
+        "phone_permission_page" to { PhoneCapabilities.permissionPage(it) },
         "device_status" to { PhoneCapabilities.deviceStatus(it) },
         "notification_open" to { PhoneCapabilities.notificationOpen(it) },
         "notification_dismiss" to { PhoneCapabilities.notificationDismiss(it) },

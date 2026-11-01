@@ -2,6 +2,13 @@
 /**
  * 构建「本地引擎包」—— 让 APK 里的 :engine 进程能跑 agent 引擎的那一坨文件。
  *
+ * ## 它不进 APK(0.29.0 起)
+ *
+ * 引擎包(13MB)现在**由用户在设置页点「下载引擎」时按需拉取**,不再打进 APK ——
+ * APK 只留纯客户端(~13MB)。产物落在 `dist/engine/`,再由
+ * `tools/pack-engine-bundle.mjs` 跟原生库一起打成 zip 供下载。
+ * 所以这个脚本的输出目录在仓库外(gitignore 掉的 `dist/`),不是 `app/src/main/assets`。
+ *
  * ## 产物布局(这个布局不是随便定的,每一行都有理由)
  *
  *   <out>/
@@ -76,7 +83,7 @@ const ZOD_SUBPATHS = ['v3', 'v4', 'v4-mini']
 
 function parseArgs(argv) {
   const opt = {
-    out: resolve(REPO_ROOT, 'app/src/main/assets/engine'),
+    out: resolve(REPO_ROOT, 'dist/engine'),
     webRoot: process.env.OPENCC_WEB_ROOT || '/Users/ethan/code/opencc-web',
     verify: true,
   }
@@ -91,7 +98,7 @@ function parseArgs(argv) {
     } else if (a === '--help' || a === '-h') {
       console.log(
         '用法: node tools/build-engine-pkg.mjs [--out <dir>] [--web-root <dir>] [--skip-verify]\n' +
-          `默认输出: ${resolve(REPO_ROOT, 'app/src/main/assets/engine')}\n` +
+          `默认输出: ${resolve(REPO_ROOT, 'dist/engine')}\n` +
           `默认源仓库: ${opt.webRoot}`,
       )
       process.exit(0)

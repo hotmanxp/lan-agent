@@ -45,11 +45,17 @@ object EnginePaths {
      */
     const val CAPABILITY_PORT = 9421
 
-    /** assets 里引擎包所在目录。 */
-    const val ASSET_ENGINE_DIR = "engine"
+    /**
+     * 下载下来的原生库(Node 运行时 + JNI)所在目录。
+     *
+     * 0.29.0 起这些 .so **不再打进 APK** —— 由用户在设置页点「下载引擎」时
+     * 拉下来解到这里。JNI 用 `System.load(<这里的绝对路径>)` 加载
+     * (不再用 `System.loadLibrary`,那个只认 APK 里的 nativeLibraryDir)。
+     */
+    fun nativeDir(context: Context): File = File(context.filesDir, "native")
 
-    /** assets 里引擎包的指纹文件(构建脚本写的)。 */
-    const val ASSET_SHA_FILE = "engine/engine.sha256"
+    /** 下载中的 zip 落盘位置(解完就删)。 */
+    fun bundleFile(context: Context): File = File(context.filesDir, "engine-bundle.zip")
 
     /** 解压后的引擎包根目录。 */
     fun engineRoot(context: Context): File = File(context.filesDir, "engine")

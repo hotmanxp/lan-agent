@@ -80,8 +80,9 @@ lint/tmp/
 .kotlin/
 
 # ── 本地引擎(feat/local-engine)────────────────────────────────────────────────
-# 引擎包:tools/build-engine-pkg.mjs 产出。12MB 的构建产物,进 APK 但不入 git
-# (git 里只留脚本,谁想跑本地引擎自己构建一次)。
-app/src/main/assets/engine/
-# 原生 .so:tools/fetch-native.sh 拉下来。libnode.so 单个就 82MB,更不能入库。
-app/src/main/jniLibs/
+# 引擎包与原生库的构建产物(0.29.0 起不再进 APK,改成运行时按需下载):
+#   dist/engine/         tools/build-engine-pkg.mjs 产出(13MB)
+#   dist/natives/        tools/fetch-native.sh 拉下来(libnode.so 单个 82MB)
+#   dist/engine-bundle/  tools/pack-engine-bundle.mjs 打成 zip 供下载(~60MB)
+# 全部不入 git —— git 里只留脚本,谁想跑本地引擎自己构建一次。
+dist/

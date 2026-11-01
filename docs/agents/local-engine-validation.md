@@ -189,3 +189,39 @@ Node 的 ICU 会落到 UTC,时间上下文和预算日切都跟着错)。
 入口整个不出现)、任务页实例目录不刷新导致「永远离线」、验收脚本的三个判错坑、
 重复的旧能力桥实现(旧 `NotificationBridge` 在 manifest 里注册着,系统绑的是它,
 而代码读的是新实现 → 通知永远读不到)。
+
+---
+
+## 改成「按需下载」后的实测（2026-11-01 续）
+
+引擎包与原生库不再打进 APK,改成运行时下载。
+
+| 项 | 结果 |
+|---|---|
+| APK 体积 | 76MB → **40.8MB**(不含 `libnode.so`、不含 `assets/engine`) |
+| 引擎包 zip | 34MB(engine 13MB + native 95MB 压缩后) |
+| 下载 + 校验 + 解包 | 局域网约 1.7s(`清单 → 下载 → sha256 通过 → 解到 filesDir`) |
+| `System.load(filesDir/native/*.so)` | **一次成功**,无 UnsatisfiedLinkError |
+| 引擎启动 | `:engine` 进程 → `LISTENING 127.0.0.1:9420` → HTTP 通了 |
+| 凭据保存 → 重启 | `EXTRA_RESTART` → 旧进程自杀 → 控制器重拉 → `凭据物化 = true` |
+| 真实模型回复 | ✅ `I'll run that command.` |
+| BashTool 真执行 | ✅ `Output: HELLO_FROM_BASH` |
+| `tools/verify-local-engine.sh` | **23 项全过**(含「下载源可达」) |
+
+### 这一轮抓到的两个真缺陷
+
+1. **「设置页保存不了 API 信息」** —— 不是 UI 坏了,是**引擎不重启**:引擎进程启动时就把
+   `settings.json` / `.zai.json` 读进内存了,改了文件它不知道。用户看到的是「保存了
+   但还是用旧凭据」,结论就是「保存不了」。修法:保存后发 `EXTRA_RESTART` 让
+   `EngineService` 自杀,`EngineController` 按退避重拉新进程(新进程才重读凭据)。
+   另外设置页补了可见反馈(「已保存,引擎重启中…」),不然界面一点变化都没有。
+2. **`System.loadLibrary` 用不了** —— 它只认 APK 里的 nativeLibraryDir。改成
+   `System.load(绝对路径)`,顺序固定 `libc++_shared` → `libnode` → `libdshengine`:
+   后者的 `DT_NEEDED` 是 `libnode.so`(SONAME 同名),靠 linker 按 SONAME 复用
+   已加载库解析上,不用改 RPATH。
+
+### 一个 UI 上的小坑(自己踩的)
+
+软键盘弹起时**屏幕下半部分被键盘盖住**,按屏幕坐标 tap 会打到键盘上,不是输入框。
+`adb shell input text` 于是把内容打进了上一个字段。**用 TAB 键在字段之间挪焦点**
+(`KEYCODE_TAB`)比按坐标 tap 稳得多 —— Compose 的 focus traversal 支持它。

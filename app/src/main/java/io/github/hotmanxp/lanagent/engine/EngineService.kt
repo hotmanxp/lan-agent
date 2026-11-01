@@ -67,6 +67,18 @@ class EngineService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // 重启请求:用户在设置页改了凭据 → 主进程发这个 Intent 过来。
+        //
+        // 为什么必须换进程:Node 是在**这个进程**里跑的,它启动时就把
+        // settings.json / .zai.json 读进内存了 —— 改了文件它也不知道。
+        // 而 node::Start 一个进程只能调一次,原地再起一次会直接崩。
+        // 所以只能让整个 :engine 进程换新的(主进程的 EngineController
+        // 看到 dead 状态会按退避重拉)。
+        if (intent?.getBooleanExtra(EXTRA_RESTART, false) == true) {
+            Log.i(TAG, "收到重启请求(凭据改了),换新进程")
+            killSelf(intent.getIntExtra(EXTRA_PORT, EnginePaths.DEFAULT_PORT))
+            return START_NOT_STICKY
+        }
         if (nodeStarted) {
             // node::Start 一个进程只能一次。系统要是把服务在**同一个进程**里
             // 重新拉起来(比如 stopSelf 之后又被 startService),这里不能再起
@@ -210,6 +222,20 @@ class EngineService : Service() {
         }.toTypedArray()
         Log.i(TAG, "起 Node: ${args.joinToString(" ")} (cwd=${EnginePaths.workspaceDir(this)})")
 
+        // 加载原生库(**必须在 nativeStart 之前**):库不在就 UnsatisfiedLinkError,
+        // 而 JNI 符号找不到时报错现场什么日志都没有。
+        //
+        // 0.29.0 起原生库是运行时下载的,躺在 filesDir/native/ ——
+        // 所以用 System.load(绝对路径),不是 System.loadLibrary(那个只认
+        // APK 里的 nativeLibraryDir)。细节见 NodeRuntime 的注释。
+        try {
+            NodeRuntime.load(EnginePaths.nativeDir(this))
+        } catch (e: Throwable) {
+            Log.e(TAG, "加载原生库失败(引擎没装?下过引擎吗?)", e)
+            killSelf(port)
+            return
+        }
+
         val code = try {
             NodeRuntime.nativeStart(args, inRead, outWrite, errWrite)
         } catch (e: Throwable) {
@@ -348,6 +374,9 @@ class EngineService : Service() {
 
         const val EXTRA_PORT = "port"
 
+        /** 「换新进程」的标记:凭据改了要重启引擎时用。 */
+        const val EXTRA_RESTART = "restart"
+
         /** 启动引擎服务。 */
         fun start(context: Context, port: Int = EnginePaths.DEFAULT_PORT) {
             val intent = Intent(context, EngineService::class.java)
@@ -357,6 +386,26 @@ class EngineService : Service() {
             } else {
                 context.startService(intent)
             }
+        }
+
+        /**
+         * 让引擎换一个新进程(凭据 / 工作区变了之后用)。
+         *
+         * 发一个带 [EXTRA_RESTART] 的 Intent 给服务,服务收到就自杀
+         * (写 dead 状态 + 杀进程)。主进程的 EngineController 看到 dead
+         * 会按退避把新进程拉起来 —— 新进程启动时会重新读 settings.json。
+         */
+        fun requestRestart(context: Context, port: Int = EnginePaths.DEFAULT_PORT) {
+            val intent = Intent(context, EngineService::class.java)
+                .putExtra(EXTRA_PORT, port)
+                .putExtra(EXTRA_RESTART, true)
+            runCatching {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+            }.onFailure { Log.w(TAG, "发重启请求失败", it) }
         }
     }
 }

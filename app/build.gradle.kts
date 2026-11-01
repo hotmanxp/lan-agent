@@ -70,34 +70,22 @@ android {
         applicationId = "io.github.hotmanxp.lanagent"
         minSdk = 26
         targetSdk = 34
-        versionCode = 137
-        versionName = "0.29.0"
+        versionCode = 138
+        versionName = "0.29.1"
 
-        // ── 本地引擎(feat/local-engine)的原生库 ──────────────────────────────
-        // libnode.so 是 Node 24 运行时,arm64-v8a 下单个 82MB;加上
-        // libc++_shared.so 9MB,一个 APK 就 ~100MB。**APK 里只会有 arm64-v8a** ——
-        // 别的 ABI 加进来 APK 直接翻倍,而现在本来就没打算支持 32 位设备
-        // (Node 官方的 bionic 预编译也只出了 arm64)。
+        // ── 本地引擎(feat/local-engine)──────────────────────────────────────
+        // 引擎包(13MB)与原生库(95MB)**都不进 APK**(0.29.0 起改成按需下载):
+        // 用户在设置页点「下载引擎」,App 从「引擎下载源」拉一个 zip,校验
+        // sha256 后解到 app 私有目录。APK 因此从 76MB 降到 40.8MB(剩下的体积
+        // 主要是 dex —— AA 迁移带来的,跟引擎无关)。
         //
-        // .so 不入库:用 tools/fetch-native.sh 拉到 app/src/main/jniLibs/arm64-v8a/
-        // (AGP 默认就吃这个目录,不用额外配 sourceSets)。没拉过就当没有本地
-        // 引擎,App 照常当局域网客户端用 —— 引擎是可选能力,不是硬依赖。
+        // 构建产物落在仓库外的 dist/(gitignore 掉):
+        //   dist/engine/         tools/build-engine-pkg.mjs 产出
+        //   dist/natives/        tools/fetch-native.sh 拉下来
+        //   dist/engine-bundle/  tools/pack-engine-bundle.mjs 打成 zip 供下载
         //
-        // **ABI 白名单在下面的 packaging.jniLibs**:依赖树里带着 armeabi-v7a /
-        // x86 / x86_64 的 .so(termux terminal-view、barhopper、oniguruma 等),
-        // 不过滤的话 APK 里会有 4 份 .so,而 Node 的 bionic 预编译只有 arm64-v8a
-        // 一份 —— 那些设备上 System.loadLibrary("node") 直接 UnsatisfiedLinkError
-        // 崩掉,不是降级而是崩。
-        //
-        // 为什么用 packaging.jniLibs.excludes 而不是 `defaultConfig { ndk { abiFilters } }`:
-        // abiFilters 只管**我们自己**编译出来的 .so,依赖树带进来的预编译 .so
-        // (termux terminal-view / barhopper / onigurama 这些)不在它的作用域内 ——
-        // 而恰恰是这些多 ABI 的 .so 把 APK 撑到 4 份 ABI。packaging 在**打包层**,
-        // 对所有来源一视同仁。
-        //
-        // (注:`ndk { abiFilters }` 这个块本身是可用的,得写在 defaultConfig 里;
-        //  写在 android { } 顶层会报 "Unresolved reference: ndk"。
-        //  跟构建机装没装 NDK 无关 —— 我们只用预编译 .so,不本地编译。)
+        // ⚠️ **原生库不能放在 app/src/main/jniLibs/ 下** —— AGP 会照打不误,
+        // APK 又变成大包。
 
         // 语音识别凭据 / 开关。见文件头注释；空值 = 未配置，走系统 SpeechRecognizer。
         buildConfigField("String", "ASR_APP_ID", asrLiteral(asrAppId))
@@ -124,10 +112,12 @@ android {
     }
 
     // ── 只保留 arm64-v8a 的原生库 ──────────────────────────────────────
-    // 依赖带进来的 armeabi-v7a / x86 / x86_64 三个 ABI 一共 ~17MB,而且
-    // **那些架构上没有 libnode.so** —— 装了引擎的设备只要不是 arm64,
-    // 一 System.loadLibrary("node") 就 UnsatisfiedLinkError 崩掉。
-    // 排掉它们:非 arm64 设备上引擎功能自动不存在,App 退回纯局域网客户端。
+    // 依赖带进来的 armeabi-v7a / x86 / x86_64 三个 ABI 一共 ~17MB。
+    // 排掉它们:手机(arm64)装小一圈,APK 也小一圈。
+    //
+    // 注意:**引擎的原生库不在这里** —— 它们在 dist/natives/,运行时下载,
+    // 不进 APK(0.29.0 起)。所以这里不需要 useLegacyPackaging:
+    // APK 里剩下的都是依赖树带进来的普通 .so,怎么打包都行。
     packaging {
         jniLibs {
             excludes += setOf(
@@ -135,18 +125,6 @@ android {
                 "**/x86/**",
                 "**/x86_64/**",
             )
-            // **必须解到磁盘**(legacy packaging = extractNativeLibs=true)。
-            //
-            // 默认的 modern packaging 把 .so 压缩在 APK 里、**不落到
-            // nativeLibraryDir** —— 于是:
-            //   1. EngineInstaller.isInstalled() 查 File(nativeDir,"libnode.so")
-            //      永远 false → 引擎入口整个不出现;
-            //   2. EngineShims 建 rg 软链指向 nativeLibraryDir/librg.so,
-            //      那个文件不存在 → Grep/Glob 工具全废。
-            //
-            // JNI 加载(System.loadLibrary)两种模式都能用,但引擎需要
-            // **磁盘上真实存在的 .so 文件**做软链目标,所以走 legacy。
-            useLegacyPackaging = true
         }
     }
 

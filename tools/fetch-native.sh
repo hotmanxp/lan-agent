@@ -1,11 +1,18 @@
 #!/usr/bin/env bash
-# 拉取本地引擎要的原生库(Node 运行时 + JNI)到 app/src/main/jniLibs/arm64-v8a/。
+# 拉取本地引擎要的原生库(Node 运行时 + JNI)到 dist/natives/arm64-v8a/。
+#
+# ## 为什么落在 dist/ 而不是 app/src/main/jniLibs/
+#
+# **jniLibs 会被 AGP 打进 APK。** 引擎改成「按需下载」之后(0.29.0),原生库
+# 不该再进 APK —— 否则 APK 又变成 90MB+ 的大包。原生库现在由
+# tools/pack-engine-bundle.mjs 跟引擎包一起打成 zip,用户在设置页点「下载引擎」
+# 时拉下来。
 #
 # ## 为什么单独一个脚本
 #
 # libnode.so 是 82MB。整个塞进 git 显然不行,但也不能塞进 Gradle 的构建流程里
 # —— 每次 assembleDebug 都下 82MB 太慢,而且构建机未必有网。所以单独一个脚本:
-# 拉一次落到 jniLibs/,之后 assembleDebug 直接用(AGP 默认就吃 src/main/jniLibs)。
+# 拉一次落到 dist/natives/,之后打包脚本直接用它。
 #
 # ## 二进制从哪来
 #
@@ -27,7 +34,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DEST="$REPO_ROOT/app/src/main/jniLibs/arm64-v8a"
+DEST="$REPO_ROOT/dist/natives/arm64-v8a"
 
 # 上游 DSH-Android 的预编译 release(Node 24.22.1 + 那一批原生输入的哈希)
 TAG="${DSH_NATIVE_TAG:-native-node24.22.1-c5b68634a6}"

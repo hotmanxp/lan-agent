@@ -19,8 +19,8 @@
 //    win32-x64,**没有 android**。但它的 resolveRgSystem()
 //    (`zn-agent-core/src/compat/vendor/ripgrep.ts:96`) 走的是 `which rg`,
 //    所以只要 PATH 里有个叫 rg 的可执行文件就行 —— 不用改 opencc 源码。
-//    librg.so 随 DSH-Android 的原生包一起进了 APK(ripgrep 15.2.0,带 pcre2),
-//    APK 里的位置是 nativeLibraryDir。
+//    librg.so 随 DSH-Android 的原生包一起(ripgrep 15.2.0,带 pcre2),
+//    0.29.0 起跟别的原生库一样是**运行时下载**的,解到 filesDir/native/。
 //
 // ## 为什么放在 app 私有目录
 //
@@ -55,13 +55,16 @@ object EngineShims {
         // bash → /system/bin/sh
         link(EnginePaths.shellShim(context), "/system/bin/sh", "bash")
 
-        // rg → APK 里的 librg.so(nativeLibraryDir)
+        // rg → 下载下来的 librg.so(filesDir/native/)
+        //
+        // 目标不再是 nativeLibraryDir —— 0.29.0 起原生库是运行时下载的,
+        // 躺在 app 私有目录里,不在 APK 里。
         val rg = EnginePaths.rgShim(context)
-        val librg = File(context.applicationInfo.nativeLibraryDir, "librg.so")
+        val librg = File(EnginePaths.nativeDir(context), "librg.so")
         if (librg.exists()) {
             link(rg, librg.absolutePath, "rg")
         } else {
-            Log.w(TAG, "APK 里没有 librg.so,ripgrep 用不了(Grep/Glob 工具会降级)")
+            Log.w(TAG, "没有 librg.so,ripgrep 用不了(Grep/Glob 工具会降级)")
         }
     }
 

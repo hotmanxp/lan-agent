@@ -46,31 +46,30 @@ sh_() { $ADB shell "$@" 2>&1 | tr -d '\r'; }
 sh_ok() { $ADB shell "$@" >/dev/null 2>&1; }
 
 step "1. 原生库(node 运行时)"
-# libnode.so 由系统解到 nativeLibraryDir(legacy packaging,extractNativeLibs=true),
-# 路径每次安装都可能变,得运行时问 dumpsys 拿 —— /data/app 对 shell 不可读。
-NATIVE_DIR="$(sh_ "dumpsys package $PKG | grep legacyNativeLibraryDir" | sed -n 's/^[^=]*=//p' | head -1)"
-NATIVE_DIR="${NATIVE_DIR%/}/arm64"
-if [ -n "$NATIVE_DIR" ] && [ "$NATIVE_DIR" != "/arm64" ]; then
-  ok "nativeLibraryDir = $NATIVE_DIR"
+# 0.29.0 起原生库**不在 APK 里** —— 用户在设置页点「下载引擎」时拉下来,
+# 解到 app 私有目录 files/native/。所以这里查的是那个目录,不是 nativeLibraryDir。
+NATIVE_DIR="$APP_DIR/files/native"
+if sh_ok "run-as $PKG sh -c \"test -d '$NATIVE_DIR'\""; then
+  ok "原生库目录 = $NATIVE_DIR"
   for so in libnode.so libdshengine.so libdshnode.so libc++_shared.so librg.so; do
-    if sh_ok "[ -f '$NATIVE_DIR/$so' ]"; then
+    if sh_ok "run-as $PKG sh -c \"test -f '$NATIVE_DIR/$so'\""; then
       ok "$so 在"
     else
-      bad "$so 缺 —— 跑 tools/fetch-native.sh 补齐"
+      bad "$so 缺 —— 在 App 设置页点「下载引擎」"
     fi
   done
-  # node --version:libdshnode.so 是 node 启动器
-  VER="$(sh_ "cd '$NATIVE_DIR' && LD_LIBRARY_PATH='$NATIVE_DIR' ./libdshnode.so --version")"
+  # node --version:libdshnode.so 是 node 启动器(要 LD_LIBRARY_PATH 才找得到 libnode.so)
+  VER="$(sh_ "run-as $PKG sh -c \"cd '$NATIVE_DIR' && LD_LIBRARY_PATH='$NATIVE_DIR' ./libdshnode.so --version\"")"
   if printf '%s' "$VER" | grep -qE '^v[0-9]+\.'; then
     ok "node 跑起来了:$VER"
   else
     bad "node 起不来:$(printf '%s' "$VER" | head -1)"
   fi
 else
-  bad "拿不到 nativeLibraryDir —— APK 里没有原生库(tools/fetch-native.sh 没跑过?)"
+  bad "没有 files/native 目录 —— 引擎还没下载(设置页点「下载引擎」)"
 fi
 
-step "2. 引擎包(assets 解到 filesDir)"
+step "2. 引擎包(下载后解到 files/engine)"
 ENGINE_DIR="$(sh_ "run-as $PKG sh -c 'ls -d $APP_DIR/files/engine/*/' | head -1" | sed 's|/$||')"
 if [ -n "$ENGINE_DIR" ]; then
   ok "引擎目录 = $ENGINE_DIR"
@@ -87,7 +86,7 @@ if [ -n "$ENGINE_DIR" ]; then
     bad "core bundle 不在 node_modules —— agent 内置工具会全废"
   fi
 else
-  bad "引擎没解开 —— App 里没跑过 EngineService"
+  bad "引擎没解开 —— 在 App 设置页点「下载引擎」"
 fi
 
 step "3. bash / rg 软链"
@@ -148,12 +147,27 @@ try {
   ctrl.abort()
 } catch (e) { console.log('SSE_ERR ' + e.message) }
 EOF
-if [ -n "$NATIVE_DIR" ] && [ "$NATIVE_DIR" != "/arm64" ]; then
+if sh_ok "run-as $PKG sh -c \"test -d '$NATIVE_DIR'\""; then
   OUT="$(sh_ "run-as $PKG sh -c \"cd '$NATIVE_DIR' && LD_LIBRARY_PATH='$NATIVE_DIR' HOME=$APP_DIR/files/home ./libdshnode.so '$PROBE'\"")"
   printf '%s\n' "$OUT" | grep -E '^HEALTH ' | grep -q '"ok":true' && ok "/api/health → ok" || bad "/api/health → $(printf '%s' "$OUT" | grep '^HEALTH ' | head -1)"
   printf '%s\n' "$OUT" | grep -q '^SESSIONS ' && ok "/api/agent/sessions 有响应" || bad "/api/agent/sessions 没响应"
   printf '%s\n' "$OUT" | grep -q 'SSE_FRAME server.connected' && ok "SSE 吐出 server.connected" || bad "SSE 没吐 server.connected"
   sh_ "run-as $PKG rm -f '$PROBE'" >/dev/null 2>&1
+fi
+
+# 6. 下载源可达性(可选):传 MANIFEST_URL 就查一下清单拉不拉得到。
+#
+# 为什么单独拎出来:引擎是「按需下载」的,下载源不通的表现是设置页里一句
+# 「下载引擎失败:xxx」—— 排查时第一件事就是确认那个地址活着。
+if [ -n "${MANIFEST_URL:-}" ]; then
+  step "6. 下载源"
+  BODY="$(curl -fsS --max-time 10 "$MANIFEST_URL" 2>/dev/null)"
+  if printf '%s' "$BODY" | grep -q '"sha256"'; then
+    ok "清单可达:$MANIFEST_URL"
+    printf '%s' "$BODY" | grep -oE '"(file|size)": *"?[^,"}]+' | sed 's/^/  /'
+  else
+    bad "清单拉不到或格式不对:$MANIFEST_URL"
+  fi
 fi
 
 printf '\n\033[1m结果:%d 通过 / %d 失败\033[0m\n' "$pass" "$fail"

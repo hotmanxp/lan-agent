@@ -188,4 +188,30 @@ object EngineController {
 
     /** 当前引擎状态;没写过状态文件时返回 null。 */
     fun status(context: Context): EngineStatus? = EngineStatus.read(context)
+
+    /**
+     * 重启引擎(改了凭据之后用)。
+     *
+     * ## 为什么必须重启
+     *
+     * 引擎进程启动时就把 `settings.json` / `.zai.json` 读进内存了 ——
+     * 改了文件它不知道,于是「保存了但还是用旧凭据」,表现就是
+     * **用户以为没保存成功**(其实是没生效)。
+     *
+     * 而 node::Start 一个进程只能调一次,原地再起一次会直接崩 ——
+     * 所以只能换整个进程:发一个带 `EXTRA_RESTART` 的 Intent 给服务,
+     * 它自杀(写 dead 状态),主进程这边看到 dead 就按退避把新进程拉起来。
+     */
+    fun restart(context: Context) {
+        val ctx = context.applicationContext
+        val status = EngineStatus.read(ctx)
+        if (status == null || !status.isAlive()) {
+            // 没在跑就不必「重启」—— 让控制器按需拉起来就行。
+            Log.i(TAG, "引擎没在跑,直接托管")
+            start(ctx)
+            return
+        }
+        Log.i(TAG, "重启引擎(凭据可能变了)")
+        EngineService.requestRestart(ctx, status.port)
+    }
 }

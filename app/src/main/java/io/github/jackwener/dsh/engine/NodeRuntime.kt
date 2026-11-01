@@ -17,6 +17,8 @@ package io.github.jackwener.dsh.engine
 // 会让 nativeStart 直接炸。同理,类名 NodeRuntime 和方法名 nativeStart
 // 也一个字都不能动。
 
+import java.io.File
+
 /**
  * JNI 入口:进 libdshengine.so,由它调 node::Start 跑起 Node 运行时。
  *
@@ -28,13 +30,47 @@ package io.github.jackwener.dsh.engine
  * 进程重来。
  */
 object NodeRuntime {
-    init {
-        // 顺序有讲究:c++_shared 是 libnode.so 的 C++ 运行时依赖,必须先加载,
-        // 否则 libnode 里的静态初始化会找不到 std:: 符号。
-        System.loadLibrary("c++_shared")
-        System.loadLibrary("node")
-        System.loadLibrary("dshengine")
+
+    /**
+     * 加载原生库。
+     *
+     * ## 为什么用 System.load(绝对路径)而不是 System.loadLibrary
+     *
+     * `System.loadLibrary` 只认 APK 解包出来的 `nativeLibraryDir` —— 那是
+     * **构建期**打进 APK 的路子。0.29.0 起原生库改成运行时下载,躺在
+     * `filesDir/native/` 里,不在 nativeLibraryDir,所以必须给绝对路径。
+     *
+     * ## 加载顺序为什么是这三个
+     *
+     * `libdshengine.so` 的 `DT_NEEDED` 是 `libnode.so` + `libc++_shared.so`,
+     * 而 `libnode.so` 的 SONAME 就是 `libnode.so`。Android 的 linker 在同一个
+     * namespace 内**按 SONAME 复用已加载的库** —— 所以先把 libnode.so 加载
+     * (它自己 NEEDED 的 libc++_shared.so 也就顺带被解析了),再加载
+     * libdshengine.so 时它的 NEEDED 就能对上,不需要改 RPATH。
+     *
+     * ⚠️ 这条是实测出来的:加载顺序错了就是一句
+     * `dlopen failed: cannot locate symbol "..."`,而引擎那边只看到
+     * 「引擎没起来」。改这块之前先看 docs/agents/local-engine.md 的记录。
+     */
+    @Synchronized
+    fun load(nativeDir: File) {
+        if (loaded) return
+        val cxx = File(nativeDir, "libc++_shared.so")
+        val node = File(nativeDir, "libnode.so")
+        val engine = File(nativeDir, "libdshengine.so")
+        for (f in listOf(cxx, node, engine)) {
+            if (!f.isFile) {
+                throw UnsatisfiedLinkError("原生库不在:${f.absolutePath}\n  先在设置页下载引擎")
+            }
+        }
+        System.load(cxx.absolutePath)
+        System.load(node.absolutePath)
+        System.load(engine.absolutePath)
+        loaded = true
     }
+
+    @Volatile
+    private var loaded = false
 
     @JvmStatic
     external fun nativeStart(args: Array<String>, stdinFd: Int, stdoutFd: Int, stderrFd: Int): Int

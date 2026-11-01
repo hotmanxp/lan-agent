@@ -297,7 +297,7 @@ class EnginePkgLayoutTest {
         val dir = enginePkgDirOrNull()
         // JUnit4 的 assumeTrue 参数顺序是 (message, condition)。
         assumeTrue(
-            "引擎包还没构建(产物在 app/src/main/assets/engine,已 gitignore)—— " +
+            "引擎包还没构建(产物在 dist/engine,已 gitignore)—— " +
                 "先跑 tools/build-engine-pkg.mjs 再跑这条用例",
             dir != null,
         )
@@ -317,7 +317,8 @@ class EnginePkgLayoutTest {
         System.getenv("ENGINE_PKG_DIR")?.takeIf { it.isNotBlank() }?.let {
             return File(it).takeIf { p -> p.isDirectory }
         }
-        return File(repoRoot(), "app/src/main/assets/engine").takeIf { it.isDirectory }
+        // 0.29.0 起引擎包不进 APK 了,构建产物落在仓库外的 dist/。
+        return File(repoRoot(), "dist/engine").takeIf { it.isDirectory }
     }
 
     /** 往上找带 tools/ 的目录 —— 单测的 CWD 是模块目录,不是仓库根。 */

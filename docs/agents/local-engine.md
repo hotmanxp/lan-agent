@@ -344,3 +344,81 @@ coroutine**,effect 启动时 `instances` 还是空列表 → `firstOrNull` 返�
 已删掉旧的两份(`git` 里没入库,备份在 `/tmp/lan-agent-deadcode/`),manifest 改成
 注册 `PhoneNotificationListener`。
 
+
+---
+
+## 九、按需下载(0.29.0 续)
+
+引擎包(13MB)与原生库(95MB)**不再打进 APK** —— APK 只留纯客户端。
+用户在设置页点「下载引擎」,App 从一个 manifest 地址拉一个 zip 下来。
+
+### 为什么这么改
+
+内嵌版 APK 是 76MB,分享和安装都重,而且改一行 App 代码就要重新打这个大包。
+下载版 APK 40.8MB(剩下的体积主要是 dex —— AA 迁移带来的,跟引擎无关)。
+
+### 产物长什么样
+
+```
+dist/                            ← gitignore 掉,构建产物都在这
+├── engine/                      tools/build-engine-pkg.mjs 产出
+├── natives/arm64-v8a/           tools/fetch-native.sh 拉下来
+└── engine-bundle/
+    ├── engine-manifest.json     {version, fingerprint, file, sha256, size}
+    └── engine-arm64-v8a-<sha12>.zip   34MB
+        ├── engine/              引擎包
+        └── native/              7 个 .so
+```
+
+- `tools/pack-engine-pkg` → `tools/pack-engine-bundle.mjs`:校验引擎包结构 → 打 zip
+  → 写 manifest(sha256 + size)
+- `tools/serve-engine.sh`:静态服务 `dist/engine-bundle/`,打印 App 该填的地址
+
+### App 侧的三个关口(一道都不能省)
+
+1. **sha256 校验** —— 传输层不可信(局域网也可能被投毒 / 传一半损坏)。
+   校验不过就删掉重下,绝不解包
+2. **解到 staging 再切换** —— 解一半被杀是最难查的坏法(「一半新一半旧」)。
+   先解到 `.bundle-staging-<指纹>/`,全解完、全校验过,再 rename 到位
+3. **解包防目录穿越** —— zip 条目名里带 `..` 的直接跳过
+
+### 原生库怎么加载 ⚠️
+
+`System.loadLibrary` 只认 APK 里的 `nativeLibraryDir` —— 那是**构建期**的路子。
+下载版的 .so 在 `filesDir/native/`,所以改成 `System.load(绝对路径)`:
+
+```kotlin
+System.load(File(nativeDir, "libc++_shared.so").absolutePath)
+System.load(File(nativeDir, "libnode.so").absolutePath)
+System.load(File(nativeDir, "libdshengine.so").absolutePath)
+```
+
+**顺序不能换**: `libdshengine.so` 的 `DT_NEEDED` 是 `libnode.so`(SONAME 也是
+`libnode.so`),Android linker 在同一 namespace 内**按 SONAME 复用已加载的库** ——
+先把 libnode.so 加载进去,libdshengine.so 的 NEEDED 就对上了,不用改 RPATH。
+
+实测(模拟器 android-34 / arm64-v8a):这样加载**一次成功**,没有
+UnsatisfiedLinkError,也没有 `dlopen failed: cannot locate symbol`。
+
+### 凭据改了必须重启引擎 ⚠️
+
+引擎进程**启动时**就把 `settings.json` / `.zai.json` 读进内存了 —— 改了文件它
+不知道。于是「保存了但还是用旧凭据」,用户看到的是 **「保存不了」**。
+
+修法:保存后发一个带 `EXTRA_RESTART` 的 Intent 给 `EngineService`,它自杀
+(写 dead 状态 + 杀进程),主进程的 `EngineController` 看到 dead 就按退避把新进程
+拉起来 —— 新进程启动时重新读凭据。
+
+`node::Start` 一个进程只能调一次,所以只能换整个进程,不能原地重启。
+
+### 换下载源不用改 App
+
+App 只认「一个 manifest 地址」。清单里写着 zip 的文件名与 sha256,App 按清单下载。
+当前用局域网上的 Mac(`tools/serve-engine.sh`),将来换 GitHub release 只要把
+manifest 放到那儿、填新地址即可 —— App 侧一行不用改。
+
+### 已知没做的
+
+- API key 仍是明文(落在 `filesDir/home/.zai.json`)
+- 截屏授权的 UI 入口(`ScreenCaptureService` 有,首页按钮没接)
+- `node-pty` / `sharp` 原生库

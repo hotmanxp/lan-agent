@@ -399,7 +399,17 @@
          前物化成引擎认得的 settings.json。 -->
     <string name="settings_section_local_engine">本机引擎</string>
     <string name="settings_local_engine_subtitle">在设备上跑 agent 引擎,配置它用的模型服务</string>
-    <string name="settings_local_engine_not_installed">这个 APK 里没带引擎包,「本机引擎」不可用</string>
+    <!-- 0.29.0 起引擎包不再打进 APK(那会让 APK 变成 90MB+ 大包),
+         改成用户点「下载引擎」从「引擎下载源」按需拉一个 zip 下来。 -->
+    <string name="settings_local_engine_not_installed">引擎没装,点下面的按钮下载(约 34MB)</string>
+    <string name="settings_local_engine_installed">引擎已安装</string>
+    <string name="settings_local_engine_downloading">正在下载引擎…</string>
+    <string name="settings_local_engine_download_failed">下载引擎失败</string>
+    <string name="settings_local_engine_download">下载引擎</string>
+    <string name="settings_local_engine_redownload">重新下载</string>
+    <string name="settings_local_engine_download_source">引擎下载源</string>
+    <string name="settings_local_engine_download_source_hint">http://主机:8766/engine-manifest.json</string>
+    <string name="settings_local_engine_download_hint">从清单地址下载引擎包,校验 sha256 后解压安装</string>
     <string name="settings_local_engine_running">引擎运行中</string>
     <string name="settings_local_engine_stopped">引擎未运行</string>
     <string name="settings_local_engine_provider">模型服务协议</string>
@@ -407,7 +417,9 @@
     <string name="settings_local_engine_model">模型名</string>
     <string name="settings_local_engine_api_key">API 密钥</string>
     <string name="settings_local_engine_save">保存</string>
-    <string name="settings_local_engine_save_hint">保存后立刻生效,不用重启引擎</string>
+    <string name="settings_local_engine_save_hint">保存后引擎会自动重启,几秒后生效</string>
+    <string name="settings_local_engine_saved">已保存,引擎重启中…</string>
+    <string name="settings_local_engine_save_incomplete">还没填全(地址 / 模型名 / 密钥都要填)</string>
     <string name="settings_compact_tools">工具调用精简模式</string>
     <string name="settings_compact_tools_sub">工具调用与思考过程收成一行摘要(如「执行 2 条命令」),点开看详情;关掉退回逐条工具卡</string>
     <!-- 工具调用摘要 / 详情弹层(0.26.3,见 AGENTS.md §29)。摘要文案本身

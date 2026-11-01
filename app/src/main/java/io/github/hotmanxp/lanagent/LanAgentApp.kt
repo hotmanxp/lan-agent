@@ -12,6 +12,7 @@ import android.app.NotificationManager
 import android.content.Context
 import io.github.hotmanxp.lanagent.engine.AppContextHolder
 import io.github.hotmanxp.lanagent.engine.CapabilityService
+import io.github.hotmanxp.lanagent.engine.EngineBundle
 import io.github.hotmanxp.lanagent.engine.EngineController
 import io.github.hotmanxp.lanagent.engine.EngineInstaller
 
@@ -75,13 +76,19 @@ class LanAgentApp : Application() {
         AppContextHolder.context = this
         if (EngineController.isMainProcess(this)) {
             CapabilityService.ensureStarted(this)
+            // 引擎包下载要写 app 私有目录,拿不到 Context 就没法落地。
+            EngineBundle.bind(this)
         }
 
         // 本地引擎(:engine 进程):App 一开就把它托管起来。
         // 为什么在 Application 里起而不是等用户点:引擎是「打开就能用」的
-        // 兜底 —— 冷启动要解包 + 起 Node(几秒),等用户进会话页才起的话,
+        // 兜底 —— 冷启动要起 Node(几秒),等用户进会话页才起的话,
         // 第一次点会等半天。起不来也不影响别的功能(引擎是可选能力),
         // EngineController 自己按退避重试。
+        //
+        // 0.29.0 起引擎是**按需下载**的:没下过就不起(也没有可起的)。
+        // 下载完引擎之后要重启 App 才会自动拉起 —— 或者用户手动点一次「下载引擎」
+        // 之后由设置页触发启动。
         if (EngineInstaller.isInstalled(this)) {
             EngineController.start(this)
         }

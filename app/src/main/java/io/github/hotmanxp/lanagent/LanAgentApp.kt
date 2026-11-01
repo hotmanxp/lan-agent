@@ -67,6 +67,19 @@ class LanAgentApp : Application() {
             }
         )
 
+        // 「交给用户」通道:agent 碰到只能人做的步骤(登录 / 验证码 / 支付确认)
+        // 时用它把用户叫过来。跟上面三个 LOW 通道相反 —— 这个要 **heads-up**
+        // (横幅弹出 + 提示音),不然用户在另一个 App 里根本不知道 agent 卡住了。
+        nm.createNotificationChannel(
+            NotificationChannel(
+                CHANNEL_ID_HAND_TO_USER,
+                getString(R.string.notif_hand_to_user_channel_name),
+                NotificationManager.IMPORTANCE_HIGH,
+            ).apply {
+                description = getString(R.string.notif_hand_to_user_channel_desc)
+            }
+        )
+
         // 能力桥(主进程的 127.0.0.1:9421):引擎通过它调 Android 的能力
         // (截图 / 通知 / 剪贴板 / 启动 App / 系统设置)。能力实现是静态
         // 方法,拿不到构造参数,所以 Context 单独存一份。
@@ -102,5 +115,8 @@ class LanAgentApp : Application() {
 
         /** 截屏前台服务的通知通道。 */
         const val CHANNEL_ID_SCREEN_CAPTURE = "screen_capture"
+
+        /** 「交给用户」的提示通道 —— 高优先级,要 heads-up。 */
+        const val CHANNEL_ID_HAND_TO_USER = "hand_to_user"
     }
 }

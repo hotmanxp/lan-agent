@@ -133,6 +133,10 @@
     <string name="notif_capture_channel_name">屏幕捕获</string>
     <string name="notif_capture_channel_desc">授权后 agent 可以读取屏幕内容</string>
     <string name="notif_capture_title">屏幕捕获运行中</string>
+    <!-- 「交给用户」的通知通道:高优先级 + heads-up 横幅。agent 碰到登录 /
+         验证码 / 支付确认这类只能人做的步骤时,用这个通道把用户叫过来。 -->
+    <string name="notif_hand_to_user_channel_name">需要你操作</string>
+    <string name="notif_hand_to_user_channel_desc">agent 碰到只能人做的步骤时提醒你</string>
     <string name="notif_capture_desc">Agent 可以读取屏幕内容</string>
     <!-- Instances 实例管理 -->
     <string name="instances_title">实例管理</string>

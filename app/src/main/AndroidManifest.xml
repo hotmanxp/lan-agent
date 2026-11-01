@@ -220,6 +220,20 @@
                 android:resource="@xml/aa_file_paths" />
         </provider>
 
+        <!-- 本机引擎的 FileProvider。share_to_app 能力要把引擎工作区里的
+             文件(截图 / 产物)分享给别的 App,必须走 content:// URI ——
+             直接给 file:// 会被 FileUriExposedException 拒掉。
+             路径只放开 workspace/ 与 cache/。 -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.engine.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/engine_file_paths" />
+        </provider>
+
         <!-- AA 自更新模块的安装完成回调。注意我们**没有**声明
              REQUEST_INSTALL_PACKAGES(那是要用户单独授权的高危权限,
              lan-agent 只是个局域网工具),所以下载能走、安装会被系统拒绝,

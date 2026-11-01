@@ -55,12 +55,17 @@ class CapabilityService(private val context: Context) {
 
     /** 能力实现表:能力名 → 处理函数。 */
     private val handlers: Map<String, (JSONObject) -> JSONObject> = mapOf(
-        "phone_screenshot" to { PhoneCapabilities.screenshot(it) },
         "phone_notifications" to { PhoneCapabilities.notifications(it) },
         "phone_clipboard" to { PhoneCapabilities.clipboard(it) },
+        "clipboard_set" to { PhoneCapabilities.clipboardSet(it) },
         "phone_open_app" to { PhoneCapabilities.openApp(it) },
         "phone_list_apps" to { PhoneCapabilities.listApps(it) },
+        "app_info" to { PhoneCapabilities.appInfo(it) },
+        "app_open_link" to { PhoneCapabilities.appOpenLink(it) },
+        "app_send_intent" to { PhoneCapabilities.appSendIntent(it) },
+        "share_to_app" to { PhoneCapabilities.shareToApp(it) },
         "phone_settings" to { PhoneCapabilities.settings(it) },
+        "device_status" to { PhoneCapabilities.deviceStatus(it) },
         "notification_open" to { PhoneCapabilities.notificationOpen(it) },
         "notification_dismiss" to { PhoneCapabilities.notificationDismiss(it) },
         "notification_reply" to { PhoneCapabilities.notificationReply(it) },
@@ -70,9 +75,11 @@ class CapabilityService(private val context: Context) {
         "screen_type" to { PhoneCapabilities.screenType(it) },
         "screen_swipe" to { PhoneCapabilities.screenSwipe(it) },
         "screen_scroll" to { PhoneCapabilities.screenScroll(it) },
+        "screen_set_wheel" to { PhoneCapabilities.screenSetWheel(it) },
         "screen_key" to { PhoneCapabilities.screenKey(it) },
         "screen_wait" to { PhoneCapabilities.screenWait(it) },
         "screen_capture" to { PhoneCapabilities.screenCapture(it) },
+        "hand_to_user" to { PhoneCapabilities.handToUser(it) },
     )
 
     fun start() {

@@ -2,7 +2,7 @@
 
 > **lan-agent** — Android App,把局域网内多个 opencc-web 实例入口收成卡片列表 + **原生**展示实例管理 API + **原生** Agent 会话(直连 `/api/agent/sessions` + `/api/event` SSE)+ SSH 一键启动 zai。配套工程 `/Users/ethan/code/opencc-web`,zai 需 `pnpm --filter @zn-ai/zai dev -- --lan` 启动。
 >
-> **关键里程碑**: 0.10.0 视觉对齐 WorkBuddy + 自研 Markdown;0.14.0 改底部五栏;0.15.0 任务栏直接是原生 Agent 工作区;0.16.0 DisplayFiles 文件卡片;0.16.1 文件预览改面板内 overlay(不占路由);0.17.0 `/` 命令面板 + Skill 候选;0.17.4 语音 401 自愈;0.18.0 底部任务栏显示后台任务 / 后台子代理;0.18.1 WebView 函数体副作用修复(点 /m 输入框不再整页刷新);0.18.2 `/` 命令面板 argumentHint 解析容错;0.18.3 原生 AskUserQuestion 卡片 + 自动追加 Other;0.19.0 DisplayFiles 改 **PresentFile**(单文件内容卡:图片/文本内联渲染,9 种 kind)+ **本轮产物块**;0.19.1 SVG 全屏预览改 base64 + `<img>` 包 `text/html`(避开 Chromium 不渲染 `image/svg+xml` 主框架);**0.19.2 修 0.19.1 引入的白屏**(缺 doctype 落 quirks 模式 + `height:100%` 塌成 0,见 §19「SVG 预览两步坑」);0.20.0 代码块语法高亮(内核 `dev.snipme:highlights`,见 §24);0.20.1 高亮阈值 4000 字符 → 1000 行(修 kt 预览无高亮);0.24.15 任务页加载改骨架屏(见 §25);**0.25.0 会话内 Mermaid 流程图渲染(离线 WebView,见 §26)**;0.25.3 「服务」栏加远程实例管理(走 `shell.exec` 管远端 zai);**0.25.5 AA 远程终端可用(见 §27)**;**0.26.0 任务页对话字号三档(小/标准/大),仿 AA `compact` 二态但落三档,见 §28**;**0.26.3 工具调用改 Trae 式一行摘要 + 详情弹层(见 §29)、顶栏改 Trae 式药丸双按钮(见 §30)**;**0.26.4 `+` 按钮加「命令与技能」浏览入口(见 §31)**;**0.28.0 Mermaid 追齐 mermaid 12.1.0(修 radar-beta / treemap 静默降级)+ 卡片 header / 全屏预览 / 复制源码(见 §26)**;**0.29.0 本机引擎:APK 内嵌 Node 24,直接在手机上跑 agent(见 §32)**;**0.29.2 修密钥空白字符导致的 `invalid header value`**;**0.29.3 修真机上 Grep/Glob 不可用(SELinux 禁 exec app_data_file)**;**0.29.4 让 agent 能在 Bash 里用 node**;**0.29.5 手机端专用主 Agent(提示词 + 工具策略)**;**0.30.0 手机能力层(无障碍读屏/操作 + 通知动作,见 §32)**;**0.30.1 补上「修改系统设置」权限声明 + 修 airplane_mode 写错表(见 §32)**。**当前 HEAD**: HEAD on `main` · **versionCode 144** · **versionName 0.30.1**。
+> **关键里程碑**: 0.10.0 视觉对齐 WorkBuddy + 自研 Markdown;0.14.0 改底部五栏;0.15.0 任务栏直接是原生 Agent 工作区;0.16.0 DisplayFiles 文件卡片;0.16.1 文件预览改面板内 overlay(不占路由);0.17.0 `/` 命令面板 + Skill 候选;0.17.4 语音 401 自愈;0.18.0 底部任务栏显示后台任务 / 后台子代理;0.18.1 WebView 函数体副作用修复(点 /m 输入框不再整页刷新);0.18.2 `/` 命令面板 argumentHint 解析容错;0.18.3 原生 AskUserQuestion 卡片 + 自动追加 Other;0.19.0 DisplayFiles 改 **PresentFile**(单文件内容卡:图片/文本内联渲染,9 种 kind)+ **本轮产物块**;0.19.1 SVG 全屏预览改 base64 + `<img>` 包 `text/html`(避开 Chromium 不渲染 `image/svg+xml` 主框架);**0.19.2 修 0.19.1 引入的白屏**(缺 doctype 落 quirks 模式 + `height:100%` 塌成 0,见 §19「SVG 预览两步坑」);0.20.0 代码块语法高亮(内核 `dev.snipme:highlights`,见 §24);0.20.1 高亮阈值 4000 字符 → 1000 行(修 kt 预览无高亮);0.24.15 任务页加载改骨架屏(见 §25);**0.25.0 会话内 Mermaid 流程图渲染(离线 WebView,见 §26)**;0.25.3 「服务」栏加远程实例管理(走 `shell.exec` 管远端 zai);**0.25.5 AA 远程终端可用(见 §27)**;**0.26.0 任务页对话字号三档(小/标准/大),仿 AA `compact` 二态但落三档,见 §28**;**0.26.3 工具调用改 Trae 式一行摘要 + 详情弹层(见 §29)、顶栏改 Trae 式药丸双按钮(见 §30)**;**0.26.4 `+` 按钮加「命令与技能」浏览入口(见 §31)**;**0.28.0 Mermaid 追齐 mermaid 12.1.0(修 radar-beta / treemap 静默降级)+ 卡片 header / 全屏预览 / 复制源码(见 §26)**;**0.29.0 本机引擎:APK 内嵌 Node 24,直接在手机上跑 agent(见 §32)**;**0.29.2 修密钥空白字符导致的 `invalid header value`**;**0.29.3 修真机上 Grep/Glob 不可用(SELinux 禁 exec app_data_file)**;**0.29.4 让 agent 能在 Bash 里用 node**;**0.29.5 手机端专用主 Agent(提示词 + 工具策略)**;**0.30.0 手机能力层(无障碍读屏/操作 + 通知动作,见 §32)**;**0.30.1 补上「修改系统设置」权限声明 + 修 airplane_mode 写错表(见 §32)**;**0.31.0 手机能力层补齐到 DSH 对标:P0(滚轮 / 交给用户)+ P1(设备状态 / 剪贴板写 / Apps 组 4 个)(见 §32)**。**当前 HEAD**: HEAD on `main` · **versionCode 145** · **versionName 0.31.0**。
 >
 > **独立顶级目录、独立 git 仓库**,不在 opencc-web monorepo 内。spec / plan 在 `docs/superpowers/{specs,plans}/`(0.6.0 之后已过期,仅作历史参考)。
 
@@ -403,6 +403,30 @@
   - **⚠️ 整段必须包 try/catch**:之前一个 `SocketTimeoutException` 就把整个 App 干掉 —— 异常从 worker 线程逃出去 → Android 视为未捕获 → 进程崩。同设备上**任何** App 都能连 `127.0.0.1:9421`,一个畸形请求就是 DoS
   - **设置页第四项权限**:无障碍 / 通知读取 / 截屏 / **修改系统设置**,四项都只允许用户手动给,代码代劳不了
 
+#### 📌 0.31.0:手机能力层补齐到 DSH 对标(18 → 24 个工具)
+
+DSH-Android 的手机能力层是 **66 工具 / 10 组**(调研见 `docs/agents/phone-capabilities-dsh.md`)。
+0.30.0 把 P0 的「读屏 / 点按 / 输入」和「通知动作」补齐后,0.31.0 又补了剩下的 P0 + P1:
+
+| 类别 | 工具 | DSH 对应 | 关键点 |
+|---|---|---|---|
+| P0 | `screen_set_wheel` | `screen_set_wheel` | 滚轮 / DatePicker / SeekBar。**滚轮不是可滚容器** —— `screen_scroll` 对它无效(`ACTION_SCROLL_FORWARD` 不被响应),所以必须单独一条能力。不给 id 就自动找屏幕上的 `SeekBar`/`DatePicker`/`TimePicker`/`NumberPicker` |
+| P0 | `hand_to_user` | `hand_to_user` | 登录 / 验证码 / 支付确认这类**只能人做**的步骤。硬试的后果很实在:反复输验证码会被风控、误点支付不可逆。发**高优先级 heads-up 通知**把用户叫过来(不是 Toast —— 后台被系统吞掉、且只有 2 秒)。返回的是「已交接」不是「已完成」 |
+| P1 | `device_status` | `device_status` | 电量 / 充电 / 网络 / Wi-Fi SSID / 存储 / 勿扰 / 各音量流。回答「我手机怎么了」的基础 |
+| P1 | `clipboard_set` | `clipboard_set` | 写剪贴板。Android 10+ 后台**读**被限,写任何时候都行 |
+| P1 | `app_info` | `app_info` | 版本 / 安装时间 / 体积 / 导出的 activity |
+| P1 | `app_open_link` | `app_open_link` | deep link / `tel:` / `mailto:` / `geo:` / 自定义 scheme。靠 `Intent.parseUri` 而不是自己拆 query |
+| P1 | `app_send_intent` | `app_send_intent` | 显式 Intent + component + extras(值按 JSON 类型放) |
+| P1 | `share_to_app` | `share_to_app` | 走系统 chooser。**必须用 content:// URI** —— 直接给 `file://` 会被 `FileUriExposedException` 拒掉 |
+
+**三个踩过的坑**:
+
+1. **`ACTION_SET_PROGRESS` 挂在 `AccessibilityNodeInfo.AccessibilityAction` 上**,不是 `AccessibilityNodeInfo` 的静态常量(那个类上没有这个字段)→ 用错类名编译直接报 unresolved reference。而且 `performAction(AccessibilityAction, Bundle)` 那个重载收的是 **Int action id**,要写 `.id`。
+2. **AOSP 设置页的音量条不是真 SeekBar** —— 它报 `SeekBar` 类名但 `ACTION_SET_PROGRESS` 不被响应(直接设值那条路返回「不支持直接设值」),只有 `ACTION_SCROLL_FORWARD/BACKWARD` 转格能用。实测转 3 格 5→7 生效。
+3. **`share_to_app` 要新的 FileProvider** —— AA 的那个 authority 是 `.aa.fileprovider` 且只放开 `cache/session-attachments/`,引擎工作区在 `files/workspace/` 下,拿不到。新增 `.engine.fileprovider` + `res/xml/engine_file_paths.xml`(只放开 `workspace/` 与 `cache/`)。
+
+**顺手修掉的错注释**:`PhoneCapabilities.listApps` 的注释原来说「manifest 里声明了 QUERY_ALL_PACKAGES」—— **实际没声明**。列全仍然成立,因为 `getInstalledApplications(0)` 对自己发起的查询豁免包可见性过滤(实测列到 83 个)。但这个豁免只对 `getInstalledApplications`/`getApplicationInfo` 成立,换成 `queryIntentActivities` 之类按 Intent 查的受限 API 就只能看到自己和声明过的包 —— 到那天要么补声明,要么改用 `getLaunchIntentForPackage` 逐个试。
+
 
 
 ```bash
@@ -449,7 +473,11 @@ adb shell pm clear io.github.hotmanxp.lanagent
 
 ## 版本 / 发布
 
-**当前**: 0.30.1 (144) — **补上「修改系统设置」权限声明与授权入口 + 修 airplane_mode 写错表**(见 §32):manifest 里少了 `android.permission.WRITE_SETTINGS` → `Settings.System.canWrite()` 恒为 false → 「写系统设置」整组能力(brightness / screen_timeout / airplane_mode / volume / ringer_mode)只报一句「没权限」,而**读是好的** —— 看着像「这个功能不支持写」,实际是 manifest 少了一行。设置页补第四项权限行,跳 `ACTION_MANAGE_WRITE_SETTINGS`(带 `package:` Uri),状态读 `Settings.System.canWrite(context)`,跟另外三项一样靠 `LifecycleResumeEffect` 回读。**顺带修 airplane_mode**:飞行模式的状态在 **Global** 表里,原来读写的是 `Settings.System` 的同名键 —— 写成功也不生效、读永远读到 0;改成写 Global(被拒退回 System)+ 发 `ACTION_AIRPLANE_MODE` 与 `ACTION_AIRPLANE_MODE_CHANGED` 两个广播,并如实回 `settings_written` 标志。实测(模拟器 android-34):manifest 权限可见 → 撤销时设置页显示「去开启」→ 点它跳到系统「Allow modifying system settings」→ 打开开关 → appop 变 `allow` → 回 App 该行实时翻成「已开启」→ `phone_settings` 写 brightness 102→77 生效、读回 77。
+**当前**: 0.31.0 (145) — **手机能力层补齐到 DSH 对标**(见 §32):P0 三项 + P1 四组,工具数 18 → 24。
+
+0.31.0 (145) — **手机能力层补齐到 DSH-Android 对标**(见 §32):**P0** ① 删掉重复的 `phone_screenshot`(与 `screen_capture` 同义,DSH 只有一个截屏工具 —— 两个同义工具会让模型随机挑)② 新增 `screen_set_wheel`(滚轮 / DatePicker / SeekBar —— 滚轮**不是**可滚容器,`screen_scroll` 对它无效,必须单独一条能力,实测音量条转 3 格 5→7)③ 新增 `hand_to_user`(把登录 / 验证码 / 支付确认这类只能人做的步骤交回用户 —— 走高优先级 heads-up 通知)。**P1** ④ 新增 `device_status`(电量 / 充电 / 网络 / Wi-Fi SSID / 存储 / 勿扰 / 各音量流)⑤ 新增 `clipboard_set`(补齐 DSH 的 Clipboard 组,原来只有读)⑥ Apps 组补 4 个:`app_info` / `app_open_link` / `app_send_intent` / `share_to_app`。工具总数 18 → 24。
+
+0.30.1 (144) — **补上「修改系统设置」权限声明与授权入口 + 修 airplane_mode 写错表**(见 §32):manifest 里少了 `android.permission.WRITE_SETTINGS` → `Settings.System.canWrite()` 恒为 false → 「写系统设置」整组能力(brightness / screen_timeout / airplane_mode / volume / ringer_mode)只报一句「没权限」,而**读是好的** —— 看着像「这个功能不支持写」,实际是 manifest 少了一行。设置页补第四项权限行,跳 `ACTION_MANAGE_WRITE_SETTINGS`(带 `package:` Uri),状态读 `Settings.System.canWrite(context)`,跟另外三项一样靠 `LifecycleResumeEffect` 回读。**顺带修 airplane_mode**:飞行模式的状态在 **Global** 表里,原来读写的是 `Settings.System` 的同名键 —— 写成功也不生效、读永远读到 0;改成写 Global(被拒退回 System)+ 发 `ACTION_AIRPLANE_MODE` 与 `ACTION_AIRPLANE_MODE_CHANGED` 两个广播,并如实回 `settings_written` 标志。实测(模拟器 android-34):manifest 权限可见 → 撤销时设置页显示「去开启」→ 点它跳到系统「Allow modifying system settings」→ 打开开关 → appop 变 `allow` → 回 App 该行实时翻成「已开启」→ `phone_settings` 写 brightness 102→77 生效、读回 77。
 
 0.30.0 (143) — **手机能力层:agent 在手机上「看着屏幕操作」**(见 §32):新增无障碍服务(读控件树 / 点按 / 输入 / 滑动 / 滚动 / 按键 / 等待 / 截图)+ 通知动作(打开 / 清除 / 直接回复);能力 mod 从引擎包挪到 APK assets(`EngineModsInstaller` 起引擎时拷进引擎目录)—— 加一个能力不用再让用户重下 34MB 引擎包;能力服务改按**字节**读 HTTP body 并兜住未捕获异常。设置页加权限区块(无障碍 / 通知读取 / 截屏 / 修改系统设置)。
 

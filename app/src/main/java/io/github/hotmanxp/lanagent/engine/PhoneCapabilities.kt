@@ -79,9 +79,14 @@ object PhoneCapabilities {
     /**
      * 列手机上装了的 App。
      *
-     * Android 11(API 30)起有「包可见性」过滤:不声明 QUERY_ALL_PACKAGES
-     * 就只能看到自己和自己声明过的包。manifest 里声明了 QUERY_ALL_PACKAGES,
-     * 所以这里能列全。
+     * ⚠️ 这里**没有**声明 QUERY_ALL_PACKAGES(那是要用户单独授权的高危权限,
+     * Play 上架会被拒),但列全仍然成立 —— 因为 `getInstalledApplications(0)`
+     * 对**自己发起的**查询豁免包可见性过滤。实测(android-34)能列到 83 个。
+     *
+     * ⚠️ 这个豁免只对 `getInstalledApplications` / `getApplicationInfo` 成立。
+     * 换成 `queryIntentActivities` 之类按 Intent 查的受限 API 就只能看到
+     * 自己 + 声明过的包了 —— 到那天要么声明 QUERY_ALL_PACKAGES,要么改用
+     * `getLaunchIntentForPackage` 逐个试。
      */
     fun listApps(args: JSONObject): JSONObject {
         val pm = ctx().packageManager
@@ -121,6 +126,297 @@ object PhoneCapabilities {
             return err("启动 $pkg 失败:${e.message}")
         }
         return ok(JSONObject().put("package", pkg).put("launched", true))
+    }
+
+    /**
+     * 写剪贴板。
+     *
+     * DSH 的 Clipboard 组是 get + set 两个,我们原来只有 get。
+     * Android 10+ 读剪贴板在后台被限,但**写**任何时候都行。
+     */
+    fun clipboardSet(args: JSONObject): JSONObject {
+        val text = args.optString("text", "")
+        if (text.isEmpty()) return err("要传 text(要写进剪贴板的内容)")
+        val cm = ctx().getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+            ?: return err("拿不到剪贴板服务")
+        return runCatching {
+            cm.setPrimaryClip(ClipData.newPlainText("lan-agent", text))
+            ok(JSONObject().put("text", text).put("length", text.length))
+        }.getOrElse { e -> err("写剪贴板失败:${e.message}") }
+    }
+
+    /**
+     * 一个 App 的详细信息。
+     *
+     * DSH 的 app_info:版本 / 安装时间 / 体积 / 导出的 activity。
+     */
+    fun appInfo(args: JSONObject): JSONObject {
+        val pkg = args.optString("package", "").trim()
+        if (pkg.isEmpty()) return err("要传 package")
+        val pm = ctx().packageManager
+        val info = runCatching { pm.getApplicationInfo(pkg, 0) }.getOrNull()
+            ?: return err("手机上没有装 $pkg")
+        val label = runCatching { pm.getApplicationLabel(info).toString() }.getOrDefault(pkg)
+        val versionName = runCatching { pm.getPackageInfo(pkg, 0).versionName }.getOrNull().orEmpty()
+        val versionCode = runCatching {
+            val pi = pm.getPackageInfo(pkg, 0)
+            @Suppress("DEPRECATION")
+            if (android.os.Build.VERSION.SDK_INT >= 28) pi.longVersionCode else pi.versionCode.toLong()
+        }.getOrDefault(0L)
+        val firstInstall = runCatching { pm.getPackageInfo(pkg, 0).firstInstallTime }.getOrDefault(0L)
+        val lastUpdate = runCatching { pm.getPackageInfo(pkg, 0).lastUpdateTime }.getOrDefault(0L)
+        // 体积:源码目录的大小。拿不到就 0 —— 读不了不是错。
+        val sizeBytes = runCatching {
+            val src = File(info.sourceDir ?: return@runCatching 0L)
+            src.length()
+        }.getOrDefault(0L)
+        // 导出的 activity:能被别人用 Intent 拉起来的入口。
+        val exported = runCatching {
+            val arr = JSONArray()
+            pm.getPackageInfo(pkg, android.content.pm.PackageManager.GET_ACTIVITIES).activities
+                ?.filter { it.exported }
+                ?.take(20)
+                ?.forEach { a ->
+                    arr.put(
+                        JSONObject()
+                            .put("name", a.name)
+                            .put("label", runCatching { a.loadLabel(pm).toString() }.getOrDefault(a.name)),
+                    )
+                }
+            arr
+        }.getOrDefault(JSONArray())
+        return ok(
+            JSONObject()
+                .put("package", pkg)
+                .put("name", label)
+                .put("versionName", versionName)
+                .put("versionCode", versionCode)
+                .put("firstInstallTime", firstInstall)
+                .put("lastUpdateTime", lastUpdate)
+                .put("sizeBytes", sizeBytes)
+                .put("exportedActivities", exported),
+        )
+    }
+
+    /**
+     * 用一个 URL / scheme 打开页面。
+     *
+     * DSH 的 app_open_link:https / tel / geo / mailto / 各种自定义 scheme。
+     * 靠 `Intent.parseUri` 处理 scheme —— 比自己拆 query 稳。
+     */
+    fun appOpenLink(args: JSONObject): JSONObject {
+        val url = args.optString("url", "").trim()
+        if (url.isEmpty()) return err("要传 url(比如 https://example.com 或 tel:13800138000)")
+        val intent = runCatching {
+            Intent.parseUri(url, Intent.URI_INTENT_SCHEME).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }.getOrNull() ?: return err("这个 url 解析不了:$url")
+        val target = args.optString("package", "").trim()
+        if (target.isNotEmpty()) intent.setPackage(target)
+        return runCatching {
+            ctx().startActivity(intent)
+            ok(JSONObject().put("url", url).put("opened", true).put("package", target))
+        }.getOrElse { e ->
+            err("打开 $url 失败:${e.message}。这个链接手机上没有 App 能接。")
+        }
+    }
+
+    /**
+     * 发一个显式 Intent。
+     *
+     * DSH 的 app_send_intent:带 component / action / extras。
+     * extras 用 JSON 对象传,值是字符串就当字符串,是数字/布尔就按那个类型放。
+     */
+    fun appSendIntent(args: JSONObject): JSONObject {
+        val pkg = args.optString("package", "").trim()
+        val cls = args.optString("class", "").trim()
+        if (pkg.isEmpty()) return err("要传 package")
+        if (cls.isEmpty()) return err("要传 class(目标 activity 的全名,app_info 的 exportedActivities 里有)")
+        val intent = runCatching {
+            Intent().setClassName(pkg, cls).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }.getOrElse { e -> return err("构造 Intent 失败:${e.message}") }
+        val action = args.optString("action", "").trim()
+        if (action.isNotEmpty()) intent.action = action
+        args.optJSONObject("extras")?.let { obj ->
+            obj.keys().forEach { k ->
+                when (val v = obj.get(k)) {
+                    is Boolean -> intent.putExtra(k, v)
+                    is Int -> intent.putExtra(k, v)
+                    is Long -> intent.putExtra(k, v)
+                    is Double -> intent.putExtra(k, v)
+                    is JSONObject -> intent.putExtra(k, v.toString())
+                    else -> intent.putExtra(k, v.toString())
+                }
+            }
+        }
+        return runCatching {
+            ctx().startActivity(intent)
+            ok(JSONObject().put("package", pkg).put("class", cls).put("sent", true))
+        }.getOrElse { e -> err("发 Intent 失败:${e.message}") }
+    }
+
+    /**
+     * 把文本或文件分享给别的 App。
+     *
+     * DSH 的 share_to_app。走系统的 chooser —— 让用户选分享给谁。
+     */
+    fun shareToApp(args: JSONObject): JSONObject {
+        val text = args.optString("text", "")
+        val path = args.optString("path", "").trim()
+        val title = args.optString("title", "").trim()
+        if (text.isEmpty() && path.isEmpty()) return err("要传 text(要分享的文字)或 path(要分享的文件)")
+        val send = Intent(Intent.ACTION_SEND).apply {
+            if (path.isNotEmpty()) {
+                val file = File(path)
+                if (!file.exists()) return err("文件不存在:$path")
+                val uri = androidx.core.content.FileProvider.getUriForFile(
+                    ctx(),
+                    "${ctx().packageName}.engine.fileprovider",
+                    file,
+                )
+                type = guessMime(file.name)
+                putExtra(Intent.EXTRA_STREAM, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            } else {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TEXT, text)
+            }
+            if (title.isNotEmpty()) putExtra(Intent.EXTRA_SUBJECT, title)
+        }
+        val chooser = Intent.createChooser(send, title.ifEmpty { "分享" })
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        return runCatching {
+            ctx().startActivity(chooser)
+            ok(JSONObject().put("shared", true).put("text", text).put("path", path))
+        }.getOrElse { e -> err("分享失败:${e.message}") }
+    }
+
+    /** 从文件名猜 MIME 类型(粗判,够用)。 */
+    private fun guessMime(name: String): String = when (name.substringAfterLast('.', "").lowercase()) {
+        "png" -> "image/png"
+        "jpg", "jpeg" -> "image/jpeg"
+        "gif" -> "image/gif"
+        "webp" -> "image/webp"
+        "pdf" -> "application/pdf"
+        "txt", "md", "log" -> "text/plain"
+        "json" -> "application/json"
+        "mp4" -> "video/mp4"
+        "mp3" -> "audio/mpeg"
+        else -> "*/*"
+    }
+
+    /**
+     * 设备当前状态。
+     *
+     * DSH 的 device_status:电量 / 充电 / 网络 / Wi-Fi SSID / 存储 / 勿扰 / 各音量流。
+     * 这是 agent 回答「我手机怎么了」的基础 —— 没有它,电量/网络/勿扰全瞎。
+     */
+    fun deviceStatus(args: JSONObject): JSONObject {
+        val out = JSONObject()
+
+        // ── 电量 ──
+        runCatching {
+            val bm = ctx().getSystemService(Context.BATTERY_SERVICE) as? android.os.BatteryManager
+            if (bm != null) {
+                val intent = ctx().registerReceiver(null, android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED))
+                val level = intent?.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1) ?: -1
+                val scale = intent?.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, 100) ?: 100
+                val status = intent?.getIntExtra(android.os.BatteryManager.EXTRA_STATUS, -1) ?: -1
+                out.put(
+                    "battery",
+                    JSONObject()
+                        .put("percent", if (level >= 0 && scale > 0) level * 100 / scale else -1)
+                        .put("charging", status == android.os.BatteryManager.BATTERY_STATUS_CHARGING)
+                        .put("full", status == android.os.BatteryManager.BATTERY_STATUS_FULL),
+                )
+            }
+        }
+
+        // ── 网络 ──
+        runCatching {
+            val cm = ctx().getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+            val ncm = cm ?: return@runCatching
+            val net = ncm.activeNetwork
+            val caps = ncm.getNetworkCapabilities(net)
+            out.put(
+                "network",
+                JSONObject()
+                    .put("connected", caps != null)
+                    .put("wifi", caps?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) == true)
+                    .put("cellular", caps?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR) == true)
+                    .put("validated", caps?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true)
+                    .put("type", when {
+                        caps?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) == true -> "wifi"
+                        caps?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR) == true -> "cellular"
+                        caps?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET) == true -> "ethernet"
+                        caps != null -> "other"
+                        else -> "none"
+                    }),
+            )
+        }
+
+        // ── Wi-Fi SSID ──
+        runCatching {
+            val wm = ctx().applicationContext.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
+            @Suppress("DEPRECATION")
+            val ssid = wm?.connectionInfo?.ssid?.trim('"').orEmpty()
+            if (ssid.isNotEmpty()) out.put("wifiSsid", ssid)
+        }
+
+        // ── 存储 ──
+        runCatching {
+            val stat = android.os.StatFs(ctx().filesDir.absolutePath)
+            val total = stat.totalBytes
+            val free = stat.availableBytes
+            out.put(
+                "storage",
+                JSONObject()
+                    .put("totalBytes", total)
+                    .put("freeBytes", free)
+                    .put("usedBytes", total - free)
+                    .put("usedPercent", if (total > 0) (total - free) * 100 / total else -1),
+            )
+        }
+
+        // ── 勿扰 ──
+        runCatching {
+            val nm = ctx().getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
+            val filter = nm?.currentInterruptionFilter ?: android.app.NotificationManager.INTERRUPTION_FILTER_ALL
+            out.put(
+                "dnd",
+                JSONObject()
+                    .put("on", filter != android.app.NotificationManager.INTERRUPTION_FILTER_ALL)
+                    .put("filter", filter),
+            )
+        }
+
+        // ── 各音量流 ──
+        runCatching {
+            val am = ctx().getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
+            if (am != null) {
+                out.put(
+                    "volume",
+                    JSONObject()
+                        .put("ring", am.getStreamVolume(android.media.AudioManager.STREAM_RING))
+                        .put("ringMax", am.getStreamMaxVolume(android.media.AudioManager.STREAM_RING))
+                        .put("music", am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC))
+                        .put("musicMax", am.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC))
+                        .put("notification", am.getStreamVolume(android.media.AudioManager.STREAM_NOTIFICATION))
+                        .put("alarm", am.getStreamVolume(android.media.AudioManager.STREAM_ALARM)),
+                )
+            }
+        }
+
+        // ── 响铃模式 + 息屏时长 ──
+        runCatching {
+            val am = ctx().getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
+            am?.ringerMode?.let { out.put("ringerMode", it) }
+            out.put(
+                "screenTimeoutMs",
+                Settings.System.getInt(ctx().contentResolver, Settings.System.SCREEN_OFF_TIMEOUT, -1),
+            )
+        }
+
+        return ok(out)
     }
 
     // ── 系统设置 ────────────────────────────────────────────────────────────
@@ -730,6 +1026,88 @@ object PhoneCapabilities {
     }
 
     /**
+     * 转滚轮 / 选择器。
+     *
+     * DSH 的 screen_set_wheel。滚轮(DatePicker / 时间选择器 / 音量条这类)
+     * **不是**可滚容器 —— `screen_scroll` 对它无效(ACTION_SCROLL_FORWARD
+     * 不会被响应),这就是滚轮必须单独一条能力的原因。
+     *
+     * 两条路:
+     *   1. 元素 id —— 精确。对那个节点做 ACTION_SCROLL_FORWARD/BACKWARD。
+     *   2. 不给 id —— 找当前屏幕上的滚轮控件(SeekBar / DatePicker / NumberPicker),
+     *      有选中项的就转它。
+     *
+     * 方向:forward(默认,往后一格)/ backward(往前一格)。
+     * 也可以给 value 直接设(ACTION_SET_PROGRESS,SeekBar 才有)。
+     */
+    fun screenSetWheel(args: JSONObject): JSONObject {
+        needAccessibility()?.let { return err(it) }
+        val id = args.optString("id", "").trim()
+        val forward = args.optString("direction", "forward").lowercase() != "backward"
+
+        // 不给 id:自己找一个滚轮控件。
+        val target = if (id.isNotEmpty()) {
+            freshElement(id)?.node ?: return err("id $id 指的元素已经不在屏幕上了,重新读一次屏")
+        } else {
+            val elements = readFreshElements() ?: return err("读不到当前屏幕")
+            val wheel = elements.firstOrNull { el ->
+                el.type.contains("SeekBar", ignoreCase = true) ||
+                    el.type.contains("DatePicker", ignoreCase = true) ||
+                    el.type.contains("TimePicker", ignoreCase = true) ||
+                    el.type.contains("NumberPicker", ignoreCase = true) ||
+                    el.type.contains("Wheel", ignoreCase = true)
+            }
+            if (wheel == null) {
+                return err(
+                    "屏幕上没有滚轮控件(SeekBar / DatePicker / TimePicker / NumberPicker)。" +
+                        "用 screen_read 看看有什么,或者给个 id。",
+                )
+            }
+            wheel.node ?: return err("那个滚轮控件拿不到节点了,重新读一次屏")
+        }
+
+        // 直接设值:SeekBar 才有 ACTION_SET_PROGRESS。
+        //
+        // ⚠️ ACTION_SET_PROGRESS 挂在 `AccessibilityNodeInfo.AccessibilityAction` 上,
+        // **不是** AccessibilityNodeInfo 的静态常量(那个类上没有这个字段)。
+        // 用错类名编译就报 unresolved reference。
+        val value = args.optInt("value", Int.MIN_VALUE)
+        if (value != Int.MIN_VALUE) {
+            val arg = android.os.Bundle().apply {
+                putInt(android.view.accessibility.AccessibilityNodeInfo.ACTION_ARGUMENT_PROGRESS_VALUE, value)
+            }
+            val set = runCatching {
+                target.performAction(
+                    android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_PROGRESS.id,
+                    arg,
+                )
+            }.getOrDefault(false)
+            if (set) return ok(JSONObject().put("set", true).put("value", value).put("by", "set_progress"))
+            return err("这个滚轮不支持直接设值(ACTION_SET_PROGRESS 失败了)。用 direction 转一格试试。")
+        }
+
+        val action = if (forward) {
+            android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+        } else {
+            android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
+        }
+        val turned = runCatching { target.performAction(action) }.getOrDefault(false)
+        return if (turned) {
+            ok(
+                JSONObject()
+                    .put("turned", true)
+                    .put("direction", if (forward) "forward" else "backward")
+                    .put("id", id),
+            )
+        } else {
+            err(
+                "这个滚轮转不动(ACTION_SCROLL_FORWARD/BACKWARD 没被响应)。" +
+                    "有些选择器只认点击 —— 用 screen_read 找到它里面的选项文字,再 screen_tap 点。",
+            )
+        }
+    }
+
+    /**
      * 按键。
      *
      * 全局动作(返回/主页/最近任务/下拉通知/快捷设置/息屏)是系统给的,直接能发。
@@ -857,6 +1235,80 @@ object PhoneCapabilities {
         // 退回 MediaProjection
         val fallback = screenshot(args)
         return fallback.put("by", "media_projection")
+    }
+
+    /**
+     * 把这一步交回用户。
+     *
+     * DSH 的 hand_to_user:登录 / 验证码 / 支付确认这些**只能人做**的步骤,
+     * agent 不该硬试(反复输验证码会被判风控、误点支付不可逆)。
+     *
+     * 做法:发一条 **heads-up** 通知把用户叫过来,告诉他要做什么。
+     * 通知比 Toast 靠谱 —— Toast 在后台会被系统吞掉,而且只有 2 秒。
+     *
+     * 返回给模型的是「已交接」,不是「完成了」—— 模型这时应该停下,
+     * 等用户做完再说(可以用 screen_wait 等某个文字出现)。
+     */
+    fun handToUser(args: JSONObject): JSONObject {
+        val reason = args.optString("reason", "").trim()
+        val instruction = args.optString("instruction", "").trim()
+        if (reason.isEmpty() && instruction.isEmpty()) {
+            return err("要传 reason(为什么要交给用户)或 instruction(要用户做什么)")
+        }
+        val title = reason.ifEmpty { "需要你操作一下" }
+        val body = instruction.ifEmpty { reason }
+
+        val nm = ctx().getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
+            ?: return err("拿不到通知服务")
+
+        // 通知权限(Android 13+):没给的话通知发不出去 —— 那就如实说,
+        // 别假装「已经叫用户了」。
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            val granted = runCatching {
+                ctx().checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) ==
+                    android.content.pm.PackageManager.PERMISSION_GRANTED
+            }.getOrDefault(false)
+            if (!granted) {
+                return err(
+                    "发不了通知:App 没有「通知」权限,没法把你叫过来。" +
+                        "去系统设置里给 lan-agent 开通知权限,或者直接在聊天里告诉用户要做什么。",
+                )
+            }
+        }
+
+        val builder = androidx.core.app.NotificationCompat.Builder(ctx(), io.github.hotmanxp.lanagent.LanAgentApp.CHANNEL_ID_HAND_TO_USER)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setStyle(androidx.core.app.NotificationCompat.BigTextStyle().bigText(body))
+            .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
+            .setCategory(androidx.core.app.NotificationCompat.CATEGORY_REMINDER)
+            .setAutoCancel(true)
+            .setContentIntent(
+                android.app.PendingIntent.getActivity(
+                    ctx(),
+                    0,
+                    android.content.Intent(ctx(), io.github.hotmanxp.lanagent.MainActivity::class.java)
+                        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                    android.app.PendingIntent.FLAG_IMMUTABLE,
+                ),
+            )
+
+        val id = System.currentTimeMillis().toInt()
+        return runCatching {
+            nm.notify(id, builder.build())
+            ok(
+                JSONObject()
+                    .put("handed_off", true)
+                    .put("title", title)
+                    .put("instruction", body)
+                    .put(
+                        "note",
+                        "已经发通知把用户叫过来了。**现在停下,别再操作屏幕** —— " +
+                            "等用户做完之后用 screen_wait 确认,或者直接问用户好了没。",
+                    ),
+            )
+        }.getOrElse { e -> err("发通知失败:${e.message}") }
     }
 
     // ── 小工具 ──────────────────────────────────────────────────────────────

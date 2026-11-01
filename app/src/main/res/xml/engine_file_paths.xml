@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 本机引擎的 FileProvider 路径。
+     只放开引擎工作区(app 私有目录下的 workspace/)—— 分享文件给别的 App 时
+     要用 content:// URI,不能直接给 file:// (FileUriExposedException)。
+     引擎写的截图 / 产物都在这个目录下。 -->
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <files-path
+        name="engine_workspace"
+        path="workspace/" />
+    <cache-path
+        name="engine_cache"
+        path="." />
+</paths>

@@ -72,18 +72,6 @@ function capTool({ capability, description, schema }) {
 export function register(ctx) {
   ctx.registerTool(
     capTool({
-      capability: 'phone_screenshot',
-      description:
-        '截取当前手机屏幕,返回图片的 base64。用来「看看屏幕上是什么」——' +
-        '用户说「我屏幕上有个报错」的时候用它。',
-      schema: {
-        properties: {},
-      },
-    }),
-  )
-
-  ctx.registerTool(
-    capTool({
       capability: 'phone_notifications',
       description:
         '读取手机当前的通知栏(标题 + 正文 + 应用名)。用来回答「我刚收到什么消息」。',
@@ -104,6 +92,21 @@ export function register(ctx) {
       description: '读取手机剪贴板当前内容。',
       schema: {
         properties: {},
+      },
+    }),
+  )
+
+  ctx.registerTool(
+    capTool({
+      capability: 'clipboard_set',
+      description:
+        '把一段文字写进手机剪贴板。用来「把这段内容复制给用户」——' +
+        '写完之后用户到别的 App 里直接粘贴就行。',
+      schema: {
+        properties: {
+          text: { type: 'string', description: '要写进剪贴板的文字' },
+        },
+        required: ['text'],
       },
     }),
   )
@@ -135,6 +138,79 @@ export function register(ctx) {
 
   ctx.registerTool(
     capTool({
+      capability: 'app_info',
+      description:
+        '查一个 App 的详细信息:版本号、安装时间、占用体积、能被外部拉起的入口(activity)。' +
+        '要知道 App 装没装、什么版本时用。',
+      schema: {
+        properties: {
+          package: { type: 'string', description: 'Android 包名' },
+        },
+        required: ['package'],
+      },
+    }),
+  )
+
+  ctx.registerTool(
+    capTool({
+      capability: 'app_open_link',
+      description:
+        '用链接打开手机上的页面。http/https 链接开浏览器,' +
+        'tel: 打电话,mailto: 发邮件,geo: 打开地图,' +
+        '也可以用别的 App 的自定义 scheme(比如打开某个 App 的详情页)。',
+      schema: {
+        properties: {
+          url: { type: 'string', description: '要打开的链接或 scheme' },
+          package: {
+            type: 'string',
+            description: '指定用哪个 App 打开(不给就由系统选默认的)',
+          },
+        },
+        required: ['url'],
+      },
+    }),
+  )
+
+  ctx.registerTool(
+    capTool({
+      capability: 'app_send_intent',
+      description:
+        '直接给某个 App 的某个界面发指令(component + extras)。' +
+        '比 app_open_link 更底层:能带参数、能精确指定打开哪个界面。' +
+        '目标 activity 的全名可以用 app_info 查。',
+      schema: {
+        properties: {
+          package: { type: 'string', description: '目标 App 的包名' },
+          class: { type: 'string', description: '目标 activity 的全名(如 com.x.MainActivity)' },
+          action: { type: 'string', description: 'Intent action(不给就空 action)' },
+          extras: {
+            type: 'object',
+            description: '额外参数,值可以是字符串 / 数字 / 布尔',
+          },
+        },
+        required: ['package', 'class'],
+      },
+    }),
+  )
+
+  ctx.registerTool(
+    capTool({
+      capability: 'share_to_app',
+      description:
+        '把一段文字或一个文件分享给手机上的别的 App(会弹系统的分享菜单,让用户选)。' +
+        '文件路径用工作区里的绝对路径。',
+      schema: {
+        properties: {
+          text: { type: 'string', description: '要分享的文字' },
+          path: { type: 'string', description: '要分享的文件绝对路径' },
+          title: { type: 'string', description: '分享标题' },
+        },
+      },
+    }),
+  )
+
+  ctx.registerTool(
+    capTool({
       capability: 'phone_settings',
       description:
         '读取/修改系统设置(Wi-Fi 开关、亮度、音量等)。读写同一套工具,' +
@@ -146,6 +222,19 @@ export function register(ctx) {
           write: { type: 'boolean', description: 'true=写,false=读' },
         },
         required: ['key'],
+      },
+    }),
+  )
+
+  ctx.registerTool(
+    capTool({
+      capability: 'device_status',
+      description:
+        '读手机当前状态:电量百分比、是否在充电、网络连上没有(是不是 Wi-Fi / 流量)、' +
+        'Wi-Fi 名、存储用了多少、勿扰有没有开、各音量档位。' +
+        '回答「我手机怎么了」「还剩多少电」「有没有网」这类问题用它。',
+      schema: {
+        properties: {},
       },
     }),
   )
@@ -287,6 +376,23 @@ export function register(ctx) {
 
   ctx.registerTool(
     capTool({
+      capability: 'screen_set_wheel',
+      description:
+        '转滚轮 / 选择器(日期选择器、时间选择器、音量条这类)。' +
+        '**滚轮不是可滚容器**,screen_scroll 对它无效,得用这个。' +
+        '给 id 就转那个滚轮;不给 id 就自动找屏幕上那个滚轮控件。',
+      schema: {
+        properties: {
+          id: { type: 'string', description: '滚轮控件的元素 id' },
+          direction: { type: 'string', description: 'forward(默认,往后一格)/ backward(往前一格)' },
+          value: { type: 'number', description: '直接设成这个值(只有进度条类控件支持)' },
+        },
+      },
+    }),
+  )
+
+  ctx.registerTool(
+    capTool({
       capability: 'screen_key',
       description:
         '按键。back(返回)/home(主页)/recents(最近任务)/notifications(下拉通知)/' +
@@ -330,6 +436,28 @@ export function register(ctx) {
         '走无障碍截图,不需要用户授权。',
       schema: {
         properties: {},
+      },
+    }),
+  )
+
+  // ── 交给用户 ──────────────────────────────────────────────────────────────
+  //
+  // 登录 / 验证码 / 支付确认这类步骤**只能人做**。硬试的后果很实在:
+  // 反复输验证码会被风控、误点支付不可逆。所以这里给一条正经的退路 ——
+  // 把用户叫过来,然后停下。
+
+  ctx.registerTool(
+    capTool({
+      capability: 'hand_to_user',
+      description:
+        '把这一步交回用户去做(需要输验证码、要登录、要支付确认这类只能人做的操作)。' +
+        '会发一条通知把用户叫过来。**调完这个就要停下**,别再自己操作屏幕 —— ' +
+        '等用户做完用 screen_wait 确认,或者直接在回复里问用户好了没。',
+      schema: {
+        properties: {
+          reason: { type: 'string', description: '为什么要交给用户(比如「要收验证码」)' },
+          instruction: { type: 'string', description: '要用户具体做什么' },
+        },
       },
     }),
   )

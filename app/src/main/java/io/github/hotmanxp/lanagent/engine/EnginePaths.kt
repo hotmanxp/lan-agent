@@ -175,6 +175,12 @@ object EnginePaths {
         // execute_no_trans(没给)—— 所以「.so 放下载目录 + 启动器放 APK」
         // 这个组合是唯一可行的。
         "LD_LIBRARY_PATH" to nativeDir(context).absolutePath,
+        // RIPGREP_PATH:ripgrep **本体**的绝对路径(不是 files/bin/rg 软链)。
+        //
+        // 软链本身在 app_data_file 里,Android 15/16 的 SELinux 禁止 exec
+        // (deny untrusted_app app_data_file:file execute)→ spawn rg EACCES,
+        // Grep/Glob 工具全废。core 拿到这个路径后直接 exec 本体。
+        "RIPGREP_PATH" to rgTarget(context).absolutePath,
         // NODE_PATH:让 agent 的 node 脚本能 require 引擎自带的依赖
         // (zod / fflate / @zn-ai/zn-agent-core)。只对 CJS 的 require 生效,
         // ESM 的 import 不走这条。
@@ -225,6 +231,30 @@ object EnginePaths {
      * opencc 的 resolveRgSystem() 用 `which rg` 找,所以 PATH 里有就行。
      */
     fun rgShim(context: Context): File = File(binDir(context), "rg")
+
+    /**
+     * ripgrep **本体**的位置 —— 不是软链,是真正的可执行文件。
+     *
+     * 优先 APK 里的那份(nativeLibraryDir,system_file 标签);拿不到再退回
+     * 下载目录里的。
+     *
+     * ## 为什么必须把本体路径告诉引擎
+     *
+     * 软链 `files/bin/rg` 本身在 app 私有目录(app_data_file)里。Android 15/16
+     * 的 SELinux 有 `deny untrusted_app app_data_file:file execute` ——
+     * 软链**本身**不可执行。core 的 resolveRipgrepConfig 找到 rg 的绝对路径
+     * 后又故意丢掉、改用裸名 "rg"(注释写明是为了防 PATH 劫持),于是 spawn
+     * 走的是 PATH 里的 files/bin/rg 这条软链 → `spawn rg EACCES` →
+     * Grep / Glob 工具全废。
+     *
+     * 引擎启动时把这个路径通过 RIPGREP_PATH 传给 core,core 直接 exec 本体,
+     * 绕开 app_data_file 里的软链。
+     */
+    fun rgTarget(context: Context): File {
+        val apkRg = File(context.applicationInfo.nativeLibraryDir, "librg.so")
+        if (apkRg.isFile) return apkRg
+        return File(nativeDir(context), "librg.so")
+    }
 
     /** node 入口软链:指向 APK 里的 libdshnode.so(node 启动器,4.6KB)。 */
     fun nodeShim(context: Context): File = File(binDir(context), "node")

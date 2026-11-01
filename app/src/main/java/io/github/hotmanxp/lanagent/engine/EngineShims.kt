@@ -71,14 +71,8 @@ object EngineShims {
         // system_file 标签)才是可执行的 —— 所以 librg.so 必须进 APK 且
         // `useLegacyPackaging = true`(见 app/build.gradle.kts)。
         val rg = EnginePaths.rgShim(context)
-        val apkRg = File(context.applicationInfo.nativeLibraryDir, "librg.so")
-        val downloadedRg = File(EnginePaths.nativeDir(context), "librg.so")
-        val target = when {
-            apkRg.isFile -> apkRg
-            downloadedRg.isFile -> downloadedRg
-            else -> null
-        }
-        if (target != null) {
+        val target = EnginePaths.rgTarget(context)
+        if (target.isFile) {
             link(rg, target.absolutePath, "rg")
         } else {
             Log.w(TAG, "没有 librg.so,ripgrep 用不了(Grep/Glob 工具会降级)")

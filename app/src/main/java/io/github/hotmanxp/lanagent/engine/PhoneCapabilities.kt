@@ -28,6 +28,7 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import android.util.Log
+import io.github.hotmanxp.lanagent.data.exifMatrix
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -1514,6 +1515,254 @@ object PhoneCapabilities {
                     ),
             )
         }.getOrElse { e -> err("发通知失败:${e.message}") }
+    }
+
+    // ── 图片处理 ────────────────────────────────────────────────────────────
+
+    /**
+     * 解码 + 缩放 + 重编码一张图。
+     *
+     * ## 为什么需要这个能力
+     *
+     * core 的图片处理走 sharp(压缩 / 缩到 1568px / 换格式),而 sharp 是
+     * **原生模块**,手机上没有对应的预编译包(sharp 只发 darwin / linux /
+     * win / freebsd)→ 引擎里 `import('sharp')` 直接失败。
+     *
+     * 后果不是「完全看不了图」:原图 base64 在 5MB 以内时 core 会**原样透传**
+     * (让 API 服务端自己缩),只有**超过 5MB 的图**(手机相机出的 12MP 大图)
+     * 才会在 Read 工具里炸掉。
+     *
+     * 所以这里用 Android 自己的解码器顶上:BitmapFactory 采样解码 →
+     * 精确缩放 → Bitmap.compress 重编码。手机上有原生图像栈,不用背一个
+     * wasm 版 libvips(那是 9MB 的下载体积 + 整图 RGBA 的内存)。
+     *
+     * ## 为什么采样解码(inSampleSize)是必须的
+     *
+     * 一张 4000×4000 的 PNG 解出来是 64MB(ARGB_8888),几张就能把手机的堆
+     * 推爆 → 直接 OOM。所以第一遍只读 bounds(inJustDecodeBounds,不分配像素),
+     * 按目标尺寸算出 2 的幂次采样率,第二遍才真解。
+     *
+     * ## 入参
+     *
+     * - `path` / `base64` —— 二选一,给文件路径优先(省内存:引擎那边写临时
+     *   文件,这边直接 decodeFile,不用在堆里过一遍 base64)
+     * - `width` / `height` —— 目标框;fit=inside(等比缩到框内)。都不给 = 不缩放
+     * - `format` —— jpeg(默认) / png / webp
+     * - `quality` —— jpeg / webp 的质量(1..100,默认 85)
+     * - `withoutEnlargement` —— 默认 true(小图不放大)
+     */
+    fun imageResize(args: JSONObject): JSONObject {
+        val path = args.optString("path", "").trim()
+        val b64 = args.optString("base64", "").trim()
+        if (path.isEmpty() && b64.isEmpty()) return err("要传 path 或 base64")
+
+        val format = args.optString("format", "jpeg").lowercase().let {
+            if (it == "png" || it == "webp") it else "jpeg"
+        }
+        val quality = args.optInt("quality", 85).coerceIn(1, 100)
+        val withoutEnlargement = args.optBoolean("withoutEnlargement", true)
+        val maxWidth = args.optInt("width", 0)
+        val maxHeight = args.optInt("height", 0)
+
+        // 源数据:路径优先。**给路径时全程不把文件读进堆** ——
+        // decodeFile 直接从 fd 解,一张 12MB 的图省下 12MB 的 ByteArray
+        // (base64 那条路才需要 bytes)。
+        val bytes: ByteArray?
+        val sourceLabel: String
+        if (path.isNotEmpty()) {
+            val f = File(path)
+            if (!f.isFile) return err("文件不存在:$path")
+            bytes = null
+            sourceLabel = path
+        } else {
+            val decoded = runCatching {
+                android.util.Base64.decode(b64, android.util.Base64.DEFAULT)
+            }.getOrElse { return err("base64 解码失败:${it.message}") }
+            if (decoded.isEmpty()) return err("图片是空的(0 字节)")
+            bytes = decoded
+            sourceLabel = "(base64)"
+        }
+
+        // 第一遍:只读尺寸,不分配像素
+        val bounds = android.graphics.BitmapFactory.Options().apply {
+            inJustDecodeBounds = true
+        }
+        if (bytes != null) {
+            android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        } else {
+            android.graphics.BitmapFactory.decodeFile(path, bounds)
+        }
+        val origWidth = bounds.outWidth
+        val origHeight = bounds.outHeight
+        if (origWidth <= 0 || origHeight <= 0) {
+            return err("解不出尺寸 —— 这可能不是图片文件,或者文件已损坏")
+        }
+
+        // EXIF 方向:相机出的图常常是「像素横着 + EXIF 说该转 90°」。
+        // BitmapFactory 不管方向,不解的话模型看到的是躺着的图。
+        //
+        // ⚠️ 目标框必须按**显示方向**的宽高算。竖拍照片的像素是
+        // 4032x3024 但显示是 3024x4032 —— 先按像素宽高算框、旋转完再
+        // createScaledBitmap 精确拉伸的话,竖图会被拉成横的(明显变形)。
+        //
+        // 变换矩阵复用 ImageAttachment.exifMatrix:上传和读图两条路的朝向
+        // 判断必须一致,否则「传上去的图」和「读回来的图」一个正一个歪。
+        val orientation = exifOrientation(path, bytes)
+        val matrix = exifMatrix(orientation)
+        // 旋转 90/270(含等价的 TRANSPOSE / TRANSVERSE)会交换宽高。
+        val swapsAxes =
+            orientation == android.media.ExifInterface.ORIENTATION_ROTATE_90 ||
+                orientation == android.media.ExifInterface.ORIENTATION_ROTATE_270 ||
+                orientation == android.media.ExifInterface.ORIENTATION_TRANSPOSE ||
+                orientation == android.media.ExifInterface.ORIENTATION_TRANSVERSE
+        val dispWidth: Int
+        val dispHeight: Int
+        if (swapsAxes) {
+            dispWidth = origHeight
+            dispHeight = origWidth
+        } else {
+            dispWidth = origWidth
+            dispHeight = origHeight
+        }
+
+        // 目标尺寸 + 采样率:纯算术,抽到 ImageScaleMath 里(可单测)。
+        val (targetW, targetH) = ImageScaleMath.targetSize(
+            dispWidth, dispHeight, maxWidth, maxHeight, withoutEnlargement,
+        )
+        val sample = ImageScaleMath.sampleSize(
+            dispWidth, dispHeight, targetW, targetH,
+            hasBox = maxWidth > 0 || maxHeight > 0,
+        )
+
+        val opts = android.graphics.BitmapFactory.Options().apply {
+            inSampleSize = sample
+            inPreferredConfig = android.graphics.Bitmap.Config.ARGB_8888
+        }
+        var bmp = if (bytes != null) {
+            android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+        } else {
+            android.graphics.BitmapFactory.decodeFile(path, opts)
+        } ?: return err("图片解码失败")
+        if (bmp.width <= 0 || bmp.height <= 0) {
+            bmp.recycle()
+            return err("图片解码后是空的")
+        }
+
+        // 按 EXIF 方向摆正(矩阵复用 ImageAttachment.exifMatrix,8 个朝向
+        // 全覆盖:90/180/270 + 水平/垂直翻转 + TRANSPOSE/TRANSVERSE)。
+        if (matrix != null) {
+            val rotated = android.graphics.Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, matrix, true)
+            if (rotated !== bmp) {
+                bmp.recycle()
+                bmp = rotated
+            }
+        }
+
+        // 精确缩放到目标尺寸
+        if (bmp.width != targetW || bmp.height != targetH) {
+            val scaled = android.graphics.Bitmap.createScaledBitmap(bmp, targetW, targetH, true)
+            if (scaled !== bmp) {
+                bmp.recycle()
+                bmp = scaled
+            }
+        }
+
+        val encoded = runCatching { encodeBitmap(bmp, format, quality) }
+            .getOrElse { e ->
+                bmp.recycle()
+                return err("编码失败:${e.message}")
+            }
+        val outW = bmp.width
+        val outH = bmp.height
+        bmp.recycle()
+
+        Log.i(TAG, "图片处理 $sourceLabel:${origWidth}x$origHeight → ${outW}x$outH($format)")
+        return ok(
+            JSONObject()
+                .put("base64", android.util.Base64.encodeToString(encoded, android.util.Base64.NO_WRAP))
+                .put("width", outW)
+                .put("height", outH)
+                .put("format", format)
+                .put("originalWidth", origWidth)
+                .put("originalHeight", origHeight)
+                .put("bytes", encoded.size),
+        )
+    }
+
+    /**
+     * 读 EXIF 里的旋转角(0 / 90 / 180 / 270)。读不到就当没转。
+     *
+     * 有路径走 File 构造(不读整份文件),只有 base64 那条路才用字节流。
+     */
+    /**
+     * 读 EXIF 朝向(原值,不做任何映射)。
+     *
+     * 变换本身交给 [exifMatrix](io.github.hotmanxp.lanagent.data.exifMatrix) ——
+     * 上传路径和引擎处理路径共用同一套映射,两边判断必须一致。
+     */
+    private fun exifOrientation(path: String, bytes: ByteArray?): Int {
+        return runCatching {
+            val exif = if (bytes != null) {
+                android.media.ExifInterface(java.io.ByteArrayInputStream(bytes))
+            } else {
+                android.media.ExifInterface(File(path))
+            }
+            exif.getAttributeInt(
+                android.media.ExifInterface.TAG_ORIENTATION,
+                android.media.ExifInterface.ORIENTATION_NORMAL,
+            )
+        }.getOrNull() ?: android.media.ExifInterface.ORIENTATION_NORMAL
+    }
+
+    /**
+     * 按目标格式编码。
+     *
+     * JPEG 不支持透明 —— 直接压的话透明区域会变**黑**。所以带 alpha 的
+     * 图先铺一层白底再压(模型看到的是白底,不是黑洞)。
+     */
+    private fun encodeBitmap(
+        bmp: android.graphics.Bitmap,
+        format: String,
+        quality: Int,
+    ): ByteArray {
+        val compressFormat = when (format) {
+            "png" -> android.graphics.Bitmap.CompressFormat.PNG
+            "webp" ->
+                if (android.os.Build.VERSION.SDK_INT >= 30) {
+                    android.graphics.Bitmap.CompressFormat.WEBP_LOSSY
+                } else {
+                    @Suppress("DEPRECATION")
+                    android.graphics.Bitmap.CompressFormat.WEBP
+                }
+            else -> android.graphics.Bitmap.CompressFormat.JPEG
+        }
+
+        val source = if ((format == "jpeg" || format == "webp") && bmp.hasAlpha()) {
+            // 铺白底。
+            //
+            // JPEG 一定丢 alpha(不铺 → 透明区变黑);WebP 走 WEBP_LOSSY /
+            // 旧版 WEBP 也一样丢 alpha —— 所以白底不能只判 jpeg,否则带透明
+            // 的 PNG 转 WebP 会黑一片。
+            //
+            // PNG 不铺:core 对 PNG 走 png() 是要保留透明度的。
+            val flat = android.graphics.Bitmap.createBitmap(
+                bmp.width,
+                bmp.height,
+                android.graphics.Bitmap.Config.ARGB_8888,
+            )
+            val canvas = android.graphics.Canvas(flat)
+            canvas.drawColor(android.graphics.Color.WHITE)
+            canvas.drawBitmap(bmp, 0f, 0f, null)
+            flat
+        } else {
+            bmp
+        }
+
+        val out = java.io.ByteArrayOutputStream()
+        val ok = source.compress(compressFormat, quality, out)
+        if (source !== bmp) source.recycle()
+        if (!ok) throw IllegalStateException("Bitmap.compress 返回 false")
+        return out.toByteArray()
     }
 
     // ── 小工具 ──────────────────────────────────────────────────────────────

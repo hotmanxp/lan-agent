@@ -242,9 +242,13 @@ App 进程是 zygote fork 出来的,带 `AT_SECURE=1` → Node 认为进程是�
 
 ## 六、还没做的
 
-- **`node-pty` / `sharp`**:手机上缺原生库,当前路径下分别表现为 503 和
-  图片处理不可用。要支持得把 `libdsh_pty.so` 装到
+- **`node-pty`**:手机上缺原生库,当前路径下表现为 503(交互式终端用不了)。
+  要支持得把 `libdsh_pty.so` 装到
   `node_modules/node-pty/build/Release/pty.node`。
+- ~~`sharp`~~ **已解决(0.31.4)**:不装原生库,改用**手机自己的解码器** ——
+  引擎包里 `node_modules/sharp/` 放的是我们的替身(`tools/engine-shim/sharp/`),
+  它把图片处理转给主进程的 Android `BitmapFactory`(能力桥 `image_resize`)。
+  见下面「十一、sharp 替身」。
 - **API key 明文**:`filesDir/home/.zai.json` 里的 `apiKey` 是明文(引擎认这个
   位置)。要加密得改引擎侧的取值链,App 侧加密只能变成「引擎解不开」——
   除非把密钥放进引擎包 / Keystore 派生,那是另一件事。
@@ -571,7 +575,7 @@ manifest 放到那儿、填新地址即可 —— App 侧一行不用改。
 
 - API key 仍是明文(落在 `filesDir/home/.zai.json`)
 - 截屏授权的 UI 入口(`ScreenCaptureService` 有,首页按钮没接)
-- `node-pty` / `sharp` 原生库
+- `node-pty` 原生库(`sharp` 已用替身解决,见「十一、sharp 替身」)
 
 ---
 
@@ -667,4 +671,126 @@ EnterWorktree, ExitPlanMode, ExitWorktree, Monitor, snip`。
 
 问它「你在什么环境跑」,答的是 Android 手机 + app 私有沙箱 + `files/workspace`
 + node v24.22.1 + 手机能力清单 ✅。
+
+
+---
+
+## 十一、sharp 替身(0.31.4)
+
+### 问题
+
+core 的图片处理(压缩 / 缩到 1568px / 换格式)全走 sharp。sharp 是**原生
+模块**,预编译包只覆盖 darwin / linux / win / freebsd,**没有 android-arm64**
+→ 引擎里 `import('sharp')` 直接抛 `ImageProcessorUnavailableError`。
+
+症状不是「完全看不了图」:
+
+- 原图 base64 在 5MB 以内 → core **原样透传**(让 API 服务端自己缩),能看;
+- 超过 5MB(手机相机出的 12MP 大图,典型 4–12MB)→ **Read 工具直接失败**,
+  报错写着 `Image support is not installed. Install 'sharp' …` —— 手机上
+  根本没法照做这句话。
+
+### 解法:不装原生库,改用手机自己的解码器
+
+引擎包里 sharp 是 esbuild 的 **external**,运行时才从 `node_modules` 解析。
+所以在引擎包里放一个**自己的实现**就行 —— core 和 opencc-web 一行都不用改:
+
+```
+引擎(core)→ import('sharp') → 替身(tools/engine-shim/sharp/index.mjs)
+         → HTTP 能力桥 /cap/image_resize
+         → 主进程 CapabilityService → Android BitmapFactory
+         → 采样解码 + 缩放 + 重编码 → base64 回来
+```
+
+- **替身源码**:`tools/engine-shim/sharp/{index.mjs,package.json}`
+- **打进引擎包**:`tools/build-engine-pkg.mjs` 拷到 `<out>/node_modules/sharp/`
+- **Kotlin 端**:`PhoneCapabilities.imageResize` + `CapabilityService` 注册
+  `image_resize`
+- **只实现 core 用到的**:`metadata / resize / jpeg / png / webp / toBuffer`。
+  `metadata()` 本地读 magic bytes(PNG IHDR / GIF 头 / WebP VP8 系 / JPEG SOF
+  扫描),不过桥 —— 它是热路径。
+
+### 为什么不用 wasm 版 sharp
+
+`@img/sharp-wasm32` 是能跑的(sharp 0.35 在认不出平台时会自动回落到它,
+实测 3000×2000 缩到 1568 宽约 30–40ms),但要背 9MB 下载体积 + 整图 RGBA
+的内存。手机本来就有原生图像栈,采样解码(`inSampleSize`)的内存友好度
+远好于 wasm libvips —— 一张 4000×4000 的 PNG 硬解是 64MB,不采样几张就
+能把堆推爆。
+
+### 几个实现细节
+
+- **传路径不传 base64**:替身先把原始字节写到 `TMPDIR`,主进程直接
+  `decodeFile` —— 一张 5MB 的图不用在堆里过一遍 base64(6.7MB 字符串 +
+  5MB 解码结果,手机上很奢侈)。写文件失败才退回 base64。
+- **JPEG 要铺白底**:带 alpha 的 PNG 直接压 JPEG,透明区会变**黑**。
+- **EXIF 方向**:相机出的图常是「像素横着 + EXIF 说该转 90°」,
+  `BitmapFactory` 不管方向 —— 不解的话模型看到的是躺着的图。
+- **没有缩放请求时的兜底**:全解一张 12MP 图是 48MB,采样到长边 ≤ 4096。
+
+### 实测(模拟器 asr_repro / android-34)
+
+- 能力桥单测:4000×3000 / 11.6MB 的 JPEG → 1568×1176 / 780KB,**0.21s**
+- 引擎里 agent `Read big.jpg` → 成功,模型如实描述出「灰色带噪点」
+  (图是随机噪声)+ 报出 4000×3000
+- 手机侧日志能看到 core 的压缩阶梯:
+  `4000x3000 → 4000x3000 → 3000x2250 → 2000x1500 → 1000x750 → 600x450`
+
+## 十二、搜索卡住不超时(0.31.5)
+
+### 症状
+
+真机上让 agent 搜索,工具卡**永远转圈**,超过 30 秒也没有任何超时错误。
+用户截图里是「详情」弹层里两行「已搜索 /data/data/…/files/w…」,两个转圈都不结束。
+
+### 根因:三层,逐层剥
+
+1. **`rg` 本身可能永久阻塞**。`rg` 递归遍历时遇到特殊文件(命名管道等)
+   会卡在不可中断 I/O 里 —— 真机上存储慢,概率不低。
+2. **Node 的 `execFile` 超时救不了场**。`execFile` 的 `timeout` 只是
+   `setTimeout(kill)`,**然后等子进程的 `'close'` 事件**;子进程卡在
+   D 状态收不回来 → 回调永不触发 → promise 永不 settle → 工具调用既不
+   返回也不报错。
+3. **core 侧的独立看门狗能救,但它在引擎包里**。opencc-web `3e534f03`
+   给 ripgrep 加了独立看门狗(不等 `'close'`,直接以 ETIMEDOUT 结束),
+   `d694e188` 加了 `RIPGREP_PATH` 显式路径。**但 core bundle 打在
+   引擎包 zip 里**,用户手机上的引擎包是旧版 → 没有看门狗 → 无限转圈。
+
+   验证:模拟器上两个引擎包**都含**看门狗,引擎在 ~30s 后正确返回了
+   超时错误(引擎侧 `CLAUDE_CODE_GLOB_TIMEOUT_SECONDS=30`)→ 引擎链路本身
+   是好的,问题坐实在「手机上的引擎包过旧」。
+
+### 解法:App 侧兜底(不依赖引擎包版本)
+
+`ui/ToolCallWatchdog.kt`(纯 Kotlin,可单测)+ `ui/AgentSessionStore.kt`:
+
+- store 在收到 `runtime.tool_call` 时记 `{key → 开始时刻}`(**只记第一次** ——
+  同一个 key 再来的 `tool_call` 是同一轮重试,重置计时等于把等待又往后推);
+  `tool_result` / `markToolError` / `hydrate` / `clearAll` 都清掉。
+- `expireStalledToolCalls(now)` 扫这张表:超时且仍在跑 → 换成错误卡
+  (`isError = true` + 说明「引擎没有返回」)。
+- `ui/AgentSessionScreen.kt` 每 5s 调一次(不用 15s 的 `clockNow`:阈值 60s,
+  15s 跳法最坏要 75s 才提示)。
+
+**阈值 60s 必须大于引擎侧最坏情况**(30s rg 超时 + 5s core 看门狗 = 35s),
+否则会在 core 正常报错之前抢先把卡盖掉。**Bash / Agent 不纳入** ——
+core 允许 Bash 跑 10 分钟(`BASH_MAX_TIMEOUT_MS`),套 60s 会误杀正常任务。
+
+**判超时后还要中断这一轮**:引擎侧那次调用其实还挂着,只改 UI 不中断的话,
+用户下一条消息会永远排在那个不结束的轮次后面(表现是「发送了但没反应」)。
+所以 `expireStalledToolCalls` 返回超时的 key 之后,App 调
+`POST /api/agent/abort` 中断这一轮。
+
+### 顺带修:core 的超时文案写死了「20 seconds」
+
+core 的 `RipgrepTimeoutError` 消息写死 20 秒,但超时由
+`CLAUDE_CODE_GLOB_TIMEOUT_SECONDS` 决定(手机上 App 设的是 30)→ 用户看到的
+数字和实际等待时长对不上,排查容易被带偏。改成用 `getRipgrepTimeoutMs()`
+的真实值。
+
+### ⚠️ 结论落到用户动作
+
+**引擎包过旧 → 搜索卡死无超时**。修好之后仍要让用户在
+「设置 → 本机引擎」**重新下载引擎包**(指纹变了,旧包不会被覆盖),
+否则 core 侧仍没有看门狗,只是 App 侧会在 60s 后兜底报错。
 

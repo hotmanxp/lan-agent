@@ -81,6 +81,8 @@ class CapabilityService(private val context: Context) {
         "screen_wait" to { PhoneCapabilities.screenWait(it) },
         "screen_capture" to { PhoneCapabilities.screenCapture(it) },
         "hand_to_user" to { PhoneCapabilities.handToUser(it) },
+        // 图片处理(给引擎的 sharp shim 用):解码 + 缩放 + 重编码
+        "image_resize" to { PhoneCapabilities.imageResize(it) },
     )
 
     fun start() {

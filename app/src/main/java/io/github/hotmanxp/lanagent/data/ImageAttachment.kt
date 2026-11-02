@@ -205,8 +205,14 @@ private fun decodeOriented(
     return upright
 }
 
-/** EXIF 方向值 → 变换矩阵。正常 / 未知值返回 null(按不转处理)。 */
-private fun exifMatrix(orientation: Int): Matrix? = when (orientation) {
+/**
+ * EXIF 方向值 → 变换矩阵。正常 / 未知值返回 null(按不转处理)。
+ *
+ * internal 而不是 private —— 引擎侧的图片处理([io.github.hotmanxp.lanagent.engine.PhoneCapabilities])
+ * 也要用同一套映射:上传和读图两条路的朝向判断必须一致,否则「传上去的图」和
+ * 「读回来的图」会一个正一个歪。
+ */
+internal fun exifMatrix(orientation: Int): Matrix? = when (orientation) {
     ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> Matrix().apply { setScale(-1f, 1f) }
     ExifInterface.ORIENTATION_ROTATE_180 -> Matrix().apply { setRotate(180f) }
     // 下面三个镜像值:先转再翻。Matrix 的 post* 作用在已设的变换**之后**,

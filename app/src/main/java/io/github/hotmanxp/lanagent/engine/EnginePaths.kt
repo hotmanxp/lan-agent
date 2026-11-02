@@ -162,6 +162,11 @@ object EnginePaths {
         //
         // 超时本身不是 bug —— core 侧有看门狗兜底,超时会以 ETIMEDOUT 正常
         // 报错返回,不会挂死不响应(见 opencc-web 3e534f03)。
+        //
+        // ⚠️ 这个值不能随便调大:App 侧的工具调用看门狗阈值是 60s,它必须
+        // **大于**引擎侧最坏情况(30s rg + 5s core 看门狗 = 35s)。这里放大
+        // 到 600s 的话,App 侧会抢在 core 正常报错之前把卡标成超时,把真正
+        // 的错误信息(RipgrepTimeoutError / 输出过大)盖掉。
         "CLAUDE_CODE_GLOB_TIMEOUT_SECONDS" to "30",
         // 能力桥:phone-bridge mod 靠这两个 env 找到主进程上的能力服务。
         // OPENCC_MODS_DIR 指向引擎包里自带的 mod 目录 —— 不指的话 core

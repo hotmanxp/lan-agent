@@ -1,0 +1,12 @@
+{
+  "name": "sharp",
+  "version": "0.35.5-phone",
+  "description": "手机端 sharp 替身:把图片处理转给主进程(Android BitmapFactory)",
+  "type": "module",
+  "main": "./index.mjs",
+  "exports": {
+    ".": "./index.mjs"
+  },
+  "license": "MIT",
+  "private": true
+}

@@ -62,6 +62,18 @@ import kotlinx.serialization.json.decodeFromJsonElement
 enum class AgentRunStatus { Idle, Streaming, Retrying, Aborted, Error }
 
 /**
+ * 工具调用被 App 侧兜底判超时时的提示文案。
+ *
+ * 措辞要点:说清「**引擎没返回**」而不是「工具失败」—— 这不是搜索本身
+ * 出错,是引擎侧那次调用没有回结果(引擎包里的 core 版本旧,没有 ripgrep
+ * 看门狗)。用户据此能判断要不要重试或换引擎包。
+ */
+private const val STALLED_TOOL_MESSAGE =
+    "引擎在 60 秒内没有返回这次搜索的结果,已按超时处理。\n" +
+        "可能是当前引擎包过旧(缺少搜索超时看门狗)—— 可在「设置 → 本机引擎」" +
+        "重新下载引擎包后重试。"
+
+/**
  * 渲染单元。`sealed interface` + 稳定 [key] —— LazyColumn 的 key 必须稳定,
  * 否则流式追加时整表重建,滚动位置会跳。
  */
@@ -309,6 +321,19 @@ class AgentSessionStore(val sessionId: String) {
     val bgBashTasks = mutableStateListOf<BgBashTask>()
 
     /**
+     * 正在跑的工具卡的开始时刻(key → epoch ms)。
+     *
+     * 只记**直播态**的工具调用(收到 `runtime.tool_call` 时),历史回放
+     * (hydrate)的不记 —— 历史里的卡不是「正在跑」。
+     *
+     * 用途见 [ToolCallWatchdog]:引擎侧(core)对 ripgrep 的超时依赖 core
+     * 自己那个看门狗,而看门狗在**用户下载的引擎包**里的 core bundle 中 ——
+     * 用户手机上的引擎包可能还是旧版,于是 Grep 卡住时既不返回也不报错,
+     * UI 上永远转圈。这份表让 App 侧能独立兜底。
+     */
+    private val toolCallStartedAt = mutableMapOf<String, Long>()
+
+    /**
      * 底部任务栏是否有内容(任务清单 或 后台任务)。
      *
      * 读的是 Compose 状态列表,组合期读取会被正常订阅 —— 调用方直接写
@@ -364,6 +389,8 @@ class AgentSessionStore(val sessionId: String) {
         curTextIdx = -1
         curThinkIdx = -1
         turnIndex = -1
+        // 历史回放的卡不是「正在跑」—— 不给它们计看门狗的时间。
+        toolCallStartedAt.clear()
         // 状态归零再让 SSE 重建 —— 断连期间这一轮可能已经结束,如果保留旧的
         // Streaming,replay 里又没有对应的 runtime.done,UI 会永远卡在「运行中」。
         // 归零后有两条自愈路径:replay 尾部的 runtime.done → Idle;
@@ -495,6 +522,8 @@ class AgentSessionStore(val sessionId: String) {
      */
     private fun applyToolResult(toolUseId: String?, content: JsonElement?, isError: Boolean) {
         val key = toolKey(toolUseId.orEmpty()) ?: return
+        // 这次调用有结果了 —— 不再是「正在跑」,撤掉看门狗的计时。
+        toolCallStartedAt.remove(key)
         val idx = items.indexOfFirst { it.key == key }
         if (idx < 0) return
         val cur = items[idx] as? AgentItem.ToolCall ?: return
@@ -552,7 +581,7 @@ class AgentSessionStore(val sessionId: String) {
                 noteStreaming()
                 val name = ev.str("toolName").orEmpty().ifEmpty { "tool" }
                 val input = ev.payload["input"]
-                upsertToolCall(
+                val key = upsertToolCall(
                     toolUseId = ev.str("toolUseId").orEmpty(),
                     name = name,
                     input = input.cleanText(),
@@ -562,6 +591,10 @@ class AgentSessionStore(val sessionId: String) {
                     file = presentFileFromInput(ev.str("toolUseId"), input),
                     write = writeTargetOf(name, input),
                 )
+                // 记开始时刻 —— App 侧兜底超时要靠它(见 ToolCallWatchdog)。
+                // 只记第一次:同一个 key 后续再来的 tool_call 是同一轮重试,
+                // 重置计时等于把等待又往后推。
+                toolCallStartedAt.getOrPut(key) { System.currentTimeMillis() }
             }
 
             "runtime.tool_result" -> applyToolResult(
@@ -683,6 +716,8 @@ class AgentSessionStore(val sessionId: String) {
         curThinkIdx = -1
         turnIndex = -1
         segCounter = 0
+        // 计时表一并清掉 —— 卡都没了,计时留着就是脏数据。
+        toolCallStartedAt.clear()
     }
 
     /**
@@ -852,6 +887,8 @@ class AgentSessionStore(val sessionId: String) {
     /**
      * 工具卡的 upsert。`toolUseId` 为空时退回按名字兜底,避免所有匿名工具撞
      * 同一个 key(协议没强制有 id,实测都有)。
+     *
+     * @return 这张卡的 key(调用方要按 key 记账时用)。
      */
     private fun upsertToolCall(
         toolUseId: String,
@@ -864,7 +901,7 @@ class AgentSessionStore(val sessionId: String) {
         file: PresentedFile? = null,
         /** 仅写入类工具非空(见 `data/TurnArtifacts.kt`)。 */
         write: WriteTarget? = null,
-    ) {
+    ): String {
         // 工具卡之后的 text 必须落在**新**气泡里(否则会 append 到工具卡前面
         // 那个旧气泡,视觉顺序就错了)。
         curTextIdx = -1
@@ -873,7 +910,7 @@ class AgentSessionStore(val sessionId: String) {
         val key = toolKey(toolUseId) ?: nextKey("tool-$name")
         val idx = items.indexOfFirst { it.key == key }
         if (idx >= 0) {
-            val cur = items[idx] as? AgentItem.ToolCall ?: return
+            val cur = items[idx] as? AgentItem.ToolCall ?: return key
             items[idx] = cur.copy(
                 name = name.ifEmpty { cur.name },
                 input = input ?: cur.input,
@@ -886,7 +923,7 @@ class AgentSessionStore(val sessionId: String) {
                 file = file ?: cur.file,
                 write = write ?: cur.write,
             )
-            return
+            return key
         }
         items.add(
             AgentItem.ToolCall(
@@ -901,14 +938,63 @@ class AgentSessionStore(val sessionId: String) {
                 write = write,
             )
         )
+        return key
     }
 
     private fun markToolError(toolUseId: String, message: String) {
         val key = toolKey(toolUseId) ?: return
+        toolCallStartedAt.remove(key)
         val idx = items.indexOfFirst { it.key == key }
         if (idx < 0) return
         val cur = items[idx] as? AgentItem.ToolCall ?: return
         items[idx] = cur.copy(output = message, isError = true)
+    }
+
+    /**
+     * 客户端兜底:把「开了太久还没结果」的工具卡标成超时错误。
+     *
+     * 由 UI 定期调用(见 `AgentSessionScreen` 的 ticker)。
+     *
+     * 为什么要 App 侧兜底而不是只靠引擎:引擎侧(core)对 ripgrep 的超时依赖
+     * core bundle 里那个看门狗,而 core bundle 在**用户下载的引擎包**里 ——
+     * 用户手机上的引擎包可能还是看门狗修好之前的旧版。那种情况下 rg 一旦
+     * 卡住,工具调用既不返回也不报错,UI 上就永远转圈(真机症状:「超过 30
+     * 秒也没有超时错误」)。这层兜底不依赖引擎包版本。
+     *
+     * 阈值与范围见 [ToolCallWatchdog]:只有引擎侧本来就有明确超时的
+     * Grep/Glob 纳入,Bash 这类允许跑 10 分钟的不纳入。
+     *
+     * @param now 当前时刻(epoch ms)。
+     * @return 被标成超时的工具卡 key(空 = 没有超时的)。
+     */
+    fun expireStalledToolCalls(now: Long): List<String> {
+        if (toolCallStartedAt.isEmpty()) return emptyList()
+        val expired = mutableListOf<String>()
+        // 迭代**快照** —— 循环里要从计时表删条目,拿同一个表的迭代器继续走
+        // 会抛 ConcurrentModificationException(LinkedHashMap 的 fail-fast)。
+        // 多张卡同时超时时必现:第一张删完,下一次 next() 就炸。
+        for ((key, startedAt) in toolCallStartedAt.toList()) {
+            val idx = items.indexOfFirst { it.key == key }
+            if (idx < 0) {
+                // 卡已经不在了(清屏 / 换会话)—— 计时一并撤掉。
+                toolCallStartedAt.remove(key)
+                continue
+            }
+            val cur = items[idx] as? AgentItem.ToolCall ?: continue
+            if (!cur.running) {
+                // 已经有结果了(走的是别的路径,没经过 applyToolResult)。
+                toolCallStartedAt.remove(key)
+                continue
+            }
+            if (!ToolCallWatchdog.isTimedOut(cur.name, startedAt, now)) continue
+            toolCallStartedAt.remove(key)
+            items[idx] = cur.copy(
+                output = STALLED_TOOL_MESSAGE,
+                isError = true,
+            )
+            expired += key
+        }
+        return expired
     }
 
     private fun toolKey(toolUseId: String): String? =

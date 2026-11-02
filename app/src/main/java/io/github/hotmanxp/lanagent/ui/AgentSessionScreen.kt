@@ -39,6 +39,7 @@ import android.Manifest
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.pm.PackageManager
+import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -440,6 +441,29 @@ fun AgentSessionPane(
         while (true) {
             delay(15_000)
             clockNow = System.currentTimeMillis()
+        }
+    }
+
+    // 工具调用超时兜底(见 ToolCallWatchdog)。
+    //
+    // 5s 一跳 —— 比上面的 15s 细,因为这里的判定直接决定用户等多久才看到
+    // 「超时」:阈值是 60s,15s 的跳法最坏要等到 75s 才提示。
+    //
+    // 判超时后除了把卡标成错误,还要**中断这一轮**:引擎侧那次调用其实还
+    // 挂着(rg 卡在不可中断 I/O 里,引擎等它等到天荒地老)。只改 UI 不中断
+    // 的话,用户下一条消息会一直排在那个永远不结束的轮次后面 —— 表现是
+    // 「发送了但没反应」。
+    LaunchedEffect(api, currentSid) {
+        val a = api ?: return@LaunchedEffect
+        val sid = currentSid ?: return@LaunchedEffect
+        while (true) {
+            delay(5_000)
+            val expired = store.expireStalledToolCalls(System.currentTimeMillis())
+            if (expired.isEmpty()) continue
+            // 中断那轮挂死的会话 —— 服务端会 abort 掉正在跑的 turn,
+            // 后续消息才能继续跑。
+            runCatching { a.abort(sid) }
+                .onFailure { Log.w("AgentSessionScreen", "中断挂死的会话失败", it) }
         }
     }
 

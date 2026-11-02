@@ -20,7 +20,9 @@
  *       │   ├── package.json
  *       │   └── opencc-core.mjs
  *       ├── zod/                       core 的静态第三方依赖(它静态 import 了 108 次 zod/v4)
- *       └── fflate/                    core 的动态 import 依赖
+ *       ├── fflate/                    core 的动态 import 依赖
+ *       └── sharp/                     **手机端替身**:sharp 是 external,这里放什么
+ *                                       就是什么(见 tools/engine-shim/sharp/)
  *
  * ## 为什么 core 不能进 bundle
  *
@@ -67,7 +69,9 @@ const ESBUILD_PIN = '0.28.1'
  * - zod / zod/v3 / zod/v4:core 静态 import 了 108 次 zod/v4
  * - sharp / node-pty:手机上没有对应的原生库。外置之后:
  *   node-pty 是 lazy require + try/catch → 顶多 503,不影响启动;
- *   sharp 只在图片处理路径动态 import,不影响启动。
+ *   sharp 只在图片处理路径动态 import,不影响启动 ——
+ *   而且 node_modules/sharp/ 里放的是**我们自己的替身**(tools/engine-shim/sharp/),
+ *   把图片处理转给主进程的 Android BitmapFactory,所以大图照样能读。
  */
 const EXTERNALS = ['sharp', 'node-pty', '@zn-ai/zn-agent-core', 'zod', 'zod/v3', 'zod/v4']
 
@@ -269,6 +273,9 @@ async function verifyLayout(out) {
   await need('node_modules/@zn-ai/zn-agent-core/opencc-core.mjs', 'core bundle')
   await needDir('node_modules/zod', 'zod')
   await needDir('node_modules/fflate', 'fflate')
+  await needDir('node_modules/sharp', '手机端 sharp 替身')
+  await need('node_modules/sharp/index.mjs', '手机端 sharp 替身')
+  await need('node_modules/sharp/package.json', '手机端 sharp 替身')
 
   // core 的 package.json:main / exports 必须指向真实存在的文件 ——
   // core 是靠 package.json 被 import.meta.resolve 找到的,指错了就是「工具全废」。
@@ -661,6 +668,24 @@ async function main() {
   info(`        zod 解引用拷贝完成,砍掉 ${pruned} 个类型声明/TS 源文件`)
 
   await copyTree(fflateSrc, join(opt.out, 'node_modules/fflate'))
+
+  // 3b) sharp 替身
+  //
+  // 手机上没有 sharp 的原生库(它的预编译包只覆盖 darwin / linux / win /
+  // freebsd,没有 android-arm64)→ 引擎里 `import('sharp')` 直接失败,
+  // core 的图片处理(压缩 / 缩放)全废,大图 Read 会报错「Install `sharp`」。
+  //
+  // 因为 sharp 在 esbuild 里是 external(运行时才从 node_modules 解析),
+  // 这里放一个自己的实现就行 —— core 和 opencc-web 一行都不用改。
+  //
+  // 替身把活转给主进程的 Android BitmapFactory(能力桥),手机上就有原生
+  // 图像栈可用,还省掉 wasm 版 libvips 的 9MB 下载体积。
+  const sharpShimSrc = mustExist(
+    resolve(REPO_ROOT, 'tools/engine-shim/sharp'),
+    'sharp 替身源码',
+  )
+  await copyTree(sharpShimSrc, join(opt.out, 'node_modules/sharp'))
+  info('        node_modules/sharp(手机端替身 → 能力桥)')
 
   // 4) 入口
   info(`  [3/4] 写入口 server.mjs …`)

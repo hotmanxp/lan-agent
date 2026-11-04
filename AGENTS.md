@@ -382,7 +382,8 @@
 - **能力桥走 HTTP 不用 socketpair**:主进程起一个 `127.0.0.1:9421` 的 HTTP 服务(`CapabilityService`),引擎侧 mod 通过 `LANAGENT_CAP_BASE` 指过来。引擎是 Node,`fetch` 是现成的,多引入一套协议没收益
 - **引擎包与原生库改成「按需下载」,不再打进 APK** —— APK 从 76MB 降到 40.8MB(剩下的是 dex,跟引擎无关)。用户在设置页点「下载引擎」→ App 拉一个 zip(34MB)→ 校验 sha256 → 解到 `filesDir/engine/<指纹>/` 与 `filesDir/native/`。
   - **下载源 = 一个 manifest 地址**(当前是局域网上的 Mac,`tools/serve-engine.sh`;将来换 GitHub release 只改这个地址,App 侧不动)。默认从入口卡片的主机自动推
-  - 构建:`tools/build-engine-pkg.mjs`(引擎包)→ `tools/fetch-native.sh`(原生库)→ `tools/pack-engine-bundle.mjs`(打成 zip + 写 manifest)。产物全在 `dist/`(gitignore)
+  - 构建:**先在 opencc-web 跑 `pnpm --filter @zn-ai/zai run build:bundle`**(把 zai 服务端打成单文件)→ `tools/build-engine-pkg.mjs`(引擎包)→ `tools/fetch-native.sh`(原生库)→ `tools/pack-engine-bundle.mjs`(打成 zip + 写 manifest)。产物全在 `dist/`(gitignore)
+  - ⚠️ **`zai-server.mjs` 现在直接拷 opencc-web 的 bundle**(`packages/zai/dist/bundle/zai-server.mjs`),本仓不再自己调 esbuild —— 「单文件怎么打」只有一份实现(banner / external 列表 / esbuild 版本都在 opencc-web 那边)。两处各打一次迟早漂:external 少一个 → core 被内联 → 自引用 resolve 不到 → **agent 工具全废而服务照样起**(最难查的静默失败)。少了那个产物,`build-engine-pkg.mjs` 直接失败并提示去跑 `build:bundle`
   - ⚠️ **原生库不能放 `app/src/main/jniLibs/`** —— AGP 会照打不误,APK 又变大
   - ⚠️ **JNI 加载改成 `System.load(绝对路径)`**(`filesDir/native/`),`System.loadLibrary` 只认 APK 里的 nativeLibraryDir。**顺序固定**:`libc++_shared` → `libnode` → `libdshengine` —— 后者的 `DT_NEEDED` 是 `libnode.so`,靠 linker 按 SONAME 复用已加载库解析上,不用改 RPATH
   - ⚠️ **凭据改了必须重启引擎**:引擎进程启动时就把 `settings.json` / `.zai.json` 读进内存了,改了文件它不知道 → 用户看到「保存不了」。保存后发 `EXTRA_RESTART` 让 `EngineService` 自杀,`EngineController` 按退避重拉

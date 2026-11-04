@@ -45,6 +45,7 @@ const REQUIRED_ENGINE_FILES = [
   'server.mjs',
   'zai-server.mjs',
   'engine.sha256',
+  'package.json',
   'node_modules/@zn-ai/zn-agent-core/package.json',
   'node_modules/@zn-ai/zn-agent-core/opencc-core.mjs',
   'node_modules/zod/package.json',

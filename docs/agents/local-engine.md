@@ -73,6 +73,11 @@ engine/
 ### 3.1 引擎包
 
 ```bash
+# 先让 opencc-web 把服务端打成单文件(bundle)
+cd /Users/ethan/code/opencc-web && pnpm --filter @zn-ai/zai run build:bundle
+
+# 再打引擎包
+cd /Users/ethan/code/lan-agent
 node tools/build-engine-pkg.mjs            # 构建 + 自检 + 真起一遍验
 node tools/build-engine-pkg.mjs --skip-verify
 node tools/build-engine-pkg.mjs --out <dir> # 换输出目录
@@ -80,13 +85,25 @@ node tools/build-engine-pkg.mjs --out <dir> # 换输出目录
 
 - 源仓库默认 `/Users/ethan/code/opencc-web`,可用 `OPENCC_WEB_ROOT` 或
   `--web-root` 换。
-- esbuild 用 opencc-web pnpm store 里的那份(钉死 `0.28.1`),不另外装。
+- **`zai-server.mjs` 直接拷 opencc-web 的产物**
+  (`packages/zai/dist/bundle/zai-server.mjs`),本脚本不再自己调 esbuild。
+  「单文件怎么打」只有一份实现(banner / external 列表 / esbuild 版本都在
+  那边),两处各打一次迟早漂 —— external 少一个 → core 被内联 → 自引用
+  resolve 不到 → agent 工具全废而服务照样起(最难查的静默失败)。
+  少了那个产物,脚本会**直接失败**并告诉你去跑 `build:bundle`。
 - 脚本**幂等**:每次先 `rm -rf` 输出目录再重建,不会残留上次的垃圾文件。
-- 脚本**失败很响**:源文件缺失、esbuild 找不到、产物结构不对、起服务后
+- 脚本**失败很响**:源文件缺失、bundle 过期、产物结构不对、起服务后
   `/api/health` 不通 —— 任何一条不过都直接退出非 0,并把 stdout / stderr 尾部
   打出来。引擎包坏了却在手机上才炸是最糟的情况。
 - 跑完会自动验一遍:起 `node server.mjs`,curl `/api/health` 期望
-  `{"ok":true,...}`,读 `/api/event` 期望第一个事件是 `server.connected`。
+  `{"ok":true,"version":"<真实版本号>"}`,读 `/api/event` 期望第一个事件是
+  `server.connected`。
+
+> **版本号为什么不再是 `0.0.0`**:引擎目录里现在有一份自己的
+> `package.json`(`name: "@zn-ai/zai"` + 真实版本)。zai 的代码靠
+> **向上找 `name === '@zn-ai/zai'` 的 package.json** 来定位包根
+> (opencc-web `packages/zai/src/shared/packagePaths.ts`),不再靠
+> `import.meta.url` 往上数层级 —— 后者在 bundle 里必然数错。
 
 产物里 `zod` 的 `.d.ts` 和 `src/`(TS 源码)会被砍掉 —— 运行时走不到
 (`@zod/source` 是自定义 export condition,Node 不设),砍掉省 3.3MB 和 400 个

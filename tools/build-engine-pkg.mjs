@@ -267,6 +267,7 @@ async function verifyLayout(out) {
 
   await need('server.mjs', '引擎入口')
   await need('zai-server.mjs', '打包好的 zai server')
+  await need('package.json', '引擎包自己的 manifest(zai 靠它认包根)')
   await need('android-env.cjs', 'AT_SECURE env 修复的 preload(App 侧用 --require 加载)')
   await needDir('node_modules', '运行时依赖')
   await needDir('node_modules/@zn-ai/zn-agent-core', '外置的 agent core')
@@ -279,6 +280,24 @@ async function verifyLayout(out) {
 
   // core 的 package.json:main / exports 必须指向真实存在的文件 ——
   // core 是靠 package.json 被 import.meta.resolve 找到的,指错了就是「工具全废」。
+  //
+  // 引擎包自己的 package.json 同理:名字必须是 '@zn-ai/zai',否则 zai 向上
+  // 找包根时找不到它,/api/health 会退回 version '0.0.0'(静默降级,不报错)。
+  const enginePkgPath = join(out, 'package.json')
+  if (existsSync(enginePkgPath)) {
+    try {
+      const pkg = JSON.parse(await readFile(enginePkgPath, 'utf-8'))
+      if (pkg.name !== '@zn-ai/zai') {
+        problems.push(`引擎包 package.json 的 name 应为 '@zn-ai/zai',实际是 ${JSON.stringify(pkg.name)}`)
+      }
+      if (typeof pkg.version !== 'string' || !pkg.version) {
+        problems.push('引擎包 package.json 缺 version')
+      }
+    } catch (e) {
+      problems.push(`引擎包 package.json 解析失败: ${e.message}`)
+    }
+  }
+
   const corePkgPath = join(out, 'node_modules/@zn-ai/zn-agent-core/package.json')
   if (existsSync(corePkgPath)) {
     try {
@@ -597,6 +616,21 @@ async function main() {
   )
   const zodSrc = mustExist(join(web, 'packages/zai/node_modules/zod'), 'zod(pnpm 软链)')
   const fflateSrc = mustExist(join(web, 'packages/zn-agent-core/node_modules/fflate'), 'fflate(pnpm 软链)')
+  const zaiPkg = JSON.parse(
+    await readFile(mustExist(join(web, 'packages/zai/package.json'), 'zai 的 package.json'), 'utf-8'),
+  )
+
+  // zai 的 server bundle —— **直接消费 opencc-web 的产物**,不再自己调 esbuild。
+  //
+  // Why:「单文件怎么打」只有一份实现(banner / external 列表 / esbuild 版本
+  // 全在那边)。两处各打一次迟早漂:external 少一个 → core 被内联进去 →
+  // 自引用 resolve 不到 → agent 工具全废而服务照样起(最难查的静默失败)。
+  //
+  // 桌面端(bundle/zai.mjs)跟引擎包用的是**同一份 server bundle**。
+  const serverBundle = mustExist(
+    join(web, 'packages/zai/dist/bundle/zai-server.mjs'),
+    'zai 的 server bundle\n  先跑: cd opencc-web && pnpm --filter @zn-ai/zai run build:bundle',
+  )
 
   // dist 过期是最常见的「构建出来行为跟源码对不上」来源 —— 直接喊出来。
   const zaiSrc = join(web, 'packages/zai/src/server/index.ts')
@@ -605,41 +639,21 @@ async function main() {
       `⚠️ zai 的 dist 比 src 旧 —— 先跑 \`pnpm --filter @zn-ai/zai build\` 再回来构建引擎包`,
     )
   }
-
-  const esbuild = resolveEsbuild(web)
-  info(`  esbuild: ${esbuild.version}`)
+  // bundle 比它打包的入口还旧 → 引擎包会带着上一版的代码。
+  if (statSync(serverBundle).mtimeMs < statSync(zaiEntry).mtimeMs) {
+    fail(
+      'zai 的 server bundle 比 dist/server/index.js 还旧 —— 引擎包会带着上一版代码\n' +
+        '  先跑: cd opencc-web && pnpm --filter @zn-ai/zai run build:bundle',
+    )
+  }
 
   // 1) 清空输出目录 —— 幂等的前提:每次都是全新的一份,不会残留上次的垃圾文件。
   await rm(opt.out, { recursive: true, force: true })
   await mkdir(opt.out, { recursive: true })
 
   // 2) 打 zai server bundle
-  info(`  [1/4] esbuild 打包 zai server …`)
-  const { build } = await import(pathToFileURL(esbuild.entry).href)
-  await build({
-    entryPoints: [zaiEntry],
-    outfile: join(opt.out, 'zai-server.mjs'),
-    bundle: true,
-    format: 'esm',
-    platform: 'node',
-    target: 'node20',
-    minify: false,
-    external: EXTERNALS,
-    banner: {
-      js: [
-        // createRequire 必须注入:CJS 依赖(express → body-parser → depd)会 require('path'),
-        // ESM bundle 里没有 require 就崩("Dynamic require of \"path\" is not supported")。
-        // 标识符不能叫 __createRequire —— core bundle 里已经声明了同名标识符,
-        // 会报 "Identifier '__createRequire' has already been declared"。所以带前缀。
-        "import { createRequire as __zaiCreateRequire } from 'node:module';",
-        "import { fileURLToPath as __fileURLToPath } from 'node:url';",
-        "import { dirname as __path_dirname } from 'node:path';",
-        'const __filename = __fileURLToPath(import.meta.url);',
-        'const __dirname = __path_dirname(__filename);',
-        'const require = __zaiCreateRequire(import.meta.url);',
-      ].join('\n'),
-    },
-  })
+  info(`  [1/4] 拷 zai server bundle(opencc-web 的产物) …`)
+  await copyFile(serverBundle, join(opt.out, 'zai-server.mjs'))
   info(`        zai-server.mjs ${(await stat(join(opt.out, 'zai-server.mjs'))).size} 字节`)
 
   // 3) 外置依赖:core / zod / fflate
@@ -690,6 +704,31 @@ async function main() {
   // 4) 入口
   info(`  [3/4] 写入口 server.mjs …`)
   await writeFile(join(opt.out, 'server.mjs'), SERVER_ENTRY)
+
+  // 4a) 引擎包自己的 package.json
+  //
+  // zai 的代码现在**不再靠 import.meta.url 往上数层级**找包根,而是向上找
+  // `name === '@zn-ai/zai'` 的 package.json(见 zai 的
+  // src/shared/packagePaths.ts)。引擎包是一个独立目录,里面本来没有
+  // package.json → 解析不到包根 → /api/health 只能回 version '0.0.0'。
+  //
+  // 在引擎目录里放一份同名 package.json 就同时解决两件事:
+  //   1. /api/health 返回真实版本号(之前永远是 '0.0.0');
+  //   2. 引擎目录被认成包根,webDistDir 之类的派生路径有确定的落点。
+  await writeFile(
+    join(opt.out, 'package.json'),
+    JSON.stringify(
+      {
+        name: '@zn-ai/zai',
+        version: zaiPkg.version,
+        private: true,
+        description: 'zai 本机引擎包(手机端 / 自包含运行)',
+      },
+      null,
+      2,
+    ) + '\n',
+  )
+  info(`        package.json (name @zn-ai/zai, version ${zaiPkg.version})`)
 
   // 4b) AT_SECURE 修复的 preload
   //

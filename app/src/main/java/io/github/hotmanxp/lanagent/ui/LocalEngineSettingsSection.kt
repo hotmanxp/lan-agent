@@ -263,9 +263,17 @@ fun LocalEngineSettingsSection() {
                         EngineBundle.downloadAndInstall(source)
                             .onSuccess {
                                 installed = true
-                                // 装完直接把它拉起来 —— 否则用户得重启 App
-                                // 才看得到「本机引擎」这个实例。
-                                EngineController.start(context)
+                                // 装完**必须重启**引擎,不能只 start。
+                                //
+                                // start() 有 `if (started) return` 守卫 —— 引擎已经在跑
+                                // 的时候它是 no-op,新包永远不生效:实测重下引擎包后
+                                // 引擎进程还是老的那个(连启动时间都没变),health 报的
+                                // 还是旧版本号,直到用户手动重启 App 才发现没换。
+                                //
+                                // restart() 发 EXTRA_RESTART 让引擎进程自杀,主进程按退避
+                                // 把新进程拉起来 —— 新进程启动时 EngineInstaller 按新指纹
+                                // 选目录,这才真的换成新引擎。
+                                EngineController.restart(context)
                             }
                     }
                 },

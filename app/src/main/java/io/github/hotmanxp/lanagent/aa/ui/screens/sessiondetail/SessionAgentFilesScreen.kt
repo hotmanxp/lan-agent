@@ -1,6 +1,7 @@
 package io.github.hotmanxp.lanagent.aa.ui.screens.sessiondetail
 
 import android.graphics.Typeface
+import android.net.Uri
 import android.util.TypedValue
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -56,6 +57,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -80,6 +82,7 @@ import io.github.hotmanxp.lanagent.aa.feature.files.displayRemotePath
 import io.github.hotmanxp.lanagent.aa.feature.files.FileEntry
 import io.github.hotmanxp.lanagent.aa.feature.files.fileNameFromRemotePath
 import io.github.hotmanxp.lanagent.aa.feature.files.FilesController
+import io.github.hotmanxp.lanagent.aa.feature.files.isImageFileName
 import io.github.hotmanxp.lanagent.aa.feature.files.FilesDirectory
 import io.github.hotmanxp.lanagent.aa.feature.files.initialRemoteFilePath
 import io.github.hotmanxp.lanagent.aa.feature.files.isWindowsDeviceOs
@@ -90,6 +93,9 @@ import io.github.hotmanxp.lanagent.aa.feature.files.remoteParentPath
 import io.github.hotmanxp.lanagent.aa.feature.files.remoteRootForPath
 import io.github.hotmanxp.lanagent.aa.feature.files.TextFile
 import io.github.hotmanxp.lanagent.aa.feature.files.windowsDriveRoot
+import io.github.hotmanxp.lanagent.aa.feature.terminal.RemoteTerminalController
+import io.github.hotmanxp.lanagent.aa.feature.terminal.RemoteTerminalStatus
+import io.github.hotmanxp.lanagent.aa.feature.terminal.TerminalShortcut
 import io.github.hotmanxp.lanagent.aa.model.AgentDevice
 import io.github.hotmanxp.lanagent.aa.model.AgentSession
 import io.github.hotmanxp.lanagent.aa.ui.designsystem.AuthErrorNotice
@@ -110,8 +116,13 @@ import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.Search
 import com.composables.icons.lucide.Terminal
 import com.composables.icons.lucide.Trash2
+import com.termux.terminal.TextStyle as TermuxTextStyle
+import com.termux.view.RemoteTerminalView
+import com.termux.view.RemoteTerminalViewClient
+import me.saket.telephoto.zoomable.coil3.ZoomableAsyncImage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.io.File
 import kotlin.math.roundToInt
 
 @Composable
@@ -119,12 +130,15 @@ internal fun SessionAgentFilesScreen(
     session: AgentSession?,
     device: AgentDevice?,
     filesController: FilesController,
+    terminalController: RemoteTerminalController,
     darkMode: Boolean,
     openFilePath: String? = null,
     onOpenFileRequestConsumed: (String) -> Unit = {},
+    onTerminalVerticalDragChange: (Boolean) -> Unit = {},
     onBack: () -> Unit,
 ) {
     val colors = LocalAAColors.current
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var directory by remember(session?.id) { mutableStateOf(FilesDirectory(path = ".")) }
     var loading by remember(session?.id) { mutableStateOf(false) }
@@ -132,6 +146,7 @@ internal fun SessionAgentFilesScreen(
     var openActionPath by remember(session?.id) { mutableStateOf<String?>(null) }
     var selectedFile by remember(session?.id) { mutableStateOf<FileEntry?>(null) }
     var preview by remember(session?.id) { mutableStateOf<TextFile?>(null) }
+    var imageFile by remember(session?.id) { mutableStateOf<File?>(null) }
     var previewLoading by remember(session?.id) { mutableStateOf(false) }
     var previewError by remember(session?.id) { mutableStateOf<String?>(null) }
     var searchOpen by remember(session?.id) { mutableStateOf(false) }
@@ -143,6 +158,10 @@ internal fun SessionAgentFilesScreen(
     val loadFilesFailedMessage = stringResource(R.string.files_load_failed)
     val openFileFailedMessage = stringResource(R.string.files_open_failed)
     val deviceOs = device?.deviceOs ?: session?.cwd?.takeIf { windowsDriveRoot(it) != null }?.let { "windows" }
+
+    DisposableEffect(Unit) {
+        onDispose { onTerminalVerticalDragChange(false) }
+    }
 
     fun load(path: String) {
         val current = session
@@ -173,6 +192,7 @@ internal fun SessionAgentFilesScreen(
     LaunchedEffect(session?.id, session?.cwd, deviceOs) {
         selectedFile = null
         preview = null
+        imageFile = null
         previewError = null
         searchOpen = false
         searchQuery = ""
@@ -195,6 +215,7 @@ internal fun SessionAgentFilesScreen(
             size = null,
         )
         preview = null
+        imageFile = null
         previewError = null
         searchOpen = false
         searchQuery = ""
@@ -210,27 +231,41 @@ internal fun SessionAgentFilesScreen(
         val root = current?.cwd?.takeIf { it.isNotBlank() }
         if (current == null || root == null) {
             preview = null
+            imageFile = null
             previewLoading = false
             previewError = noWorkspaceMessage
             return@LaunchedEffect
         }
         preview = null
+        imageFile = null
         previewLoading = true
         previewError = null
         searchQuery = ""
         searchResult = SoraFileSearchResult()
         val filePath = normalizeRemotePath(file.path)
-        filesController.readTextFile(
-            connectorId = current.connectorId,
-            root = remoteRootForPath(
+        if (isImageFileName(file.name)) {
+            filesController.downloadWorkspaceFile(
+                connectorId = current.connectorId,
+                workspaceRoot = root,
+                path = filePath,
+                cacheDir = context.cacheDir,
+            )
+                .onSuccess { imageFile = it.file }
+                .onFailure { failure -> previewError = failure.message ?: openFileFailedMessage }
+        } else {
+            val requestRoot = remoteRootForPath(
                 targetPath = filePath,
                 deviceOs = deviceOs,
                 fallbackRoot = root,
-            ),
-            path = filePath,
-        )
-            .onSuccess { preview = it }
-            .onFailure { failure -> previewError = failure.message ?: openFileFailedMessage }
+            )
+            filesController.readTextFile(
+                connectorId = current.connectorId,
+                root = requestRoot,
+                path = filePath,
+            )
+                .onSuccess { preview = it }
+                .onFailure { failure -> previewError = failure.message ?: openFileFailedMessage }
+        }
         previewLoading = false
     }
 
@@ -245,6 +280,28 @@ internal fun SessionAgentFilesScreen(
             onSelectView = { pushView = it },
             onBack = onBack,
         )
+        if (pushView == PushView.Terminal) {
+            TerminalContent(
+                terminalController = terminalController,
+                darkMode = darkMode,
+                terminalKey = session?.id,
+                canReconnect = session != null,
+                onStart = {
+                    val current = session ?: return@TerminalContent
+                    terminalController.ensureStarted(current)
+                },
+                onReconnect = {
+                    val current = session ?: return@TerminalContent
+                    terminalController.reconnect(current)
+                },
+                onClear = {
+                    val current = session ?: return@TerminalContent
+                    terminalController.restart(current)
+                },
+                onVerticalDragChange = onTerminalVerticalDragChange,
+                modifier = Modifier.weight(1f),
+            )
+        } else {
             val file = selectedFile
             if (file == null) {
                 FileListContent(
@@ -270,6 +327,7 @@ internal fun SessionAgentFilesScreen(
                     deviceOs = deviceOs,
                     file = file,
                     preview = preview,
+                    imageFile = imageFile,
                     loading = previewLoading,
                     error = previewError,
                     darkMode = darkMode,
@@ -280,6 +338,7 @@ internal fun SessionAgentFilesScreen(
                     onBackToFiles = {
                         selectedFile = null
                         preview = null
+                        imageFile = null
                         previewError = null
                         searchOpen = false
                         searchQuery = ""
@@ -290,6 +349,7 @@ internal fun SessionAgentFilesScreen(
                     onSearchResult = { searchResult = it },
                 )
             }
+        }
     }
 }
 
@@ -300,6 +360,7 @@ internal fun DeviceFilesContent(
     darkMode: Boolean,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var directory by remember(device?.id) { mutableStateOf(FilesDirectory(path = ".")) }
     var resolvedRoot by remember(device?.id) { mutableStateOf<String?>(null) }
@@ -308,6 +369,7 @@ internal fun DeviceFilesContent(
     var openActionPath by remember(device?.id) { mutableStateOf<String?>(null) }
     var selectedFile by remember(device?.id) { mutableStateOf<FileEntry?>(null) }
     var preview by remember(device?.id) { mutableStateOf<TextFile?>(null) }
+    var imageFile by remember(device?.id) { mutableStateOf<File?>(null) }
     var previewLoading by remember(device?.id) { mutableStateOf(false) }
     var previewError by remember(device?.id) { mutableStateOf<String?>(null) }
     var searchOpen by remember(device?.id) { mutableStateOf(false) }
@@ -359,6 +421,7 @@ internal fun DeviceFilesContent(
     LaunchedEffect(device?.id, device?.online, device?.deviceOs) {
         selectedFile = null
         preview = null
+        imageFile = null
         previewError = null
         searchOpen = false
         searchQuery = ""
@@ -378,28 +441,41 @@ internal fun DeviceFilesContent(
         val current = device ?: return@LaunchedEffect
         if (!current.online) {
             preview = null
+            imageFile = null
             previewLoading = false
             previewError = deviceOfflineMessage
             return@LaunchedEffect
         }
         preview = null
+        imageFile = null
         previewLoading = true
         previewError = null
         searchQuery = ""
         searchResult = SoraFileSearchResult()
         val filePath = normalizeRemotePath(file.path)
-        val root = remoteRootForPath(
-            targetPath = filePath,
-            deviceOs = deviceOs,
-            fallbackRoot = resolvedRoot?.takeIf { it.isNotBlank() } ?: "~",
-        )
-        controller.readTextFile(
-            connectorId = current.id,
-            root = root,
-            path = filePath,
-        )
-            .onSuccess { preview = it }
-            .onFailure { failure -> previewError = failure.message ?: openFileFailedMessage }
+        if (isImageFileName(file.name)) {
+            controller.downloadWorkspaceFile(
+                connectorId = current.id,
+                workspaceRoot = resolvedRoot?.takeIf { it.isNotBlank() } ?: "~",
+                path = filePath,
+                cacheDir = context.cacheDir,
+            )
+                .onSuccess { imageFile = it.file }
+                .onFailure { failure -> previewError = failure.message ?: openFileFailedMessage }
+        } else {
+            val requestRoot = remoteRootForPath(
+                targetPath = filePath,
+                deviceOs = deviceOs,
+                fallbackRoot = resolvedRoot?.takeIf { it.isNotBlank() } ?: "~",
+            )
+            controller.readTextFile(
+                connectorId = current.id,
+                root = requestRoot,
+                path = filePath,
+            )
+                .onSuccess { preview = it }
+                .onFailure { failure -> previewError = failure.message ?: openFileFailedMessage }
+        }
         previewLoading = false
     }
 
@@ -430,6 +506,7 @@ internal fun DeviceFilesContent(
                 deviceOs = deviceOs,
                 file = file,
                 preview = preview,
+                imageFile = imageFile,
                 loading = previewLoading,
                 error = previewError,
                 darkMode = darkMode,
@@ -440,6 +517,7 @@ internal fun DeviceFilesContent(
                 onBackToFiles = {
                     selectedFile = null
                     preview = null
+                    imageFile = null
                     previewError = null
                     searchOpen = false
                     searchQuery = ""
@@ -453,10 +531,397 @@ internal fun DeviceFilesContent(
     }
 }
 
-// 0.24.2:远程终端改放「服务」栏独立入口(与局域网 SSH 并排),复用本项目的
-// xterm.js 渲染器,这里只剩文件视图。
 private enum class PushView {
     Files,
+    Terminal,
+}
+
+
+@Composable
+internal fun TerminalContent(
+    terminalController: RemoteTerminalController,
+    darkMode: Boolean,
+    terminalKey: Any?,
+    canReconnect: Boolean,
+    onStart: suspend () -> Unit,
+    onReconnect: suspend () -> Unit,
+    onClear: suspend () -> Unit,
+    onVerticalDragChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val terminalState by terminalController.state.collectAsState()
+    val modifierState by terminalController.modifierState.collectAsState()
+    val density = LocalDensity.current
+    val scope = rememberCoroutineScope()
+    val imeBottomPx = WindowInsets.ime.getBottom(density)
+    val imeBottom = with(density) { imeBottomPx.toDp() }
+    val shortcutsVisible = imeBottomPx > 0
+    val terminalBottomInset = 24.dp + if (shortcutsVisible) imeBottom + 88.dp else 0.dp
+    val background = if (darkMode) Color(0xFF09090B) else Color(0xFFFEFDFB)
+    val statusText = when (terminalState.status) {
+        RemoteTerminalStatus.Idle -> null
+        RemoteTerminalStatus.Connecting -> stringResource(R.string.files_terminal_connecting)
+        RemoteTerminalStatus.Open -> null
+        RemoteTerminalStatus.Closed -> terminalState.message ?: stringResource(R.string.files_terminal_disconnected)
+        RemoteTerminalStatus.Exited -> terminalState.message ?: stringResource(R.string.files_terminal_exited)
+        RemoteTerminalStatus.Error -> terminalState.message ?: stringResource(R.string.files_terminal_error)
+    }
+    val reconnectable = canReconnect && (
+        terminalState.status == RemoteTerminalStatus.Closed ||
+        terminalState.status == RemoteTerminalStatus.Exited ||
+        terminalState.status == RemoteTerminalStatus.Error
+        )
+    val isConnecting = terminalState.status == RemoteTerminalStatus.Connecting
+    val emphasizedStatus = terminalState.status == RemoteTerminalStatus.Closed ||
+        terminalState.status == RemoteTerminalStatus.Exited ||
+        terminalState.status == RemoteTerminalStatus.Error
+
+    LaunchedEffect(terminalKey) {
+        if (terminalKey != null) onStart()
+    }
+
+    DisposableEffect(terminalController) {
+        onDispose { terminalController.detach() }
+    }
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .clipToBounds()
+            .background(background),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(start = 16.dp, end = 16.dp, bottom = terminalBottomInset),
+        ) {
+            if (statusText != null) {
+                val statusModifier = Modifier
+                    .padding(vertical = 10.dp)
+                    .then(
+                        if (reconnectable) {
+                            Modifier.noRippleClickable {
+                                scope.launch { onReconnect() }
+                            }
+                        } else {
+                            Modifier
+                        },
+                    )
+                if (isConnecting) {
+                    TerminalConnectingBanner(
+                        message = statusText,
+                        darkMode = darkMode,
+                        modifier = Modifier.padding(top = 8.dp, bottom = 8.dp),
+                    )
+                } else if (emphasizedStatus) {
+                    AuthErrorNotice(
+                        message = statusText,
+                        modifier = statusModifier,
+                    )
+                } else {
+                    Text(
+                        text = statusText,
+                        color = if (darkMode) Color(0xFFA1A1AA) else Color(0xFF6F706A),
+                        fontSize = 12.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = statusModifier.padding(horizontal = 14.dp),
+                    )
+                }
+            }
+            TerminalAndroidView(
+                terminalController = terminalController,
+                darkMode = darkMode,
+                onVerticalDragChange = onVerticalDragChange,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+            )
+        }
+        if (shortcutsVisible) {
+            TerminalShortcutDeck(
+                darkMode = darkMode,
+                ctrlLatched = modifierState.ctrl,
+                altLatched = modifierState.alt,
+                onShortcut = terminalController::sendShortcut,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = imeBottom),
+            )
+        }
+        TerminalClearButton(
+            darkMode = darkMode,
+            enabled = terminalKey != null,
+            onClick = { scope.launch { onClear() } },
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 10.dp, end = 18.dp)
+                .zIndex(1f),
+        )
+    }
+}
+
+@Composable
+private fun TerminalConnectingBanner(
+    message: String,
+    darkMode: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val background = if (darkMode) Color(0xFF16181A) else Color(0xFFF3F5F7)
+    val border = if (darkMode) Color(0xFF30343A) else Color(0xFFD9DEE5)
+    val text = if (darkMode) Color(0xFFC8D0DA) else Color(0xFF47515F)
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(background)
+            .border(1.dp, border)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        Text(
+            text = message,
+            color = text,
+            fontSize = 12.sp,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun TerminalAndroidView(
+    terminalController: RemoteTerminalController,
+    darkMode: Boolean,
+    onVerticalDragChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    key(terminalController) {
+        val context = LocalContext.current
+        val terminalClient = remember(terminalController, onVerticalDragChange) {
+            remoteTerminalViewClient(terminalController, onVerticalDragChange)
+        }
+        val terminalView = remember(context, terminalController) {
+            RemoteTerminalView(context, null).apply {
+                setTextSize(
+                    TypedValue.applyDimension(
+                        TypedValue.COMPLEX_UNIT_SP,
+                        12f,
+                        context.resources.displayMetrics,
+                    ).roundToInt(),
+                )
+                setTypeface(Typeface.MONOSPACE)
+                setRemoteTerminalViewClient(terminalClient)
+                attachSession(terminalController)
+                applyTerminalColors(terminalController, darkMode)
+            }
+        }
+
+        DisposableEffect(terminalView, terminalController) {
+            val redraw: () -> Unit = {
+                terminalView.post {
+                    if (terminalView.currentSession === terminalController) {
+                        terminalView.onScreenUpdated()
+                    }
+                }
+            }
+            terminalController.onRedraw = redraw
+            terminalView.post {
+                if (terminalView.currentSession === terminalController) {
+                    terminalView.onScreenUpdated()
+                }
+            }
+            onDispose {
+                if (terminalController.onRedraw === redraw) {
+                    terminalController.onRedraw = null
+                }
+                terminalView.releaseSession()
+            }
+        }
+
+        AndroidView(
+            factory = { terminalView },
+            update = {
+                it.setRemoteTerminalViewClient(terminalClient)
+                it.attachSession(terminalController)
+                applyTerminalColors(terminalController, darkMode)
+                it.invalidate()
+            },
+            modifier = modifier,
+        )
+    }
+}
+
+@Composable
+private fun TerminalClearButton(
+    darkMode: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val background = if (darkMode) Color(0xDD18181B) else Color(0xEEFFFFFF)
+    val border = if (darkMode) Color(0xFF3F3F46) else Color(0xFFE7E5E0)
+    val icon = if (enabled) {
+        if (darkMode) Color(0xFFFCA5A5) else Color(0xFFB42318)
+    } else {
+        if (darkMode) Color(0xFF71717A) else Color(0xFFA7A5A0)
+    }
+    Box(
+        modifier = modifier
+            .size(34.dp)
+            .clip(CircleShape)
+            .background(background)
+            .border(1.dp, border, CircleShape)
+            .then(if (enabled) Modifier.noRippleClickable(onClick = onClick) else Modifier),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = Lucide.Trash2,
+            contentDescription = stringResource(R.string.files_terminal_clear),
+            tint = icon,
+            modifier = Modifier.size(17.dp),
+        )
+    }
+}
+
+private fun applyTerminalColors(controller: RemoteTerminalController, darkMode: Boolean) {
+    val colors = controller.emulator.mColors.mCurrentColors
+    colors[TermuxTextStyle.COLOR_INDEX_BACKGROUND] = if (darkMode) 0xFF09090B.toInt() else 0xFFFEFDFB.toInt()
+    colors[TermuxTextStyle.COLOR_INDEX_FOREGROUND] = if (darkMode) 0xFFFAFAFA.toInt() else 0xFF20211E.toInt()
+    colors[TermuxTextStyle.COLOR_INDEX_CURSOR] = if (darkMode) 0xFFFAFAFA.toInt() else 0xFF20211E.toInt()
+}
+
+private fun remoteTerminalViewClient(
+    controller: RemoteTerminalController,
+    onVerticalDragChange: (Boolean) -> Unit,
+) = object : RemoteTerminalViewClient {
+    override fun onScale(scale: Float): Float = scale
+
+    override fun onSingleTapUp(e: MotionEvent?) = Unit
+
+    override fun shouldBackButtonBeMappedToEscape(): Boolean = false
+    // A terminal is an ordinary text field, so let the IME use the normal text input type
+    // instead of the password variation, which would put the keyboard into "secure input" mode.
+    override fun shouldEnforceCharBasedInput(): Boolean = false
+    override fun shouldUseCtrlSpaceWorkaround(): Boolean = false
+    override fun isTerminalViewSelected(): Boolean = true
+    override fun copyModeChanged(copyMode: Boolean) = Unit
+    override fun verticalScrollChanged(active: Boolean) = onVerticalDragChange(active)
+    override fun onKeyDown(keyCode: Int, e: KeyEvent?, session: RemoteTerminalController?): Boolean = false
+    override fun onKeyUp(keyCode: Int, e: KeyEvent?): Boolean = false
+    override fun onLongPress(event: MotionEvent?): Boolean = false
+    override fun readControlKey(): Boolean = controller.isCtrlLatched
+    override fun readAltKey(): Boolean = controller.isAltLatched
+    override fun readShiftKey(): Boolean = false
+    override fun readFnKey(): Boolean = false
+    override fun onCodePoint(codePoint: Int, ctrlDown: Boolean, session: RemoteTerminalController?): Boolean = false
+    override fun onEmulatorSet() = Unit
+    override fun logError(tag: String?, message: String?) = Unit
+    override fun logWarn(tag: String?, message: String?) = Unit
+    override fun logInfo(tag: String?, message: String?) = Unit
+    override fun logDebug(tag: String?, message: String?) = Unit
+    override fun logVerbose(tag: String?, message: String?) = Unit
+    override fun logStackTraceWithMessage(tag: String?, message: String?, e: Exception?) = Unit
+    override fun logStackTrace(tag: String?, e: Exception?) = Unit
+}
+
+@Composable
+private fun TerminalShortcutDeck(
+    darkMode: Boolean,
+    ctrlLatched: Boolean,
+    altLatched: Boolean,
+    onShortcut: (TerminalShortcut) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val background = if (darkMode) Color(0xFF09090B) else Color(0xFFFEFDFB)
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(88.dp)
+            .background(background)
+            .padding(horizontal = 14.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        TerminalShortcutRow(
+            shortcuts = listOf(
+                TerminalShortcut.Esc,
+                TerminalShortcut.Slash,
+                TerminalShortcut.Dash,
+                TerminalShortcut.Home,
+                TerminalShortcut.Up,
+                TerminalShortcut.End,
+                TerminalShortcut.PageUp,
+            ),
+            darkMode = darkMode,
+            ctrlLatched = ctrlLatched,
+            altLatched = altLatched,
+            onShortcut = onShortcut,
+            modifier = Modifier.weight(1f),
+        )
+        TerminalShortcutRow(
+            shortcuts = listOf(
+                TerminalShortcut.Tab,
+                TerminalShortcut.Ctrl,
+                TerminalShortcut.Alt,
+                TerminalShortcut.Left,
+                TerminalShortcut.Down,
+                TerminalShortcut.Right,
+                TerminalShortcut.PageDown,
+            ),
+            darkMode = darkMode,
+            ctrlLatched = ctrlLatched,
+            altLatched = altLatched,
+            onShortcut = onShortcut,
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+@Composable
+private fun TerminalShortcutRow(
+    shortcuts: List<TerminalShortcut>,
+    darkMode: Boolean,
+    ctrlLatched: Boolean,
+    altLatched: Boolean,
+    onShortcut: (TerminalShortcut) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val haptic = LocalHapticFeedback.current
+    val text = if (darkMode) Color(0xFFFAFAFA) else Color(0xFF151515)
+    val activeText = if (darkMode) Color(0xFF67E8F9) else Color(0xFF0891B2)
+    val activeBackground = if (darkMode) Color(0x1A67E8F9) else Color(0x1A0891B2)
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        shortcuts.forEach { shortcut ->
+            val active = (shortcut == TerminalShortcut.Ctrl && ctrlLatched) ||
+                (shortcut == TerminalShortcut.Alt && altLatched)
+            Box(
+                modifier = Modifier
+                    .height(34.dp)
+                    .weight(1f)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(if (active) activeBackground else Color.Transparent)
+                    .noRippleClickable {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onShortcut(shortcut)
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = shortcut.label,
+                    color = if (active) activeText else text,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                )
+            }
+        }
+    }
 }
 
 @Composable
@@ -565,6 +1030,7 @@ private fun FilePreviewContent(
     deviceOs: String?,
     file: FileEntry,
     preview: TextFile?,
+    imageFile: File?,
     loading: Boolean,
     error: String?,
     darkMode: Boolean,
@@ -597,6 +1063,7 @@ private fun FilePreviewContent(
         PreviewCard(
             file = file,
             preview = preview,
+            imageFile = imageFile,
             loading = loading,
             error = error,
             darkMode = darkMode,
@@ -660,6 +1127,7 @@ private fun PreviewBreadcrumb(
 private fun PreviewCard(
     file: FileEntry,
     preview: TextFile?,
+    imageFile: File?,
     loading: Boolean,
     error: String?,
     darkMode: Boolean,
@@ -721,6 +1189,14 @@ private fun PreviewCard(
             when {
                 loading -> PreviewMessage(stringResource(R.string.files_loading_file), darkMode)
                 error != null -> PreviewMessage(error, darkMode)
+                imageFile != null -> ZoomableAsyncImage(
+                    model = Uri.fromFile(imageFile),
+                    contentDescription = file.name,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(8.dp),
+                    contentScale = ContentScale.Fit,
+                )
                 preview?.binary == true -> PreviewMessage(stringResource(R.string.files_binary_preview_unavailable), darkMode)
                 preview == null -> PreviewMessage(stringResource(R.string.files_open_file_to_preview), darkMode)
                 else -> SoraFilePreview(
@@ -1043,7 +1519,17 @@ private fun PushSwitcher(
                 .weight(1f)
                 .fillMaxSize(),
         )
-
+        val terminalSelected = view == PushView.Terminal
+        SwitcherTab(
+            label = stringResource(R.string.common_terminal),
+            icon = Lucide.Terminal,
+            background = Color.Transparent,
+            content = if (terminalSelected) selectedText else muted,
+            onClick = { onSelectView(PushView.Terminal) },
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxSize(),
+        )
         }
     }
 }

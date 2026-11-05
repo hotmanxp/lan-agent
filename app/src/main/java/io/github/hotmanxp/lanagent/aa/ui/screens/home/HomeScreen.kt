@@ -57,6 +57,7 @@ import io.github.hotmanxp.lanagent.aa.feature.devices.DeviceAgentPreviews
 import io.github.hotmanxp.lanagent.aa.feature.sessions.SessionsState
 import io.github.hotmanxp.lanagent.aa.feature.sessions.projectHasVisibleSessions
 import io.github.hotmanxp.lanagent.aa.feature.sessions.projectSessionMatchesStatus
+import io.github.hotmanxp.lanagent.aa.feature.sessions.ProjectDeviceAgentFilter
 import io.github.hotmanxp.lanagent.aa.feature.sessions.ProjectSessionLoadKey
 import io.github.hotmanxp.lanagent.aa.feature.sessions.ProjectSessionStatusFilter
 import io.github.hotmanxp.lanagent.aa.feature.sessions.sessionListComparator
@@ -66,6 +67,7 @@ import io.github.hotmanxp.lanagent.aa.feature.update.AppUpdateViewModel
 import io.github.hotmanxp.lanagent.aa.model.AgentDevice
 import io.github.hotmanxp.lanagent.aa.model.AgentProject
 import io.github.hotmanxp.lanagent.aa.model.AgentSession
+import io.github.hotmanxp.lanagent.aa.model.runtimeTypeLabel
 import io.github.hotmanxp.lanagent.aa.navigation.AppDestination
 import io.github.hotmanxp.lanagent.aa.ui.designsystem.AAToastHost
 import io.github.hotmanxp.lanagent.aa.ui.designsystem.AAToastVisuals
@@ -217,7 +219,17 @@ fun HomeScreen(
                 onTabSelected = onTabSelected,
                 onProfile = { onProfileOpenChange(true) },
                 onSearch = { showToast(context.getString(R.string.home_search_coming_soon)) },
-                onSessionLongPress = { session, bounds -> actionMenu = HomeSessionActionMenu(session, bounds, projectView = sidebarViewMode == HomeSidebarViewMode.Project) },
+                onSessionLongPress = { session, bounds ->
+                    actionMenu = HomeSessionActionMenu(
+                        session = session,
+                        rowBounds = bounds,
+                        projectView = sidebarViewMode == HomeSidebarViewMode.Project,
+                        contextLabel = session.sidebarContextLabel(
+                            projectName = state.projects.firstOrNull { it.id == session.projectId }?.name,
+                            deviceName = state.devices.firstOrNull { it.id == session.connectorId }?.name,
+                        ),
+                    )
+                },
                 onProjectMenu = { projectActionMenu = it },
                 onProjectExpandedChange = { project, expanded ->
                     projectPreferences.setProjectExpanded(project.id, expanded)
@@ -488,6 +500,7 @@ private fun HomeContent(
         HomeHeader(onProfile = onProfile, onSearch = onSearch)
         QuickEntries(
             onDevicesClick = { navigate(AppDestination.Devices) },
+            onTerminalClick = { navigate(AppDestination.Terminal) },
             onFilesClick = { navigate(AppDestination.Files) },
         )
         PullToRefreshBox(
@@ -591,13 +604,24 @@ private fun HomeProjectModeList(
                 (projectSessionsById.values.flatten() + state.sessions + state.archivedSessions)
                     .associateBy { it.id }.values.toList()
             }
-            val visibleSessions = remember(allSessions, projectSessionStatus) {
-                allSessions.filter { it.projectId != null && projectSessionMatchesStatus(it, projectSessionStatus) }
+            val deviceAgentFilter = ProjectDeviceAgentFilter(
+                connectorId = projectPreferences.selectedDeviceId,
+                runtime = projectPreferences.selectedAgentRuntime,
+            )
+            val visibleSessions = remember(allSessions, projectSessionStatus, deviceAgentFilter) {
+                allSessions.filter {
+                    it.projectId != null && projectSessionMatchesStatus(it, projectSessionStatus) && deviceAgentFilter.matches(it)
+                }
                     .groupBy { it.projectId.orEmpty() }
                     .mapValues { (_, sessions) -> sessions.sortedWith(sessionListComparator()) }
             }
             HomeProjectList(
-                projects = state.projects.filter { projectHasVisibleSessions(it, allSessions, projectSessionStatus) },
+                projects = state.projects.filter { projectHasVisibleSessions(it, allSessions, projectSessionStatus, deviceAgentFilter) },
+                devices = state.devices,
+                agentRuntimes = remember(allSessions) {
+                    allSessions.map(AgentSession::runtime).filter(String::isNotBlank).distinct().sortedBy(String::runtimeTypeLabel)
+                },
+                deviceAgentFilter = deviceAgentFilter,
                 hasProjectsInOtherStatuses = state.projects.any { projectHasVisibleSessions(it, allSessions, ProjectSessionStatusFilter.All) },
                 allSessions = allSessions,
                 projectPreferences = projectPreferences,
@@ -606,7 +630,7 @@ private fun HomeProjectModeList(
                 projectErrors = projectErrors,
                 onRetryProject = onRetryProject,
                 onCreateProject = onCreateProject,
-                pinnedSessions = allSessions.filter { it.pinned && !it.archived }
+                pinnedSessions = allSessions.filter { it.pinned && !it.archived && deviceAgentFilter.matches(it) }
                     .sortedWith(sessionListComparator()),
                 sessionsByProject = visibleSessions,
                 loadingProjectIds = loadingProjectIds,
@@ -666,6 +690,7 @@ private fun HomeHeader(onProfile: () -> Unit, onSearch: () -> Unit) {
 @Composable
 private fun QuickEntries(
     onDevicesClick: () -> Unit,
+    onTerminalClick: () -> Unit,
     onFilesClick: () -> Unit,
 ) {
     Row(
@@ -679,6 +704,12 @@ private fun QuickEntries(
             icon = Lucide.Monitor,
             modifier = Modifier.weight(1f),
             onClick = onDevicesClick,
+        )
+        QuickEntryCard(
+            title = stringResource(R.string.common_terminal),
+            icon = Lucide.Terminal,
+            modifier = Modifier.weight(1f),
+            onClick = onTerminalClick,
         )
         QuickEntryCard(
             title = stringResource(R.string.common_files),

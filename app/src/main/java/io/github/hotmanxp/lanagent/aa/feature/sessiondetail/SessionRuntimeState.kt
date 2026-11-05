@@ -1,12 +1,13 @@
 package io.github.hotmanxp.lanagent.aa.feature.sessiondetail
 
+import io.github.hotmanxp.lanagent.aa.api.RemoteRuntimeModel
 import io.github.hotmanxp.lanagent.aa.api.RemoteRuntimeModelCatalog
+import io.github.hotmanxp.lanagent.aa.api.RemoteRuntimeModelGroup
 import io.github.hotmanxp.lanagent.aa.api.RemoteRuntimeNoticeAction
 import io.github.hotmanxp.lanagent.aa.api.RemoteRuntimePermissionCatalog
 import io.github.hotmanxp.lanagent.aa.api.RemoteSessionCommand
 
 const val SESSION_SEND_MESSAGE_CAPABILITY = "session.send_message"
-const val SESSION_STEER_CAPABILITY = "session.steer"
 const val SESSION_INTERRUPT_CAPABILITY = "session.interrupt"
 const val SESSION_NOTICE_RESPONSE_CAPABILITY = "session.interaction.approval"
 const val SESSION_COMMANDS_CAPABILITY = "session.commands"
@@ -89,37 +90,6 @@ data class EffectiveCapabilities(
     ): Boolean {
         return find(capabilityId, runtimeId, runtimeType)?.usable == true
     }
-
-    fun messageAction(
-        runtime: String?,
-        runtimeStatus: SessionRuntimeStatus,
-        runtimeType: String? = runtime,
-    ): RuntimeMessageAction? {
-        val canSend = isUsable(SESSION_SEND_MESSAGE_CAPABILITY, runtime, runtimeType)
-        val canSteer = isUsable(SESSION_STEER_CAPABILITY, runtime, runtimeType)
-        return when {
-            canSteer && (!canSend || runtimeStatus in ACTIVE_RUNTIME_STATUSES) -> RuntimeMessageAction.Steer
-            canSend -> RuntimeMessageAction.Send
-            canSteer -> RuntimeMessageAction.Steer
-            else -> null
-        }
-    }
-
-    private companion object {
-        val ACTIVE_RUNTIME_STATUSES = setOf(
-            SessionRuntimeStatus.Waiting,
-            SessionRuntimeStatus.Pending,
-            SessionRuntimeStatus.Running,
-            SessionRuntimeStatus.Stopping,
-            SessionRuntimeStatus.WaitingApproval,
-            SessionRuntimeStatus.Blocked,
-        )
-    }
-}
-
-enum class RuntimeMessageAction {
-    Send,
-    Steer,
 }
 
 data class EffectiveCapability(
@@ -135,6 +105,7 @@ data class EffectiveCapability(
     val parameters: Map<String, Any?>,
     val runtimeId: String? = null,
     val runtimeType: String? = runtime,
+    val metadata: Map<String, Any?> = emptyMap(),
 ) {
     val usable: Boolean
         get() = supported && available && allowed
@@ -380,21 +351,7 @@ data class RuntimeCommand(
     val acceptsArgs: Boolean,
     val argsSchema: Map<String, Any?>?,
     val metadata: Map<String, Any?>,
-) {
-    fun matches(query: String): Boolean {
-        val tokens = query.trim().lowercase().split(Regex("\\s+")).filter(String::isNotBlank)
-        if (tokens.isEmpty()) return true
-        val haystack = buildString {
-            append(id.lowercase())
-            append(' ')
-            append(title.lowercase())
-            append(' ')
-            append(aliases.joinToString(" ").lowercase())
-            description?.let { append(' ').append(it.lowercase()) }
-        }
-        return tokens.all { it in haystack }
-    }
-}
+)
 
 data class RuntimeSelectionOption(
     val selectionId: String,
@@ -403,6 +360,12 @@ data class RuntimeSelectionOption(
     val default: Boolean,
     val enabled: Boolean = true,
     val disabledReason: String? = null,
+    /** Catalog model id; set only for model options, so the model sheet can group without parsing [label]. */
+    val modelId: String? = null,
+    val modelLabel: String? = null,
+    /** Reasoning effort display name; null when the model has no reasoning items. */
+    val effortLabel: String? = null,
+    val group: RemoteRuntimeModelGroup? = null,
 )
 
 internal enum class RuntimePermissionTranslation {
@@ -418,6 +381,7 @@ internal enum class RuntimePermissionTranslation {
     DshReadOnly,
     DshWorkspaceWrite,
     DshFullAccess,
+    DshAutoReview,
 }
 
 internal fun runtimePermissionTranslation(
@@ -435,6 +399,7 @@ internal fun runtimePermissionTranslation(
             "read-only" -> RuntimePermissionTranslation.DshReadOnly
             "workspace-write" -> RuntimePermissionTranslation.DshWorkspaceWrite
             "danger-full-access" -> RuntimePermissionTranslation.DshFullAccess
+            "auto" -> RuntimePermissionTranslation.DshAutoReview
             else -> null
         }
     }
@@ -463,6 +428,7 @@ private fun permissionTranslationByLabelKey(labelKey: String?): RuntimePermissio
         "dashboard.new.permissionModes.dsh.readOnly.label" -> RuntimePermissionTranslation.DshReadOnly
         "dashboard.new.permissionModes.dsh.workspaceWrite.label" -> RuntimePermissionTranslation.DshWorkspaceWrite
         "dashboard.new.permissionModes.dsh.fullAccess.label" -> RuntimePermissionTranslation.DshFullAccess
+        "dashboard.new.permissionModes.dsh.auto.label" -> RuntimePermissionTranslation.DshAutoReview
         "dashboard.new.permissionModes.requestApproval.label" -> RuntimePermissionTranslation.RequestApproval
         "dashboard.new.permissionModes.autoReview.label" -> RuntimePermissionTranslation.AutoReview
         "dashboard.new.permissionModes.fullAccess.label" -> RuntimePermissionTranslation.FullAccess
@@ -476,8 +442,13 @@ private fun permissionTranslationByLabelKey(labelKey: String?): RuntimePermissio
         else -> null
     }
 
-internal fun RemoteRuntimeModelCatalog.selectionOptions(): List<RuntimeSelectionOption> {
-    return models.flatMap { model ->
+internal fun RemoteRuntimeModelCatalog.selectionOptions(): List<RuntimeSelectionOption> =
+    models.modelSelectionOptions()
+
+internal fun List<RemoteRuntimeModel>.modelSelectionOptions(): List<RuntimeSelectionOption> {
+    return flatMap { model ->
+        val modelId = model.id.takeIf(String::isNotBlank)
+        val modelLabel = model.displayName.ifBlank { model.id }.takeIf(String::isNotBlank)
         val reasoning = model.reasoningItems.filter { it.selectionId.isNotBlank() }
         if (reasoning.isNotEmpty()) {
             reasoning.map { item ->
@@ -488,6 +459,10 @@ internal fun RemoteRuntimeModelCatalog.selectionOptions(): List<RuntimeSelection
                     default = item.default || (model.default && reasoning.first() == item),
                     enabled = model.enabled && item.enabled,
                     disabledReason = item.disabledReason ?: model.disabledReason,
+                    modelId = modelId,
+                    modelLabel = modelLabel,
+                    effortLabel = item.displayName.takeIf(String::isNotBlank),
+                    group = model.group,
                 )
             }
         } else {
@@ -500,6 +475,9 @@ internal fun RemoteRuntimeModelCatalog.selectionOptions(): List<RuntimeSelection
                         default = model.default,
                         enabled = model.enabled,
                         disabledReason = model.disabledReason,
+                        modelId = modelId,
+                        modelLabel = modelLabel,
+                        group = model.group,
                     ),
                 )
             }.orEmpty()
@@ -522,23 +500,25 @@ internal fun RemoteRuntimePermissionCatalog.selectionOptions(): List<RuntimeSele
         }
         .distinctBy { it.selectionId }
 
-internal fun List<RuntimeSelectionOption>.validatedSelection(hint: String?): String? {
+internal fun List<RuntimeSelectionOption>.validatedSelection(
+    hint: String?,
+    defaultWhenMissing: Boolean = false,
+): String? {
     val explicitSelection = hint?.takeIf(String::isNotBlank)
     return if (explicitSelection != null) {
         firstOrNull { it.enabled && it.selectionId == explicitSelection }?.selectionId
-    } else {
+    } else if (defaultWhenMissing) {
         firstOrNull { it.enabled && it.default }?.selectionId
             ?: firstOrNull { it.enabled }?.selectionId
-    }
+    } else null
 }
 
 internal fun sessionComposerEnabled(
     takeoverEnabled: Boolean,
     capabilityFactsFresh: Boolean,
     canSendMessage: Boolean,
-    canSteer: Boolean,
     canUseCommands: Boolean,
-): Boolean = takeoverEnabled && capabilityFactsFresh && (canSendMessage || canSteer || canUseCommands)
+): Boolean = takeoverEnabled && capabilityFactsFresh && (canSendMessage || canUseCommands)
 
 internal fun runtimeSelectionEnabled(takeoverEnabled: Boolean, capabilityUsable: Boolean): Boolean =
     takeoverEnabled && capabilityUsable

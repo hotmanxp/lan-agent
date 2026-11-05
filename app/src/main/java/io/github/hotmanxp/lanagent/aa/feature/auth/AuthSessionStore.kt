@@ -4,8 +4,9 @@ import android.content.Context
 import io.github.hotmanxp.lanagent.aa.api.AuthResponse
 import io.github.hotmanxp.lanagent.aa.api.MobileLoginExchangeResponse
 import io.github.hotmanxp.lanagent.aa.api.normalizeServerOrigin
+import java.util.UUID
 
-class AuthSessionStore(context: Context) : AuthSessionReader {
+class AuthSessionStore(context: Context) : AuthSessionReader, MobileAuthSessionStore {
     // 0.24.2:原本是明文 getSharedPreferences("agents_anywhere_auth")。lan-agent
     // 已有 EncryptedSharedPreferences + Keystore 的实现(SecureTokenStore),
     // 所以不重复造一份明文凭据存储,直接指过去 —— key 名全部不变,只有 backend
@@ -23,7 +24,7 @@ class AuthSessionStore(context: Context) : AuthSessionReader {
         return preferences.getString(KEY_ACCESS_TOKEN, "").orEmpty()
     }
 
-    fun readUserId(): String {
+    override fun readUserId(): String {
         return preferences.getString(KEY_USER_ID, "").orEmpty()
     }
 
@@ -35,24 +36,43 @@ class AuthSessionStore(context: Context) : AuthSessionReader {
         return readServerUrl().isNotBlank() && readAccessToken().isNotBlank()
     }
 
+    @Synchronized
+    fun readAuthSessionId(): String? {
+        if (!hasAuthSession()) return null
+        // Give existing saved logins an identity without tying it to a renewable token.
+        return preferences.getString(KEY_AUTH_SESSION_ID, null)
+            ?: UUID.randomUUID().toString().also { id ->
+                preferences.edit().putString(KEY_AUTH_SESSION_ID, id).apply()
+            }
+    }
+
+    @Synchronized
     fun saveServerUrl(serverUrl: String) {
+        val origin = serverUrl.asServerOrigin()
         preferences.edit()
-            .putString(KEY_SERVER_URL, serverUrl.asServerOrigin())
+            .apply { if (readServerUrl() != origin) clear() }
+            .putString(KEY_SERVER_URL, origin)
             .apply()
     }
 
+    @Synchronized
     fun saveAuthSession(serverUrl: String, auth: AuthResponse) {
         preferences.edit()
+            .putString(KEY_AUTH_SESSION_ID, UUID.randomUUID().toString())
             .putString(KEY_SERVER_URL, serverUrl.asServerOrigin())
             .putString(KEY_ACCESS_TOKEN, auth.accessToken)
             .putString(KEY_TOKEN_TYPE, auth.tokenType)
             .putString(KEY_USER_ID, auth.userId)
             .putString(KEY_ROLE, auth.role)
+            .remove(KEY_REFRESH_TOKEN)
+            .remove(KEY_REFRESH_EXPIRES_AT)
             .apply()
     }
 
+    @Synchronized
     fun saveMobileAuthSession(serverUrl: String, exchange: MobileLoginExchangeResponse) {
         preferences.edit()
+            .putString(KEY_AUTH_SESSION_ID, UUID.randomUUID().toString())
             .putString(KEY_SERVER_URL, serverUrl.asServerOrigin())
             .putString(KEY_ACCESS_TOKEN, exchange.auth.accessToken)
             .putString(KEY_TOKEN_TYPE, exchange.auth.tokenType)
@@ -61,6 +81,26 @@ class AuthSessionStore(context: Context) : AuthSessionReader {
             .putString(KEY_REFRESH_TOKEN, exchange.refreshToken)
             .putString(KEY_REFRESH_EXPIRES_AT, exchange.expiresAt)
             .apply()
+    }
+
+    @Synchronized
+    override fun readMobileAuthSession(): MobileAuthSession {
+        return MobileAuthSession(
+            serverUrl = readServerUrl(),
+            accessToken = readAccessToken(),
+            refreshToken = preferences.getString(KEY_REFRESH_TOKEN, "").orEmpty(),
+        )
+    }
+
+    @Synchronized
+    override fun saveRefreshedAuthSession(session: MobileAuthSession, auth: AuthResponse): Boolean {
+        if (readMobileAuthSession() != session || readUserId() != auth.userId) return false
+        preferences.edit()
+            .putString(KEY_ACCESS_TOKEN, auth.accessToken)
+            .putString(KEY_TOKEN_TYPE, auth.tokenType)
+            .putString(KEY_ROLE, auth.role)
+            .apply()
+        return true
     }
 
     @Synchronized
@@ -91,6 +131,7 @@ class AuthSessionStore(context: Context) : AuthSessionReader {
 
     companion object {
         private const val KEY_SERVER_URL = "server_url"
+        private const val KEY_AUTH_SESSION_ID = "auth_session_id"
         private const val KEY_ACCESS_TOKEN = "access_token"
         private const val KEY_TOKEN_TYPE = "token_type"
         private const val KEY_USER_ID = "user_id"
@@ -101,6 +142,7 @@ class AuthSessionStore(context: Context) : AuthSessionReader {
 }
 
 interface AuthSessionReader {
+    fun readUserId(): String = ""
     fun readServerUrl(): String
 
     fun readAccessToken(): String

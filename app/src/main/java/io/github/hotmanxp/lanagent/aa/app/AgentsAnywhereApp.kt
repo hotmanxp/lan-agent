@@ -23,14 +23,17 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import io.github.hotmanxp.lanagent.aa.api.ApiClient
+import io.github.hotmanxp.lanagent.aa.api.AnnouncementsApi
 import io.github.hotmanxp.lanagent.aa.api.AuthApi
 import io.github.hotmanxp.lanagent.aa.api.DevicesApi
 import io.github.hotmanxp.lanagent.aa.api.FilesApi
 import io.github.hotmanxp.lanagent.aa.api.RealtimeApi
 import io.github.hotmanxp.lanagent.aa.api.SessionsApi
 import io.github.hotmanxp.lanagent.aa.api.TerminalApi
+import io.github.hotmanxp.lanagent.aa.config.AppConfig
 import io.github.hotmanxp.lanagent.aa.feature.auth.AuthController
 import io.github.hotmanxp.lanagent.aa.feature.auth.AuthSessionStore
+import io.github.hotmanxp.lanagent.aa.feature.auth.MobileAuthSessionRefresher
 import io.github.hotmanxp.lanagent.aa.feature.auth.WebLoginState
 import io.github.hotmanxp.lanagent.aa.feature.auth.WebLoginViewModel
 import io.github.hotmanxp.lanagent.aa.feature.update.AppUpdateViewModel
@@ -60,6 +63,8 @@ import io.github.hotmanxp.lanagent.aa.feature.sessions.withMissingSessionsRemove
 import io.github.hotmanxp.lanagent.aa.feature.sessions.withAppendedSessionPage
 import io.github.hotmanxp.lanagent.aa.feature.sessions.withSessionPageLoading
 import io.github.hotmanxp.lanagent.aa.feature.sessiondetail.SessionDetailController
+import io.github.hotmanxp.lanagent.aa.feature.terminal.RemoteTerminalPool
+import io.github.hotmanxp.lanagent.aa.feature.terminal.TerminalController
 import io.github.hotmanxp.lanagent.aa.model.MobileLoginQrPayload
 import io.github.hotmanxp.lanagent.aa.model.AgentSession
 import io.github.hotmanxp.lanagent.aa.model.AgentProject
@@ -67,6 +72,8 @@ import io.github.hotmanxp.lanagent.aa.navigation.AppDestination
 import io.github.hotmanxp.lanagent.aa.ui.designsystem.AgentsAnywhereTheme
 import io.github.hotmanxp.lanagent.aa.ui.designsystem.AALanguageMode
 import io.github.hotmanxp.lanagent.aa.ui.screens.home.HomeTab
+import io.github.hotmanxp.lanagent.aa.ui.screens.announcements.AnnouncementGate
+import io.github.hotmanxp.lanagent.aa.ui.screens.announcements.AnnouncementPage
 import io.github.hotmanxp.lanagent.aa.ui.screens.update.AppUpdatePromptDialog
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
@@ -113,12 +120,15 @@ fun AgentsAnywhereApp(
     var deviceSetupReturnDestinationName by rememberSaveable { mutableStateOf(AppDestination.Devices.name) }
     var selectedHomeTabName by rememberSaveable { mutableStateOf(HomeTab.Active.name) }
     val unauthorizedTokens = remember { Channel<String>(capacity = Channel.UNLIMITED) }
-    val apiClient = remember(unauthorizedTokens) {
-        ApiClient(onUnauthorized = { accessToken ->
-            unauthorizedTokens.trySend(accessToken)
-        })
+    val sessionRefresher = remember(sessionStore) { MobileAuthSessionRefresher(sessionStore) }
+    val apiClient = remember(unauthorizedTokens, sessionRefresher) {
+        ApiClient(
+            onUnauthorized = { accessToken -> unauthorizedTokens.trySend(accessToken) },
+            refreshAccessToken = sessionRefresher::refreshAccessToken,
+        )
     }
     val realtimeApi = remember(apiClient) { RealtimeApi(client = apiClient) }
+    val announcementsApi = remember(apiClient) { AnnouncementsApi(apiClient) }
     val realtimeClientId = remember(context) { RealtimeClientIdStore(context).readOrCreate() }
     val authController = remember(context, sessionStore, apiClient) {
         AuthController(
@@ -129,6 +139,8 @@ fun AgentsAnywhereApp(
     val sessionsController = remember(context, sessionStore, apiClient) {
         SessionsController(
             sessionsApi = SessionsApi(apiClient),
+            workflowApi = io.github.hotmanxp.lanagent.aa.api.RuntimeWorkflowApi(apiClient),
+            workflowReferences = io.github.hotmanxp.lanagent.aa.feature.sessions.RuntimeWorkflowReferenceStore(context),
             devicesApi = DevicesApi(apiClient),
             filesApi = FilesApi(apiClient),
             sessionStore = sessionStore,
@@ -152,6 +164,16 @@ fun AgentsAnywhereApp(
             sessionStore = sessionStore,
         )
     }
+    val terminalController = remember(context, sessionStore, apiClient) {
+        TerminalController(
+            terminalApi = TerminalApi(apiClient),
+            sessionStore = sessionStore,
+            authApi = AuthApi(apiClient),
+        )
+    }
+    val remoteTerminalPool = remember(terminalController) {
+        RemoteTerminalPool(terminalController)
+    }
     val dashboardRealtimeController = remember(realtimeApi, sessionStore, realtimeClientId) {
         DashboardRealtimeController(realtimeApi, sessionStore, realtimeClientId)
     }
@@ -160,6 +182,7 @@ fun AgentsAnywhereApp(
     }
     val currentDestination = AppDestination.valueOf(destinationName)
     val hasAuthSession = sessionStore.hasAuthSession()
+    LaunchedEffect(hasAuthSession, sessionStore.readServerUrl(), sessionStore.readUserId()) { if (hasAuthSession) sessionsController.workflows.restore() else sessionsController.workflows.clear() }
     val updateServerUrl = sessionStore.readServerUrl()
     val updatesAllowed = hasAuthSession && updateServerUrl.isNotBlank() && currentDestination !in setOf(
         AppDestination.LoginMethods, AppDestination.ServerSetup, AppDestination.QrLogin, AppDestination.QrWaiting,
@@ -238,6 +261,7 @@ fun AgentsAnywhereApp(
         if (!didClearSession) return
 
         appUpdateViewModel.syncSession(false)
+        remoteTerminalPool.disposeLocal()
         sessionsState = SessionsState()
         isRefreshingSessions = false
         projectSessionsById = emptyMap()
@@ -342,10 +366,11 @@ fun AgentsAnywhereApp(
     }
 
     suspend fun reloadProjects(): Result<List<AgentProject>> {
-        val token = sessionStore.readAccessToken()
+        val authSessionId = sessionStore.readAuthSessionId()
+            ?: return Result.failure(IllegalStateException("Sign in again to load projects."))
         val version = ++projectsRequestVersion
         return sessionsController.loadProjects().onSuccess { projects ->
-            if (sessionStore.readAccessToken() == token && projectsRequestVersion == version) {
+            if (sessionStore.readAuthSessionId() == authSessionId && projectsRequestVersion == version) {
                 sessionsState = sessionsState.copy(projects = projects)
             }
         }
@@ -353,7 +378,7 @@ fun AgentsAnywhereApp(
 
     fun loadProjectSessions(projectId: String, status: ProjectSessionStatusFilter = ProjectSessionStatusFilter.Active) {
         if (projectId.isBlank()) return
-        val token = sessionStore.readAccessToken()
+        val authSessionId = sessionStore.readAuthSessionId() ?: return
         status.archiveStates.forEach { archived ->
             val key = ProjectSessionLoadKey(projectId, archived)
             if (key in loadingProjectRequests) return@forEach
@@ -364,23 +389,23 @@ fun AgentsAnywhereApp(
             scope.launch {
                 try {
                     projectLoadSlots.withPermit {
-                        if (sessionStore.readAccessToken() != token || sessionsState.projects.none { it.id == projectId }) return@withPermit
+                        if (sessionStore.readAuthSessionId() != authSessionId || sessionsState.projects.none { it.id == projectId }) return@withPermit
                         sessionsController.loadProjectSessions(projectId, sessionsState.devices, archived)
                             .onSuccess { sessions ->
-                                if (sessionStore.readAccessToken() == token && sessionsState.projects.any { it.id == projectId }) {
+                                if (sessionStore.readAuthSessionId() == authSessionId && sessionsState.projects.any { it.id == projectId }) {
                                     val retained = projectSessionsById[projectId].orEmpty().filter { it.archived != archived }
                                     projectSessionsById = projectSessionsById + (projectId to (retained + sessions).associateBy { it.id }.values.toList())
                                     projectSessionsLoadedAt = projectSessionsLoadedAt + (key to SystemClock.elapsedRealtime())
                                 }
                             }.onFailure { error ->
                                 if (error is kotlinx.coroutines.CancellationException) throw error
-                                if (sessionStore.readAccessToken() == token) {
+                                if (sessionStore.readAuthSessionId() == authSessionId) {
                                     projectSessionErrors = projectSessionErrors + (key to (error.message ?: "Could not load project sessions."))
                                 }
                             }
                     }
                 } finally {
-                    if (sessionStore.readAccessToken() == token) {
+                    if (sessionStore.readAuthSessionId() == authSessionId) {
                         loadingProjectRequests = loadingProjectRequests - key
                     }
                 }
@@ -507,6 +532,7 @@ fun AgentsAnywhereApp(
             sessionDetailController = sessionDetailController,
             sessionRealtimeController = sessionRealtimeController,
             filesController = filesController,
+            remoteTerminalPool = remoteTerminalPool,
             pendingMobileLoginQr = pendingMobileLoginQr,
             webLoginViewModel = webLoginViewModel,
             appUpdateViewModel = appUpdateViewModel,
@@ -642,20 +668,7 @@ fun AgentsAnywhereApp(
                     devicesController.listDeviceRuntimes(connectorId)
                 }
             },
-            onSetDeviceRuntimeActive = { connectorId, runtime, active ->
-                if (!hasAuthSession) {
-                    Result.failure(IllegalStateException("Sign in again to update this runtime."))
-                } else {
-                    devicesController.setDeviceRuntimeActive(connectorId, runtime, active)
-                }
-            },
-            onDeleteDeviceRuntimeConfig = { connectorId, runtime ->
-                if (!hasAuthSession) {
-                    Result.failure(IllegalStateException("Sign in again to delete runtime configuration."))
-                } else {
-                    devicesController.deleteDeviceRuntimeConfig(connectorId, runtime)
-                }
-            },
+            deviceAgents = devicesController,
             onBulkSetSessionsArchived = { ids, archived ->
                 if (!hasAuthSession) {
                     Result.failure(IllegalStateException("Sign in again to update sessions."))
@@ -854,6 +867,7 @@ fun AgentsAnywhereApp(
             onLoadNewSessionRuntimeCapabilities = { connectorId, runtime ->
                 sessionsController.loadNewSessionRuntimeCapabilities(connectorId, runtime)
             },
+            onPrepareRuntimeWorkspace = { connector, runtime, project -> sessionsController.prepareRuntimeWorkspace(connector, runtime, project) },
             onLoadNewSessionModelCatalog = { connectorId, runtime ->
                 sessionsController.loadNewSessionModelCatalog(connectorId, runtime)
             },
@@ -867,6 +881,28 @@ fun AgentsAnywhereApp(
                 pendingMobileLoginQr = payload
                 destinationName = AppDestination.QrWaiting.name
             },
+        )
+        io.github.hotmanxp.lanagent.aa.ui.screens.home.RuntimeWorkflowDialog(sessionsController.workflows) {
+            sessionsController.openAcceptedWorkflow(sessionsState.devices).onSuccess { session ->
+                sessionsState = sessionsState.withPatchedSession(session)
+                preparedSessionDraft = null
+                selectedSessionId = session.id
+                destinationName = AppDestination.SessionDetail.name
+            }
+        }
+        AnnouncementGate(
+            api = announcementsApi,
+            serverUrl = updateServerUrl.ifBlank { AppConfig.OFFICIAL_SERVER_URL },
+            page = when {
+                currentDestination == AppDestination.LoginMethods -> AnnouncementPage.Login
+                updatesAllowed -> AnnouncementPage.App
+                else -> null
+            },
+            appVisible = appVisible,
+            blocked = updatesAllowed && (
+                appUpdateViewModel.state.checking || appUpdateViewModel.state.promptVisible ||
+                    appUpdateViewModel.state.downloading || appUpdateViewModel.state.preparingInstall
+                ),
         )
         if (updatesAllowed) {
             AppUpdatePromptDialog(

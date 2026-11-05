@@ -70,8 +70,8 @@ android {
         applicationId = "io.github.hotmanxp.lanagent"
         minSdk = 26
         targetSdk = 34
-        versionCode = 151
-        versionName = "0.31.6"
+        versionCode = 152
+        versionName = "0.32.0"
 
         // ── 本地引擎(feat/local-engine)──────────────────────────────────────
         // 引擎包(13MB)与原生库(95MB)**都不进 APK**(0.29.0 起改成按需下载):
@@ -153,6 +153,9 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        // AA 官方客户端用 java.time / java.util.stream,minSdk 26 虽然原生有,
+        // 但部分方法(api 26 之后才补的)仍要 desugar —— 与上游保持一致。
+        isCoreLibraryDesugaringEnabled = true
     }
     kotlinOptions {
         jvmTarget = "17"
@@ -178,6 +181,12 @@ dependencies {
     implementation(libs.sora.language.textmate)
     implementation(libs.sora.oniguruma.native)
     implementation(libs.androidx.camera.mlkit.vision)
+    // AA 远程终端模块(2.1.0 同步时恢复)的 termux 渲染内核,JitPack 上拉。
+    implementation(libs.termux.terminal.view)
+    // LaTeX 公式渲染(AA 2.1.0 起会话内支持数学公式;字体包是西里尔/希腊字母)
+    implementation(libs.jlatexmath.android)
+    implementation(libs.jlatexmath.android.font.cyrillic)
+    implementation(libs.jlatexmath.android.font.greek)
     implementation(libs.androidx.compose.animation)
     implementation(libs.androidx.compose.foundation)
 
@@ -219,6 +228,7 @@ dependencies {
     // QR 生成(mobile-login dialog 用);core 只做编码,不需要 journeyapps 的
     // 扫码封装。
     implementation(libs.zxing.core)
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
 
     testImplementation(kotlin("test"))
     // 真实 org.json 实现，覆盖 Android stub —— voice/WorkBuddyApi 解析用。

@@ -1,7 +1,10 @@
 package io.github.hotmanxp.lanagent.aa.feature.sessions
 
 import io.github.hotmanxp.lanagent.aa.api.RemoteRuntimeCapabilities
+import io.github.hotmanxp.lanagent.aa.api.RemoteRuntimeModel
 import io.github.hotmanxp.lanagent.aa.api.RemoteRuntimeModelCatalogResponse
+import io.github.hotmanxp.lanagent.aa.api.RemoteRuntimeModelGroup
+import io.github.hotmanxp.lanagent.aa.api.RemoteRuntimeReasoning
 import io.github.hotmanxp.lanagent.aa.api.RemoteRuntimePermissionCatalogResponse
 import io.github.hotmanxp.lanagent.aa.feature.devices.DeviceRuntime
 import io.github.hotmanxp.lanagent.aa.feature.devices.DeviceRuntimeList
@@ -70,6 +73,7 @@ data class NewSessionRuntimeCapability(
     val parameters: Map<String, Any?>,
     val runtimeId: String? = null,
     val runtimeType: String? = runtime,
+    val metadata: Map<String, Any?> = emptyMap(),
 ) {
     val usable: Boolean
         get() = supported && available && allowed
@@ -94,6 +98,7 @@ data class NewSessionModel(
     val metadata: Map<String, Any?>,
     val enabled: Boolean = true,
     val disabledReason: String? = null,
+    val group: RemoteRuntimeModelGroup? = null,
 )
 
 data class NewSessionReasoning(
@@ -505,6 +510,7 @@ internal fun RemoteRuntimeCapabilities.toNewSessionRuntimeCapabilities(): NewSes
                 allowed = it.allowed,
                 unavailableReason = it.unavailableReason,
                 parameters = it.parameters,
+                metadata = it.metadata,
                 runtimeId = it.runtimeId,
                 runtimeType = it.runtimeType,
             )
@@ -540,6 +546,7 @@ internal fun RemoteRuntimeModelCatalogResponse.toNewSessionModelCatalog(): NewSe
                 metadata = model.metadata,
                 enabled = model.enabled,
                 disabledReason = model.disabledReason,
+                group = model.group,
             )
         },
         serverTime = serverTime,
@@ -547,6 +554,33 @@ internal fun RemoteRuntimeModelCatalogResponse.toNewSessionModelCatalog(): NewSe
         runtimeType = catalog.runtimeType,
     )
 }
+
+/** Inverse of [toNewSessionModelCatalog]'s per-model mapping, so both catalogs share one option builder. */
+internal fun NewSessionModel.toRemoteRuntimeModel(): RemoteRuntimeModel =
+    RemoteRuntimeModel(
+        id = id,
+        selectionId = selectionId,
+        displayName = displayName,
+        description = description,
+        default = default,
+        reasoningItems = reasoningItems.map {
+            RemoteRuntimeReasoning(
+                id = it.id,
+                selectionId = it.selectionId,
+                fullModelId = it.fullModelId,
+                displayName = it.displayName,
+                description = it.description,
+                default = it.default,
+                metadata = it.metadata,
+                enabled = it.enabled,
+                disabledReason = it.disabledReason,
+            )
+        },
+        metadata = metadata,
+        enabled = enabled,
+        disabledReason = disabledReason,
+        group = group,
+    )
 
 internal fun RemoteRuntimePermissionCatalogResponse.toNewSessionPermissionCatalog(): NewSessionPermissionCatalog {
     return NewSessionPermissionCatalog(

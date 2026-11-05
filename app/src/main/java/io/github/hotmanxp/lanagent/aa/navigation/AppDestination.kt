@@ -9,6 +9,7 @@ enum class AppDestination(val title: String) {
     NewSession("New Session"),
     NewProject("New Project"),
     Devices("Devices"),
+    Terminal("Terminal"),
     Files("Files"),
     DeviceDetail("Device Detail"),
     SessionDetail("Session"),

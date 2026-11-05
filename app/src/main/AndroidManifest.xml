@@ -211,9 +211,15 @@
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
         <!-- ── Agents-Anywhere 官方客户端(0.24.2 移植)需要的组件 ──
-             MainActivity / RemoteTerminalForegroundService 不并入:
-             前者与本项目的 .MainActivity 职责重复(AA 的根是个 composable,
-             已在 ui/AaHostScreen.kt 挂进「远程」栏),后者随远程终端一起摘掉了。 -->
+             MainActivity 不并入:它与本项目的 .MainActivity 职责重复(AA 的根是个
+             composable,已在 ui/AaHostScreen.kt 挂进「远程」栏)。
+             RemoteTerminalForegroundService 随 AA v2.1.0 的远程终端模块一起恢复:
+             它在会话详情页开着时保住终端连接 —— manifest 里不声明的话
+             startForegroundService 会直接抛 IllegalArgumentException。 -->
+        <service
+            android:name="io.github.hotmanxp.lanagent.aa.feature.terminal.RemoteTerminalForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 
         <!-- 附件相机拍照(AA 会话输入条)与更新 APK 安装都要通过 FileProvider
              暴露 content:// URI;lan-agent 自己的 WebView 上传走的是

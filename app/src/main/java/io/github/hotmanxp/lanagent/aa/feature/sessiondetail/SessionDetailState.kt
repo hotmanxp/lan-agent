@@ -3,6 +3,7 @@ package io.github.hotmanxp.lanagent.aa.feature.sessiondetail
 import io.github.hotmanxp.lanagent.aa.model.AgentSession
 
 data class SessionDetailState(
+    val planning: io.github.hotmanxp.lanagent.aa.api.RemotePlanningState? = null,
     val meta: SessionMeta = SessionMeta(),
     val timeline: SessionTimelineState = SessionTimelineState(),
     val runtime: SessionRuntimeState = SessionRuntimeState(),

@@ -46,6 +46,7 @@ data class TimelineMessage(
     val fileChanges: List<TimelineFileChange> = emptyList(),
     val agentCall: TimelineAgentCall? = null,
     val rawContent: String = "",
+    val workspaceImages: List<String> = emptyList(),
     val orderSeq: Int = 0,
     val revision: Int = 1,
     val updatedSeq: Int = 0,
@@ -55,8 +56,9 @@ data class TimelineMessage(
     val sourceItemType: String? = null,
     val sourceReplacedBy: String? = null,
     val optimistic: Boolean = false,
-    val retryAction: RuntimeMessageAction? = null,
     val errorMessage: String? = null,
+    val createdAt: String = "",
+    val sourceRole: String? = null,
 )
 
 data class TimelineFileChange(

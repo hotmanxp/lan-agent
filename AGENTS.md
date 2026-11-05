@@ -2,7 +2,7 @@
 
 > **lan-agent** — Android App,把局域网内多个 opencc-web 实例入口收成卡片列表 + **原生**展示实例管理 API + **原生** Agent 会话(直连 `/api/agent/sessions` + `/api/event` SSE)+ SSH 一键启动 zai。配套工程 `/Users/ethan/code/opencc-web`,zai 需 `pnpm --filter @zn-ai/zai dev -- --lan` 启动。
 >
-> **关键里程碑**: 0.10.0 视觉对齐 WorkBuddy + 自研 Markdown;0.14.0 改底部五栏;0.15.0 任务栏直接是原生 Agent 工作区;0.16.0 DisplayFiles 文件卡片;0.16.1 文件预览改面板内 overlay(不占路由);0.17.0 `/` 命令面板 + Skill 候选;0.17.4 语音 401 自愈;0.18.0 底部任务栏显示后台任务 / 后台子代理;0.18.1 WebView 函数体副作用修复(点 /m 输入框不再整页刷新);0.18.2 `/` 命令面板 argumentHint 解析容错;0.18.3 原生 AskUserQuestion 卡片 + 自动追加 Other;0.19.0 DisplayFiles 改 **PresentFile**(单文件内容卡:图片/文本内联渲染,9 种 kind)+ **本轮产物块**;0.19.1 SVG 全屏预览改 base64 + `<img>` 包 `text/html`(避开 Chromium 不渲染 `image/svg+xml` 主框架);**0.19.2 修 0.19.1 引入的白屏**(缺 doctype 落 quirks 模式 + `height:100%` 塌成 0,见 §19「SVG 预览两步坑」);0.20.0 代码块语法高亮(内核 `dev.snipme:highlights`,见 §24);0.20.1 高亮阈值 4000 字符 → 1000 行(修 kt 预览无高亮);0.24.15 任务页加载改骨架屏(见 §25);**0.25.0 会话内 Mermaid 流程图渲染(离线 WebView,见 §26)**;0.25.3 「服务」栏加远程实例管理(走 `shell.exec` 管远端 zai);**0.25.5 AA 远程终端可用(见 §27)**;**0.26.0 任务页对话字号三档(小/标准/大),仿 AA `compact` 二态但落三档,见 §28**;**0.26.3 工具调用改 Trae 式一行摘要 + 详情弹层(见 §29)、顶栏改 Trae 式药丸双按钮(见 §30)**;**0.26.4 `+` 按钮加「命令与技能」浏览入口(见 §31)**;**0.28.0 Mermaid 追齐 mermaid 12.1.0(修 radar-beta / treemap 静默降级)+ 卡片 header / 全屏预览 / 复制源码(见 §26)**;**0.29.0 本机引擎:APK 内嵌 Node 24,直接在手机上跑 agent(见 §32)**;**0.29.2 修密钥空白字符导致的 `invalid header value`**;**0.29.3 修真机上 Grep/Glob 不可用(SELinux 禁 exec app_data_file)**;**0.29.4 让 agent 能在 Bash 里用 node**;**0.29.5 手机端专用主 Agent(提示词 + 工具策略)**;**0.30.0 手机能力层(无障碍读屏/操作 + 通知动作,见 §32)**;**0.30.1 补上「修改系统设置」权限声明 + 修 airplane_mode 写错表(见 §32)**;**0.31.0 手机能力层补齐到 DSH 对标:P0(滚轮 / 交给用户)+ P1(设备状态 / 剪贴板写 / Apps 组 4 个)(见 §32)**;**0.31.1 修「写系统设置」被权限卡死:加授权页能力 + 写亮度连带关自动亮度(见 §32)**;**0.31.4 sharp 替身:手机端能读大尺寸图片(见 §32)**;**0.31.5 修真机搜索卡死不超时(App 侧看门狗 + 引擎包要重下,见 §32)**。**当前 HEAD**: HEAD on `main` · **versionCode 150** · **versionName 0.31.5**。
+> **关键里程碑**: 0.10.0 视觉对齐 WorkBuddy + 自研 Markdown;0.14.0 改底部五栏;0.15.0 任务栏直接是原生 Agent 工作区;0.16.0 DisplayFiles 文件卡片;0.16.1 文件预览改面板内 overlay(不占路由);0.17.0 `/` 命令面板 + Skill 候选;0.17.4 语音 401 自愈;0.18.0 底部任务栏显示后台任务 / 后台子代理;0.18.1 WebView 函数体副作用修复(点 /m 输入框不再整页刷新);0.18.2 `/` 命令面板 argumentHint 解析容错;0.18.3 原生 AskUserQuestion 卡片 + 自动追加 Other;0.19.0 DisplayFiles 改 **PresentFile**(单文件内容卡:图片/文本内联渲染,9 种 kind)+ **本轮产物块**;0.19.1 SVG 全屏预览改 base64 + `<img>` 包 `text/html`(避开 Chromium 不渲染 `image/svg+xml` 主框架);**0.19.2 修 0.19.1 引入的白屏**(缺 doctype 落 quirks 模式 + `height:100%` 塌成 0,见 §19「SVG 预览两步坑」);0.20.0 代码块语法高亮(内核 `dev.snipme:highlights`,见 §24);0.20.1 高亮阈值 4000 字符 → 1000 行(修 kt 预览无高亮);0.24.15 任务页加载改骨架屏(见 §25);**0.25.0 会话内 Mermaid 流程图渲染(离线 WebView,见 §26)**;0.25.3 「服务」栏加远程实例管理(走 `shell.exec` 管远端 zai);**0.25.5 AA 远程终端可用(见 §27)**;**0.26.0 任务页对话字号三档(小/标准/大),仿 AA `compact` 二态但落三档,见 §28**;**0.26.3 工具调用改 Trae 式一行摘要 + 详情弹层(见 §29)、顶栏改 Trae 式药丸双按钮(见 §30)**;**0.26.4 `+` 按钮加「命令与技能」浏览入口(见 §31)**;**0.28.0 Mermaid 追齐 mermaid 12.1.0(修 radar-beta / treemap 静默降级)+ 卡片 header / 全屏预览 / 复制源码(见 §26)**;**0.29.0 本机引擎:APK 内嵌 Node 24,直接在手机上跑 agent(见 §32)**;**0.29.2 修密钥空白字符导致的 `invalid header value`**;**0.29.3 修真机上 Grep/Glob 不可用(SELinux 禁 exec app_data_file)**;**0.29.4 让 agent 能在 Bash 里用 node**;**0.29.5 手机端专用主 Agent(提示词 + 工具策略)**;**0.30.0 手机能力层(无障碍读屏/操作 + 通知动作,见 §32)**;**0.30.1 补上「修改系统设置」权限声明 + 修 airplane_mode 写错表(见 §32)**;**0.31.0 手机能力层补齐到 DSH 对标:P0(滚轮 / 交给用户)+ P1(设备状态 / 剪贴板写 / Apps 组 4 个)(见 §32)**;**0.31.1 修「写系统设置」被权限卡死:加授权页能力 + 写亮度连带关自动亮度(见 §32)**;**0.31.4 sharp 替身:手机端能读大尺寸图片(见 §32)**;**0.31.5 修真机搜索卡死不超时(App 侧看门狗 + 引擎包要重下,见 §32)**。**0.32.0 AA 客户端同步上游 Agents-Anywhere v2.1.0(见 §33)**。**当前 HEAD**: HEAD on `feature/sync-aa-v2.1.0` · **versionCode 152** · **versionName 0.32.0**。
 >
 > **独立顶级目录、独立 git 仓库**,不在 opencc-web monorepo 内。spec / plan 在 `docs/superpowers/{specs,plans}/`(0.6.0 之后已过期,仅作历史参考)。
 
@@ -501,13 +501,51 @@ adb shell pm clear io.github.hotmanxp.lanagent
   - **⚠️ 反复踩的坑(0.28.7 又犯了一次)**:把 AGENTS.md 里这段命令**当模板抄进回复**、原样输出 `…app-debug.apk?t=$(date +%s)`,shell 变量没展开,用户点开就是一个坏 URL(手机把 `$(date` 当路径的一部分)。**回复里的链接必须是你 `Bash` 跑出来的真实输出,不能是你打算执行的命令。**
   - **How to apply:** 每次给链接都现跑一次 `date +%s`(serve 已经在跑也别省这步);别复述上一轮的链接;别给不带 query 的裸 URL;贴之前扫一眼 —— query 的值是不是 10 位数字,是字面 `$(date` 就是错的。
 
+## 33. AA 客户端同步上游 Agents-Anywhere(0.32.0)
+
+`aa/` 目录是上游 `github.com/anywhere-labs/Agents-Anywhere` 的 Android 客户端(`android/`,包名 `com.agentsanywhere.app`)的 fork,包名整体改写成 `io.github.hotmanxp.lanagent.aa`。**同步上游 = 把 `aa/` 整体推到上游最新版本**。
+
+### 同步方法:三方合并(别手抄)
+
+- **fork 基点**:靠 blob 哈希反推(`sed` 反改包名 → `git hash-object` → 在上游 history 里找同 blob 的 commit),本次是 `3b71979f`(v2.0.0 线, 2026-09-28 搬入)。**不要靠记忆,基点每次都要重新定位** —— 上游 commit 太多时用「多文件交集」筛
+- **三份树**:base = 基点 commit 的 `android/app/src/main/java/com/agentsanywhere/app/`(改包名);theirs = 上游 HEAD 同样处理;ours = 工作区 `aa/`
+- **合并**:逐文件 `git merge-file -p --diff3 ours base theirs`。冲突块少到十几个时,别上 git merge(两个独立仓库、目录结构还不同,合不动)
+- **资源**同理三方合并:下游 AA 资源在 `res/values/aa_strings.xml`(资源名**不加** `aa_` 前缀,只有本项目自有资源才加);新增 string 文件按原名拷进 `res/values/` + `res/values-zh-rCN/`
+- **`R` 类**:本项目资源在 `lanagent.R`,上游代码里的 `aa.R` 要全量改回 `lanagent.R`(本项目没有 `aa.R`)
+
+### 冲突处理原则
+
+- **默认取上游**(`=======` 与 `>>>>>>>` 之间)。上游 v2.1.0 大量重构,逐块取 theirs 才不会漏接线
+- **例外:下游本地定制必须保住**。本项目在 `aa/` 里有 6 项定制 —— 会话标题取首条消息、按住说话(WorkBuddy token)、按住说话(走 connector 文件通道)、远程实例管理(shell.exec)、AA 凭据加密存储(`SecureTokenStore.encryptedPrefs()` 替代明文 SharedPreferences)、`AgentsAnywhereTheme` 包裹
+- **凭据加密那处要两边合并**:上游新增了 `MobileAuthSessionStore` 接口,本项目改的是 `preferences` 的实现 —— 上游的接口 + 本项目的加密实现,不是二选一
+
+### terminal 模块:上游的 termux 版被本项目摘掉过,这次恢复了
+
+- 上游的 AA 远程终端基于 termux `RemoteTerminalView`(16 个文件引用,`SessionAgentFilesScreen.kt` 里就有 118 处),本项目 0.24.2 嫌它跟自家 xterm.js 的 SSH 终端重复,整块摘掉了
+- 本次同步方向定为**保真同步上游** → 恢复 termux 版。代价:**两套终端并存**(AA 远程终端用 termux,「服务」栏的局域网 SSH 终端用 xterm.js),定位不同不冲突
+- 恢复时漏一样就编译不过:① `implementation(libs.termux.terminal.view)`(JitPack,`com.github.termux.termux-app:terminal-view`,要求 `compileSdk ≥ 35`)② **上游 vendored 的 5 个 `com/termux/view/*.java`** —— 这是第三方源码,包名 `com.termux` 不能改,放 `app/src/main/java/com/termux/view/`(**不是** `aa/` 下)③ Manifest 里补 `RemoteTerminalForegroundService` 声明
+
+### ⚠️ 协议风险:客户端已要求新 server
+
+同步到 v2.1.0 后,AA 客户端会调这些基线 server 没有的路径 —— 不升级 server 就退化成功能不可用:
+
+| 路径 | 缺了会怎样 |
+|---|---|
+| `POST /auth/mobile-login/refresh` | 401 退化成跳登录(不续期) |
+| `GET/POST /sessions/{id}/planning` | 原生 Plan 面板空转 |
+| `/runtime-workflows/*` | Pi ACP 工作流 404 |
+
+**最狠的一条不是缺功能,是静默丢数据**:`RealtimeApi.parseDashboardMessage()` 现在**强制要求** server 下发 `sessionPages`,字段缺失就**直接丢弃整个 dashboard snapshot** → 首页全空且不报错。server 没升到 2.1.0 时,AA 屏会白屏。
+
 ## 配套:opencc-web
 
 `pnpm --filter @zn-ai/zai dev -- --lan`(绑 0.0.0.0,9201 / MobileAgent 路由 8101)。移动 Agent 路由 `/m`;实例管理 `/instances` + `/api/instances` + `/api/fs/picker`。**运行时只剩 `repl` 一种形态**(阶段 3 删 `RuntimeCore` / `--runtimeCore` / `PUT /api/agent/settings/runtime-core`),lan-agent 的 `InstanceRuntimeCore` 同步移除。仓库 `/Users/ethan/code/opencc-web/`,详见 `opencc-web/AGENTS.md`。
 
 ## 版本 / 发布
 
-**当前**: 0.31.5 (150) — **修真机搜索永远转圈**(见 §32):App 侧加工具调用超时看门狗(60s)+ 中断挂死的轮次;core 侧修超时文案写死「20 seconds」。
+**当前**: 0.32.0 (152) — **AA 客户端同步上游 Agents-Anywhere v2.1.0**(见 §33):`aa/` 从 v2.0.0 线推到 v2.1.0(隔 2394 个上游 commit,其中 android 路径 246 个),三方合并;新增 LaTeX 公式渲染、设备页配置 Agent、工作区图片预览、公告门、移动端 token 续期;恢复上游 AA 远程终端(termux)。
+
+0.32.0 (152) — **AA 客户端同步上游 Agents-Anywhere v2.1.0**(见 §33):`aa/` 目录(fork 自上游 `anywhere-labs/Agents-Anywhere` 的 android 客户端)整体从基点 `3b71979f`(v2.0.0 线)推到 `296f70ed`(v2.1.0)—— 上游区间 2394 个 commit,其中动 `android/` 的 246 个,diff 140 文件(+12945/−3165)。**用三方合并**(`git merge-file --diff3`,base=基点树 / ours=工作区 / theirs=上游 HEAD,全部改包名后对拷):134 个文件自动合并干净,只有 9 个文件 14 个冲突块要人工处理。**保住 6 项下游本地定制**:会话标题取首条消息、按住说话(WorkBuddy token)、按住说话(走 connector 文件通道)、远程实例管理、AA 凭据加密存储、`AgentsAnywhereTheme` 包裹;其中凭据那处是**两边合并**(上游新增 `MobileAuthSessionStore` 接口 + 本项目的 `SecureTokenStore.encryptedPrefs()` 实现),不是二选一。**恢复上游 AA 远程终端**(termux 版):本项目 0.24.2 嫌它与自家 xterm.js SSH 终端重复整块摘掉了,本次按「保真同步上游」恢复 —— 代价是两套终端并存(AA 远程终端 termux / 「服务」栏局域网 SSH 终端 xterm.js,定位不同)。恢复时补三样:termux `terminal-view` 依赖(JitPack,要求 compileSdk ≥ 35)、上游 vendored 的 5 个 `com/termux/view/*.java`(第三方源码包名不能改,放 `app/src/main/java/com/termux/` 不放 `aa/`)、Manifest 的 `RemoteTerminalForegroundService` 声明。新增依赖 `ru.noties:jlatexmath-android:0.2.0`(+西里尔/希腊字体包,LaTeX 公式渲染,APK +8~10MB)。新增资源:4 个 drawable(`ic_session_agent_{claude,codex,deepseek,pi}.xml`)+ 3 个 string 文件(`device_agent_strings` / `planning_strings` / `runtime_error_strings`,含 zh-rCN)。**⚠️ 协议风险**:客户端已要求新 server —— `POST /auth/mobile-login/refresh`(401 续期)、`/sessions/{id}/planning`(原生 Plan)、`/runtime-workflows/*`(Pi ACP 工作流)基线 server 都没有;最狠的一条是 `RealtimeApi.parseDashboardMessage()` 强制要求 `sessionPages`,字段缺失直接**丢弃整个 dashboard snapshot** → AA 屏首页全空且不报错(server 没升到 2.1.0 时)。上游删掉 `DeviceSetupSheet.kt` / `PairNewDeviceSheetHost.kt`(本项目里已无调用方)一并删除。
 
 0.31.5 (150) — **修真机搜索永远转圈、无超时错误**(见 §32):三层根因 —— ① `rg` 遇到特殊文件会卡在不可中断 I/O;② Node `execFile` 的 timeout 只 `kill` 然后等 `'close'`,子进程收不回来就**永不 settle**;③ core 的独立 ripgrep 看门狗(opencc-web `3e534f03`)能救,但它**在引擎包 zip 里**,用户手机上的引擎包过旧就没有 → 无限转圈。**App 侧兜底不依赖引擎包版本**:`ui/ToolCallWatchdog.kt`(纯 Kotlin)+ store 记 `{key → 开始时刻}`(只记第一次,重试不重置)+ 每 5s 扫一次(`AgentSessionScreen`),超 60s 换成错误卡并 `POST /api/agent/abort` **中断这一轮**(只改 UI 不中断的话,用户下一条消息永远排在那个不结束的轮次后面)。**阈值 60s 必须 > 引擎侧最坏情况(30s rg + 5s core = 35s)**,否则抢在 core 正常报错之前盖掉;**Bash / Agent 不纳入**(core 允许 Bash 跑 10 分钟)。**顺带修 core 的超时文案**(写死「20 seconds」但实际由 `CLAUDE_CODE_GLOB_TIMEOUT_SECONDS` 决定,手机上是 30)。⚠️ **用户仍需在「设置 → 本机引擎」重下引擎包**(指纹变了),否则只是 App 侧 60s 兜底。
 

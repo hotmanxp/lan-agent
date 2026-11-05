@@ -9,6 +9,11 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.res.stringResource
+import io.github.hotmanxp.lanagent.R
+import io.github.hotmanxp.lanagent.aa.ui.screens.devices.DeviceConfirmDialog
+import kotlinx.coroutines.CancellationException
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -19,7 +24,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import io.github.hotmanxp.lanagent.aa.feature.auth.WebLoginViewModel
-import io.github.hotmanxp.lanagent.aa.feature.devices.DeviceRuntime
+import io.github.hotmanxp.lanagent.aa.feature.devices.DeviceAgentOperations
+import io.github.hotmanxp.lanagent.aa.feature.devices.hasConfiguredDeviceAgents
+import io.github.hotmanxp.lanagent.aa.feature.devices.observingChanges
 import io.github.hotmanxp.lanagent.aa.feature.devices.DevicePairingStatus
 import io.github.hotmanxp.lanagent.aa.feature.devices.DeviceRuntimeList
 import io.github.hotmanxp.lanagent.aa.feature.devices.DeviceSetupCredential
@@ -37,6 +44,7 @@ import io.github.hotmanxp.lanagent.aa.feature.sessions.NewSessionPermissionCatal
 import io.github.hotmanxp.lanagent.aa.feature.sessions.NewSessionRuntimeCapabilities
 import io.github.hotmanxp.lanagent.aa.feature.sessions.SessionBatchUpdate
 import io.github.hotmanxp.lanagent.aa.feature.sessions.SessionsState
+import io.github.hotmanxp.lanagent.aa.feature.terminal.RemoteTerminalPool
 import io.github.hotmanxp.lanagent.aa.feature.update.AppUpdateViewModel
 import io.github.hotmanxp.lanagent.aa.model.AgentDevice
 import io.github.hotmanxp.lanagent.aa.model.AgentProject
@@ -49,6 +57,7 @@ import io.github.hotmanxp.lanagent.aa.ui.screens.auth.QrLoginScreen
 import io.github.hotmanxp.lanagent.aa.ui.screens.auth.QrWaitingScreen
 import io.github.hotmanxp.lanagent.aa.ui.screens.auth.WebLoginHostScreen
 import io.github.hotmanxp.lanagent.aa.ui.screens.devices.AddDeviceScreen
+import io.github.hotmanxp.lanagent.aa.ui.screens.devices.DeviceAgentSetupSheet
 import io.github.hotmanxp.lanagent.aa.ui.screens.devices.DeviceDetailScreen
 import io.github.hotmanxp.lanagent.aa.ui.screens.devices.DevicesScreen
 import io.github.hotmanxp.lanagent.aa.ui.screens.devices.rememberDeviceAgentPreviews
@@ -59,6 +68,7 @@ import io.github.hotmanxp.lanagent.aa.ui.screens.home.HomeTab
 import io.github.hotmanxp.lanagent.aa.ui.screens.home.NewSessionScreen
 import io.github.hotmanxp.lanagent.aa.ui.screens.sessiondetail.SessionComposerDraftStore
 import io.github.hotmanxp.lanagent.aa.ui.screens.sessiondetail.SessionDetailScreen
+import io.github.hotmanxp.lanagent.aa.ui.screens.terminal.TerminalScreen
 
 @Composable
 internal fun AgentsAnywhereNavHost(
@@ -84,6 +94,7 @@ internal fun AgentsAnywhereNavHost(
     sessionDetailController: SessionDetailController,
     sessionRealtimeController: SessionRealtimeController,
     filesController: FilesController,
+    remoteTerminalPool: RemoteTerminalPool,
     pendingMobileLoginQr: MobileLoginQrPayload?,
     webLoginViewModel: WebLoginViewModel,
     appUpdateViewModel: AppUpdateViewModel,
@@ -115,8 +126,7 @@ internal fun AgentsAnywhereNavHost(
     onClearDevicePairing: (String) -> Unit,
     onDevicePairingComplete: () -> Unit,
     onListDeviceRuntimes: suspend (String) -> Result<DeviceRuntimeList>,
-    onSetDeviceRuntimeActive: suspend (String, String, Boolean) -> Result<DeviceRuntime>,
-    onDeleteDeviceRuntimeConfig: suspend (String, String) -> Result<DeviceRuntime>,
+    deviceAgents: DeviceAgentOperations,
     onBulkSetSessionsArchived: suspend (List<String>, Boolean) -> Result<SessionBatchUpdate>,
     onArchiveAllDeviceSessions: suspend (String, Boolean, String) -> Result<List<AgentSession>>,
     onRenameSession: suspend (String, String) -> Result<AgentSession>,
@@ -136,6 +146,7 @@ internal fun AgentsAnywhereNavHost(
     onListDirectory: suspend (String, String, String) -> Result<NewSessionDirectory>,
     onListNewSessionRuntimes: suspend (String) -> Result<DeviceRuntimeList>,
     onLoadNewSessionRuntimeCapabilities: suspend (String, String) -> Result<NewSessionRuntimeCapabilities>,
+    onPrepareRuntimeWorkspace: suspend (String, String, String) -> Result<io.github.hotmanxp.lanagent.aa.feature.sessions.PreparedRuntimeWorkspace>,
     onLoadNewSessionModelCatalog: suspend (String, String) -> Result<NewSessionModelCatalog>,
     onLoadNewSessionPermissionCatalog: suspend (String, String) -> Result<NewSessionPermissionCatalog>,
     onSessionChanged: (AgentSession) -> Unit,
@@ -151,6 +162,71 @@ internal fun AgentsAnywhereNavHost(
         refreshKey = deviceAgentPreviewRefreshKey,
         onListDeviceRuntimes = onListDeviceRuntimes,
     )
+    // Agent counts on the device list follow every Agent change made in this app.
+    val agentOperations = remember(deviceAgents) {
+        deviceAgents.observingChanges { deviceAgentPreviewRefreshKey += 1L }
+    }
+    val checkAgents: suspend () -> Result<Boolean> = {
+        runCatching { hasConfiguredDeviceAgents(sessionsState.devices, onListDeviceRuntimes) }
+    }
+    var agentSetupDeviceIds by remember(serverUrl, userId) { mutableStateOf(emptyList<String>()) }
+    // A device page under the setup sheet reads its Agents again once the sheet closes.
+    var agentSetupFinishedCount by remember(serverUrl, userId) { mutableLongStateOf(0L) }
+    val showsWorkspace = currentDestination in workspaceDestinations
+    var agentReminderChecked by remember(serverUrl, userId) { mutableStateOf(false) }
+    var agentReminderOpen by remember(serverUrl, userId) { mutableStateOf(false) }
+    LaunchedEffect(currentDestination, sessionsState.hasLoaded, sessionsState.devices, isRefreshingSessions, serverUrl, userId) {
+        if (currentDestination == AppDestination.DeviceSetup) agentReminderChecked = false
+        if (currentDestination != AppDestination.Sessions || !sessionsState.hasLoaded ||
+            sessionsState.isLoading || isRefreshingSessions || sessionsState.errorMessage != null || agentReminderChecked) return@LaunchedEffect
+        try {
+            val configured = hasConfiguredDeviceAgents(sessionsState.devices, onListDeviceRuntimes)
+            agentReminderChecked = true
+            agentReminderOpen = !configured
+        } catch (error: CancellationException) { throw error }
+        catch (_: Exception) { /* Unknown inventory must not be treated as empty. */ }
+    }
+    // A device that came online after its setup page was left is offered Agent setup here.
+    val onlinePairings = devicePairingStates.filterValues { it == DevicePairingStatus.Online }.keys
+    LaunchedEffect(onlinePairings, showsWorkspace, agentSetupDeviceIds) {
+        if (!showsWorkspace || agentSetupDeviceIds.isNotEmpty()) return@LaunchedEffect
+        val id = onlinePairings.firstOrNull() ?: return@LaunchedEffect
+        onClearDevicePairing(id)
+        if (sessionsState.devices.any { it.id == id }) agentSetupDeviceIds = listOf(id)
+    }
+    if (agentReminderOpen && currentDestination == AppDestination.Sessions && !profileOpen && agentSetupDeviceIds.isEmpty()) {
+        DeviceConfirmDialog(
+            title = stringResource(R.string.agent_reminder_title),
+            body = stringResource(R.string.agent_reminder_description),
+            confirmLabel = stringResource(R.string.agent_reminder_add),
+            dismissLabel = stringResource(R.string.agent_reminder_later),
+            onDismiss = { agentReminderOpen = false },
+            onConfirm = {
+                agentReminderOpen = false
+                val online = sessionsState.devices.filter { it.online }
+                when {
+                    online.isNotEmpty() -> agentSetupDeviceIds = online.map { it.id }
+                    sessionsState.devices.isNotEmpty() -> onOpenDevice(sessionsState.devices.first())
+                    else -> navigate(AppDestination.DeviceSetup)
+                }
+            },
+        )
+    }
+    val agentSetupDevices = agentSetupDeviceIds.mapNotNull { id -> sessionsState.devices.firstOrNull { it.id == id } }
+    if (agentSetupDevices.isNotEmpty() && showsWorkspace) {
+        DeviceAgentSetupSheet(
+            devices = agentSetupDevices,
+            operations = agentOperations,
+            onCheckAgents = checkAgents,
+            onFinish = {
+                agentSetupDeviceIds = emptyList()
+                agentSetupFinishedCount += 1L
+            },
+        )
+    } else if (agentSetupDeviceIds.isNotEmpty() && agentSetupDevices.isEmpty()) {
+        // The devices were deleted or the account changed while the setup was pending.
+        LaunchedEffect(Unit) { agentSetupDeviceIds = emptyList() }
+    }
     val sessionComposerDraftStore = remember(context, userId) {
         SessionComposerDraftStore(context.applicationContext, userId)
     }
@@ -247,6 +323,7 @@ internal fun AgentsAnywhereNavHost(
                     onListRuntimes = onListNewSessionRuntimes,
                     onLoadRuntimeCapabilities = onLoadNewSessionRuntimeCapabilities,
                     onLoadModelCatalog = onLoadNewSessionModelCatalog,
+                    onPrepareRuntimeWorkspace = onPrepareRuntimeWorkspace,
                     onLoadPermissionCatalog = onLoadNewSessionPermissionCatalog,
                     onPrepareSession = onPrepareSession,
                     onRefreshDevices = onRefreshSessions,
@@ -273,6 +350,7 @@ internal fun AgentsAnywhereNavHost(
                     controller = sessionDetailController,
                     realtimeController = sessionRealtimeController,
                     filesController = filesController,
+                    terminalPool = remoteTerminalPool,
                     composerDraftStore = sessionComposerDraftStore,
                     onSessionChanged = onSessionChanged,
                 )
@@ -285,18 +363,8 @@ internal fun AgentsAnywhereNavHost(
                     onRenameDevice = onRenameDevice,
                     onDeleteDevice = onDeleteDevice,
                     onPrepareDeviceSetup = onPrepareDeviceSetup,
-                    onClaimDevicePairCode = onClaimDevicePairCode,
-                    onListDeviceRuntimes = onListDeviceRuntimes,
-                    onSetDeviceRuntimeActive = { connectorId, runtime, active ->
-                        onSetDeviceRuntimeActive(connectorId, runtime, active).onSuccess {
-                            deviceAgentPreviewRefreshKey += 1L
-                        }
-                    },
-                    onDeleteDeviceRuntimeConfig = { connectorId, runtime ->
-                        onDeleteDeviceRuntimeConfig(connectorId, runtime).onSuccess {
-                            deviceAgentPreviewRefreshKey += 1L
-                        }
-                    },
+                    agentOperations = agentOperations,
+                    agentsRefreshKey = agentSetupFinishedCount,
                     onBulkSetSessionsArchived = onBulkSetSessionsArchived,
                     onArchiveAllDeviceSessions = onArchiveAllDeviceSessions,
                 )
@@ -309,8 +377,12 @@ internal fun AgentsAnywhereNavHost(
                     agentPreviews = deviceAgentPreviews,
                     onAddDevice = { navigate(AppDestination.DeviceSetup) },
                 )
-                // 0.24.2:远程终端改放「服务」栏独立入口(与局域网 SSH 并排),
-                // 共用本项目的 xterm.js 渲染器,这里不再有 Terminal 分支。
+                AppDestination.Terminal -> TerminalScreen(
+                    navigate = navigate,
+                    state = sessionsState,
+                    terminalPool = remoteTerminalPool,
+                    onPairDevice = { navigate(AppDestination.DeviceSetup) },
+                )
                 AppDestination.Files -> FilesScreen(
                     navigate = navigate,
                     state = sessionsState,
@@ -319,6 +391,8 @@ internal fun AgentsAnywhereNavHost(
                 )
                 AppDestination.DeviceSetup -> androidx.compose.runtime.key(serverUrl, userId) {
                     AddDeviceScreen(
+                        agentOperations = agentOperations,
+                        onCheckAgents = checkAgents,
                         devices = sessionsState.devices,
                         pairingStates = devicePairingStates,
                         onBack = { navigate(deviceSetupReturnDestination) },
@@ -346,3 +420,12 @@ internal fun AgentsAnywhereNavHost(
         }
     }
 }
+
+/** Destinations of a signed-in workspace, where Agent setup can be offered over the page. */
+private val workspaceDestinations = AppDestination.entries.toSet() - setOf(
+    AppDestination.LoginMethods,
+    AppDestination.ServerSetup,
+    AppDestination.QrLogin,
+    AppDestination.QrWaiting,
+    AppDestination.DeviceSetup,
+)

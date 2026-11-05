@@ -33,6 +33,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.InlineTextContent
+import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -61,7 +63,12 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
+import io.github.hotmanxp.lanagent.aa.ui.designsystem.runtimeOperationErrorMessage
+import io.github.hotmanxp.lanagent.aa.ui.designsystem.runtimeErrorText
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.Placeholder
+import androidx.compose.ui.text.PlaceholderVerticalAlign
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -77,6 +84,8 @@ import io.github.hotmanxp.lanagent.aa.api.AttachmentTransferException
 import io.github.hotmanxp.lanagent.aa.api.AttachmentTransferFailure
 import io.github.hotmanxp.lanagent.aa.api.UploadFilePart
 import io.github.hotmanxp.lanagent.aa.feature.files.FilesController
+import io.github.hotmanxp.lanagent.aa.feature.files.MAX_INLINE_WORKSPACE_IMAGE_BYTES
+import io.github.hotmanxp.lanagent.aa.feature.files.resolvePathInWorkspace
 import io.github.hotmanxp.lanagent.aa.feature.realtime.SessionRealtimeController
 import io.github.hotmanxp.lanagent.aa.feature.sessiondetail.DownloadedAttachment
 import io.github.hotmanxp.lanagent.aa.feature.sessiondetail.SessionDetailController
@@ -93,9 +102,19 @@ import io.github.hotmanxp.lanagent.aa.feature.sessiondetail.failSnapshotLoad
 import io.github.hotmanxp.lanagent.aa.feature.sessiondetail.isValidAttachmentMediaType
 import io.github.hotmanxp.lanagent.aa.feature.sessiondetail.isInternalRuntimeError
 import io.github.hotmanxp.lanagent.aa.feature.sessiondetail.hasPendingOptimisticSend
-import io.github.hotmanxp.lanagent.aa.feature.sessiondetail.RuntimeMessageAction
+import io.github.hotmanxp.lanagent.aa.feature.sessiondetail.RuntimeCommand
+import io.github.hotmanxp.lanagent.aa.feature.sessiondetail.RuntimeCommandBlock
+import io.github.hotmanxp.lanagent.aa.feature.sessiondetail.RuntimeCommandExecutionState
+import io.github.hotmanxp.lanagent.aa.feature.sessiondetail.RuntimeCommandUi
 import io.github.hotmanxp.lanagent.aa.feature.sessiondetail.RuntimeNotice
 import io.github.hotmanxp.lanagent.aa.feature.sessiondetail.RuntimeNoticeAction
+import io.github.hotmanxp.lanagent.aa.feature.sessiondetail.SlashIntent
+import io.github.hotmanxp.lanagent.aa.feature.sessiondetail.allowed
+import io.github.hotmanxp.lanagent.aa.feature.sessiondetail.block
+import io.github.hotmanxp.lanagent.aa.feature.sessiondetail.exact
+import io.github.hotmanxp.lanagent.aa.feature.sessiondetail.matchesPrefix
+import io.github.hotmanxp.lanagent.aa.feature.sessiondetail.request
+import io.github.hotmanxp.lanagent.aa.feature.sessiondetail.ui
 import io.github.hotmanxp.lanagent.aa.feature.sessiondetail.RuntimeNoticeResponseException
 import io.github.hotmanxp.lanagent.aa.feature.sessiondetail.SESSION_ATTACHMENT_CAPABILITY
 import io.github.hotmanxp.lanagent.aa.feature.sessiondetail.SESSION_COMMANDS_CAPABILITY
@@ -105,10 +124,11 @@ import io.github.hotmanxp.lanagent.aa.feature.sessiondetail.SESSION_MODEL_CATALO
 import io.github.hotmanxp.lanagent.aa.feature.sessiondetail.SESSION_NOTICE_RESPONSE_CAPABILITY
 import io.github.hotmanxp.lanagent.aa.feature.sessiondetail.SESSION_PERMISSION_CATALOG_CAPABILITY
 import io.github.hotmanxp.lanagent.aa.feature.sessiondetail.SESSION_SEND_MESSAGE_CAPABILITY
-import io.github.hotmanxp.lanagent.aa.feature.sessiondetail.SESSION_STEER_CAPABILITY
 import io.github.hotmanxp.lanagent.aa.feature.sessiondetail.selectionOptions
+import io.github.hotmanxp.lanagent.aa.feature.sessiondetail.modelSelectionOptions
 import io.github.hotmanxp.lanagent.aa.feature.sessiondetail.sessionComposerEnabled
 import io.github.hotmanxp.lanagent.aa.feature.sessiondetail.validatedSelection
+import io.github.hotmanxp.lanagent.aa.feature.sessions.AgentForm
 import io.github.hotmanxp.lanagent.aa.feature.sessions.mergeAuthoritativeSessionMetadata
 import io.github.hotmanxp.lanagent.aa.feature.sessions.NewSessionCreateOutcome
 import io.github.hotmanxp.lanagent.aa.feature.sessions.NewSessionCreateDraft
@@ -118,6 +138,9 @@ import io.github.hotmanxp.lanagent.aa.feature.sessions.NewSessionSelections
 import io.github.hotmanxp.lanagent.aa.feature.sessions.firstMessageRequest
 import io.github.hotmanxp.lanagent.aa.feature.sessions.NewSessionModelCatalog
 import io.github.hotmanxp.lanagent.aa.feature.sessions.NewSessionPermissionCatalog
+import io.github.hotmanxp.lanagent.aa.feature.sessions.toRemoteRuntimeModel
+import io.github.hotmanxp.lanagent.aa.feature.terminal.RemoteTerminalForegroundService
+import io.github.hotmanxp.lanagent.aa.feature.terminal.RemoteTerminalPool
 import io.github.hotmanxp.lanagent.aa.model.AgentDevice
 import io.github.hotmanxp.lanagent.aa.model.AgentSession
 import io.github.hotmanxp.lanagent.aa.model.SessionStatus
@@ -166,12 +189,18 @@ fun SessionDetailScreen(
     controller: SessionDetailController,
     realtimeController: SessionRealtimeController,
     filesController: FilesController,
+    terminalPool: RemoteTerminalPool,
     composerDraftStore: SessionComposerDraftStore,
     onSessionChanged: (AgentSession) -> Unit = {},
 ) {
+    var planningCreation by remember(sessionId, preparedSession?.localSessionId) { mutableStateOf(false) }
+    var planningBusy by remember(sessionId) { mutableStateOf(false) }
+    val planReader = remember(sessionId) { mutableStateOf<io.github.hotmanxp.lanagent.aa.api.PlanDocument?>(null) }
+    val planningSession by rememberUpdatedState(sessionId)
     val colors = LocalAAColors.current
     val darkMode = colors.isDark
     val context = LocalContext.current
+    val runtimeNoticeDraftStore = rememberRuntimeNoticeDraftStore()
     val clipboard = LocalClipboardManager.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
@@ -196,10 +225,12 @@ fun SessionDetailScreen(
     var streamLatestRequest by remember(sessionId) { mutableStateOf(0) }
     var attachments by remember(composerDraftSessionId) { mutableStateOf(restoredComposerDraft.attachments) }
     var retryClientMessageId by remember(composerDraftSessionId) { mutableStateOf(restoredComposerDraft.clientMessageId) }
-    var retryMessageAction by remember(composerDraftSessionId) { mutableStateOf(restoredComposerDraft.retryAction) }
     var preparedSessionCreating by remember(preparedSession) { mutableStateOf(false) }
     var preparedSelections by remember(preparedSession) { mutableStateOf(preparedSession?.selections ?: NewSessionSelections()) }
-    var preparedModelOptions by remember(preparedSession) { mutableStateOf(emptyList<io.github.hotmanxp.lanagent.aa.feature.sessiondetail.RuntimeSelectionOption>()) }
+    var preparedModelOptions by remember(preparedSession) {
+        mutableStateOf(preparedSession?.preparedWorkspace?.catalog?.models
+            ?.map { it.toRemoteRuntimeModel() }?.modelSelectionOptions().orEmpty())
+    }
     var preparedPermissionCatalog by remember(preparedSession) { mutableStateOf<NewSessionPermissionCatalog?>(null) }
     var preparedModelLoading by remember(preparedSession) { mutableStateOf(false) }
     var preparedPermissionLoading by remember(preparedSession) { mutableStateOf(false) }
@@ -216,12 +247,14 @@ fun SessionDetailScreen(
     var shareScope by remember(sessionId) { mutableStateOf(SessionShareScope.Reply) }
     var shareBusy by remember(sessionId) { mutableStateOf(false) }
     var pendingOpenFilePath by remember(sessionId) { mutableStateOf<String?>(null) }
+    var terminalVerticalDragActive by remember(sessionId) { mutableStateOf(false) }
     var composerHeightPx by remember { mutableStateOf(0) }
     var readOnlyComposerTapCount by remember(sessionId) { mutableStateOf(0) }
     var modelCatalogRefreshKey by remember(sessionId) { mutableStateOf<String?>(null) }
     var permissionCatalogRefreshKey by remember(sessionId) { mutableStateOf<String?>(null) }
     val refetchInFlight = remember(sessionId) { AtomicBoolean(false) }
     val olderInFlight = remember(sessionId) { AtomicBoolean(false) }
+    val remoteTerminal = remember(sessionId, terminalPool) { terminalPool.forSession(sessionId) }
 
     var appVisible by remember(lifecycleOwner) {
         mutableStateOf(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
@@ -416,23 +449,20 @@ fun SessionDetailScreen(
         nextDraft: String,
         nextAttachments: List<PendingAttachment>,
         clientMessageId: String? = retryClientMessageId,
-        retryAction: RuntimeMessageAction? = retryMessageAction,
     ) {
-        composerDraftStore.save(composerDraftSessionId, nextDraft, nextAttachments, clientMessageId, retryAction)
+        composerDraftStore.save(composerDraftSessionId, nextDraft, nextAttachments, clientMessageId)
     }
 
     fun setComposerDraft(nextDraft: String) {
         draft = nextDraft
         retryClientMessageId = null
-        retryMessageAction = null
-        saveComposerDraft(nextDraft, attachments, null, null)
+        saveComposerDraft(nextDraft, attachments, null)
     }
 
     fun setComposerAttachments(nextAttachments: List<PendingAttachment>) {
         attachments = nextAttachments
         retryClientMessageId = null
-        retryMessageAction = null
-        saveComposerDraft(draft, nextAttachments, null, null)
+        saveComposerDraft(draft, nextAttachments, null)
     }
 
     fun clearComposerDraft() {
@@ -440,7 +470,6 @@ fun SessionDetailScreen(
         attachments = emptyList()
         composerDraftStore.clear(composerDraftSessionId)
         retryClientMessageId = null
-        retryMessageAction = null
     }
 
     fun updateAttachment(id: String, transform: (PendingAttachment) -> PendingAttachment) {
@@ -637,12 +666,13 @@ fun SessionDetailScreen(
         val hadInitializedState = state.initialized
         try {
             state = state.beginSnapshotLoad(clearErrors = !hadInitializedState)
-            controller.loadInitialSnapshot(id, devices, state).fold(
+            val requestState = state
+            controller.loadInitialSnapshot(id, devices, requestState).fold(
                 onSuccess = { loaded ->
                     if (!appVisible) {
                         state = state.failSnapshotLoad(null)
                     } else {
-                        state = controller.mergeSnapshotWithLiveState(id, loaded, state)
+                        state = controller.mergeSnapshotWithLiveState(id, loaded, state, requestState)
                             .completeSnapshotLoad()
                         state.session?.let(onSessionChanged)
                     }
@@ -739,13 +769,12 @@ fun SessionDetailScreen(
                     text = message,
                     clientMessageId = clientMessageId,
                     attachments = optimisticAttachments,
-                    retryAction = RuntimeMessageAction.Send,
                 )
                 clearComposerDraft()
                 when (
                     val outcome = onCreatePreparedSession(
                         pending.firstMessageRequest(
-                            content = message,
+                            content = if (planningCreation && io.github.hotmanxp.lanagent.aa.feature.sessiondetail.PlanningCommand.parse(message) == null) "/plan $message" else message,
                             selections = preparedSelections,
                             attachments = inlineAttachments,
                             clientMessageId = clientMessageId,
@@ -759,6 +788,7 @@ fun SessionDetailScreen(
                             clientMessageId = clientMessageId,
                             status = "running",
                         )
+                        if (io.github.hotmanxp.lanagent.aa.feature.sessiondetail.PlanningCommand.parse(message)?.command == "enter_plan") controller.clearPlanningEntry(localSessionId)
                         controller.bindOptimisticSession(localSessionId, outcome.session.id)
                         clearComposerDraft()
                         onPreparedSessionCreated(outcome.session)
@@ -768,11 +798,10 @@ fun SessionDetailScreen(
                         draft = message
                         attachments = pendingAttachments
                         retryClientMessageId = clientMessageId
-                        retryMessageAction = RuntimeMessageAction.Send
-                        saveComposerDraft(message, pendingAttachments, clientMessageId, RuntimeMessageAction.Send)
-                        val rawMessage = outcome.error.message
+                        saveComposerDraft(message, pendingAttachments, clientMessageId)
+                        val rawMessage = runtimeOperationErrorMessage(context, outcome.error, R.string.new_session_create_failed)
                         val errorMessage = rawMessage
-                            ?.takeUnless(::isInternalRuntimeError)
+                            .takeUnless(::isInternalRuntimeError)
                             ?: context.getString(R.string.new_session_create_failed)
                         state = controller.markOptimisticMessage(
                             sessionId = localSessionId,
@@ -791,29 +820,11 @@ fun SessionDetailScreen(
         val id = sessionId ?: return
         val runtimeId = state.session?.runtimeId ?: state.runtime.runtimeId
         val runtimeType = state.session?.runtimeType ?: state.runtime.runtimeType
-        val messageAction = state.capabilities.messageAction(runtimeId, state.effectiveRuntimeStatus(), runtimeType)
-        if (messageAction == null) {
-            showError(context.getString(R.string.session_steer_unavailable))
+        if (!state.capabilities.isUsable(SESSION_SEND_MESSAGE_CAPABILITY, runtimeId, runtimeType)) {
+            showError(context.getString(R.string.session_send_unavailable))
             return
         }
         val clientMessageId = retryClientMessageId ?: "opt_${UUID.randomUUID()}"
-        val requestAction = retryMessageAction ?: messageAction
-        val actionAllowed = when (requestAction) {
-            RuntimeMessageAction.Send -> state.capabilities.isUsable(
-                SESSION_SEND_MESSAGE_CAPABILITY,
-                runtimeId,
-                runtimeType,
-            )
-            RuntimeMessageAction.Steer -> state.capabilities.isUsable(
-                SESSION_STEER_CAPABILITY,
-                runtimeId,
-                runtimeType,
-            )
-        }
-        if (!actionAllowed) {
-            showError(context.getString(R.string.session_steer_unavailable))
-            return
-        }
         val pendingAttachments = attachments
         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
         scope.launch {
@@ -833,27 +844,11 @@ fun SessionDetailScreen(
                 text = text,
                 clientMessageId = clientMessageId,
                 attachments = optimisticAttachments,
-                retryAction = requestAction,
             )
             unfocusComposer()
             forceLatestRequest += 1
             state.session?.let { onSessionChanged(it.copy(optimisticTopUntil = System.currentTimeMillis() + 1_000)) }
-            val request = if (requestAction == RuntimeMessageAction.Steer) {
-                controller.steer(
-                    sessionId = id,
-                    content = text,
-                    clientMessageId = clientMessageId,
-                    uploadedAttachments = uploadedAttachments,
-                )
-            } else {
-                controller.sendMessage(
-                    sessionId = id,
-                    content = text,
-                    clientMessageId = clientMessageId,
-                    uploadedAttachments = uploadedAttachments,
-                )
-            }
-            request
+            controller.sendMessage(id, text, clientMessageId, uploadedAttachments = uploadedAttachments)
                 .onSuccess { result ->
                     clearComposerDraft()
                     state = controller.markOptimisticMessage(
@@ -874,8 +869,7 @@ fun SessionDetailScreen(
                         return@onFailure
                     }
                     retryClientMessageId = clientMessageId
-                    retryMessageAction = requestAction
-                    saveComposerDraft(text, pendingAttachments, clientMessageId, requestAction)
+                    saveComposerDraft(text, pendingAttachments, clientMessageId)
                     state = controller.markOptimisticMessage(
                         sessionId = id,
                         state = state,
@@ -891,48 +885,6 @@ fun SessionDetailScreen(
     LaunchedEffect(state.messages, retryClientMessageId) {
         val retryId = retryClientMessageId ?: return@LaunchedEffect
         if (controller.hasServerEcho(state, retryId)) clearComposerDraft()
-    }
-
-    fun sendDraft() {
-        val text = draft.trim()
-        if (text.isEmpty() && attachments.isEmpty()) return
-        if (preparedSession == null && text.startsWith('/')) {
-            val id = sessionId ?: return
-            val raw = text.removePrefix("/").trim()
-            val commandName = raw.substringBefore(' ').trim()
-            val command = state.commands.commands.firstOrNull { candidate ->
-                candidate.id.equals(commandName, ignoreCase = true) ||
-                    candidate.aliases.any { it.equals(commandName, ignoreCase = true) }
-            }
-            if (command == null) {
-                showError(context.getString(R.string.session_command_unknown))
-                return
-            }
-            if (!command.enabled) {
-                showError(command.disabledReason ?: context.getString(R.string.session_command_failed))
-                return
-            }
-            if (state.commandExecuting) return
-            val args = raw.substringAfter(' ', "")
-                .trim()
-                .split(Regex("\\s+"))
-                .filter(String::isNotBlank)
-            state = state.copy(commandExecuting = true, actionError = null)
-            scope.launch {
-                controller.executeCommand(id, command.id, args, text)
-                    .onSuccess {
-                        clearComposerDraft()
-                        state = state.copy(commandExecuting = false)
-                    }
-                    .onFailure { error ->
-                        val message = error.message ?: context.getString(R.string.session_command_failed)
-                        state = state.copy(commandExecuting = false, actionError = message)
-                        showError(message)
-                    }
-            }
-            return
-        }
-        sendText(text)
     }
 
     fun applyTakeover(enabled: Boolean) {
@@ -978,39 +930,18 @@ fun SessionDetailScreen(
             preparedModelLoading = true
             preparedModelError = null
             scope.launch {
-                onLoadPreparedModelCatalog(pending.connectorId, pending.runtimeId)
+                val catalogResult = pending.preparedWorkspace?.catalog?.let { Result.success(it) }
+                    ?: onLoadPreparedModelCatalog(pending.connectorId, pending.runtimeId)
+                catalogResult
                     .onSuccess { catalog ->
-                        preparedModelOptions = catalog.models.flatMap { model ->
-                            val reasoning = model.reasoningItems.filter { it.selectionId.isNotBlank() }
-                            if (reasoning.isNotEmpty()) {
-                                reasoning.map { item ->
-                                    io.github.hotmanxp.lanagent.aa.feature.sessiondetail.RuntimeSelectionOption(
-                                        selectionId = item.selectionId,
-                                        label = listOf(model.displayName, item.displayName)
-                                            .filter(String::isNotBlank).joinToString(" · "),
-                                        description = item.description ?: model.description,
-                                        default = item.default || (model.default && reasoning.first() == item),
-                                        enabled = model.enabled && item.enabled,
-                                        disabledReason = item.disabledReason ?: model.disabledReason,
-                                    )
-                                }
-                            } else {
-                                model.selectionId?.takeIf(String::isNotBlank)?.let { id ->
-                                    listOf(
-                                        io.github.hotmanxp.lanagent.aa.feature.sessiondetail.RuntimeSelectionOption(
-                                            selectionId = id,
-                                            label = model.displayName.ifBlank { model.id },
-                                            description = model.description,
-                                            default = model.default,
-                                            enabled = model.enabled,
-                                            disabledReason = model.disabledReason,
-                                        ),
-                                    )
-                                }.orEmpty()
-                            }
-                        }.distinctBy { it.selectionId }
+                        preparedModelOptions = catalog.models
+                            .map { it.toRemoteRuntimeModel() }
+                            .modelSelectionOptions()
                         preparedSelections = preparedSelections.copy(
-                            model = preparedModelOptions.validatedSelection(preparedSelections.model),
+                            model = preparedModelOptions.validatedSelection(
+                                preparedSelections.model,
+                                defaultWhenMissing = true,
+                            ),
                         )
                     }
                     .onFailure { preparedModelError = it.message ?: context.getString(R.string.session_runtime_model_catalog_failed) }
@@ -1062,7 +993,10 @@ fun SessionDetailScreen(
                                 )
                             }
                         preparedSelections = preparedSelections.copy(
-                            permission = options.validatedSelection(preparedSelections.permission),
+                            permission = options.validatedSelection(
+                                preparedSelections.permission,
+                                defaultWhenMissing = true,
+                            ),
                         )
                     }
                     .onFailure { preparedPermissionError = it.message ?: context.getString(R.string.session_runtime_permission_catalog_failed) }
@@ -1169,8 +1103,13 @@ fun SessionDetailScreen(
         )
         noticeResponseErrors = noticeResponseErrors - notice.noticeId
         scope.launch {
-            controller.respondNotice(id, notice.noticeId, action.actionId, input)
+            controller.respondNotice(id, notice.noticeId, action.actionId,
+                if (notice.metadata["ownerGeneration"] is String && notice.metadata["requestRevision"] is Number)
+                    mapOf("ownerGeneration" to notice.metadata["ownerGeneration"], "requestRevision" to notice.metadata["requestRevision"],
+                        "responseOperationId" to UUID.randomUUID().toString()) + (if (input != null) mapOf("response" to input) else emptyMap())
+                else input)
                 .onSuccess {
+                    runtimeNoticeDraftStore.clear(notice.sessionId, notice.noticeId)
                     state = state.copy(
                         notices = state.notices.copy(
                             notices = state.notices.notices.filterNot { observed ->
@@ -1190,6 +1129,7 @@ fun SessionDetailScreen(
                             "approval_not_found",
                         )
                     ) {
+                        runtimeNoticeDraftStore.clear(notice.sessionId, notice.noticeId)
                         state = state.copy(
                             notices = state.notices.copy(
                                 notices = state.notices.notices.filterNot { it.noticeId == notice.noticeId },
@@ -1215,6 +1155,17 @@ fun SessionDetailScreen(
             scope.launch { pagerState.animateScrollToPage(0) }
         } else {
             navigate(AppDestination.Sessions)
+        }
+    }
+
+    DisposableEffect(context, sessionId) {
+        if (sessionId != null) {
+            RemoteTerminalForegroundService.start(context)
+        }
+        onDispose {
+            if (sessionId != null) {
+                RemoteTerminalForegroundService.stop(context)
+            }
         }
     }
 
@@ -1326,7 +1277,6 @@ fun SessionDetailScreen(
     val runtimeId = state.session?.runtimeId ?: state.runtime.runtimeId
     val runtimeType = state.session?.runtimeType ?: state.runtime.runtimeType
     val canUseSendMessage = state.capabilities.isUsable(SESSION_SEND_MESSAGE_CAPABILITY, runtimeId, runtimeType)
-    val canUseSteer = state.capabilities.isUsable(SESSION_STEER_CAPABILITY, runtimeId, runtimeType)
     val canUseInterrupt = state.capabilities.isUsable(SESSION_INTERRUPT_CAPABILITY, runtimeId, runtimeType)
     val canRespondToNotice = state.capabilities.isUsable(
         SESSION_NOTICE_RESPONSE_CAPABILITY,
@@ -1360,8 +1310,6 @@ fun SessionDetailScreen(
         SessionRuntimeStatus.Blocked,
         SessionRuntimeStatus.Disconnected,
     )
-    val commandRequested = takeoverEnabled && draft.trimStart().startsWith('/') && attachments.isEmpty()
-    val commandQuery = draft.trimStart().removePrefix("/").trim()
     val inputEnabled = if (isPreparedSession) {
         true
     } else {
@@ -1369,12 +1317,264 @@ fun SessionDetailScreen(
             takeoverEnabled = takeoverEnabled,
             capabilityFactsFresh = capabilityFactsFresh,
             canSendMessage = canUseSendMessage,
-            canSteer = canUseSteer,
             canUseCommands = canUseCommands,
         )
     }
-    val commandMode = commandRequested && inputEnabled
     val attachmentsReady = attachments.all { it.uploadState == AttachmentUploadState.Uploaded }
+    // Only drafts naming a catalog command run as commands; paths and prose stay messages.
+    val slashIntent = if (isPreparedSession) null else SlashIntent.parse(draft)?.takeIf { it.isCommandLike }
+    val exactCommand = slashIntent
+        ?.takeIf { it.command.isNotEmpty() }
+        ?.let { state.commands.commands.exact(it) }
+    val commandLookupPending = slashIntent != null && slashIntent.command.isNotEmpty() && canUseCommands &&
+        exactCommand == null && state.commands.isLoading
+    val commandMode = takeoverEnabled && inputEnabled && slashIntent != null && attachments.isEmpty()
+    val messageSendable = !runtimeBlocksSubmission &&
+        blockingNotices.isEmpty() &&
+        attachmentsReady &&
+        (attachments.isEmpty() || canUseAttachments) &&
+        (isPreparedSession || canUseSendMessage)
+    val planInput = io.github.hotmanxp.lanagent.aa.feature.sessiondetail.PlanningCommand.parse(draft) != null
+    val canSend = (inputEnabled || (planInput && takeoverEnabled && !state.planning?.actions.isNullOrEmpty())) &&
+        !state.sending &&
+        !preparedSessionCreating &&
+        !state.commandExecuting &&
+        (draft.isNotBlank() || attachments.isNotEmpty()) &&
+        when {
+            // Blocked commands still submit so the tap explains why they cannot run.
+            planInput -> attachmentsReady && !planningBusy
+            exactCommand != null -> true
+            commandLookupPending -> false
+            else -> messageSendable
+        }
+
+    val modelOptions = if (isPreparedSession) preparedModelOptions else remember(state.catalogs.model) {
+        state.catalogs.model?.selectionOptions().orEmpty()
+    }
+    val permissionLocalizer = runtimePermissionLocalizer()
+    val permissionOptions = if (isPreparedSession) {
+        preparedPermissionCatalog?.permissions
+            ?.filter { it.selectionId.isNotBlank() }
+            ?.map { permission ->
+                val localized = permissionLocalizer.localize(
+                    runtime = preparedPermissionCatalog?.runtime.orEmpty(),
+                    permissionId = permission.id,
+                    label = permission.displayName,
+                    description = permission.description,
+                    metadata = permission.metadata,
+                )
+                io.github.hotmanxp.lanagent.aa.feature.sessiondetail.RuntimeSelectionOption(
+                    selectionId = permission.selectionId,
+                    label = localized.label,
+                    description = localized.description,
+                    default = permission.default,
+                    enabled = permission.enabled,
+                    disabledReason = permission.disabledReason,
+                )
+            }
+            ?.distinctBy { it.selectionId }
+            .orEmpty()
+    } else state.catalogs.permission?.let { catalog ->
+        val permissions = catalog.permissions.associateBy { it.selectionId }
+        catalog.selectionOptions().map { option ->
+            val permission = permissions[option.selectionId] ?: return@map option
+            val localized = permissionLocalizer.localize(
+                runtime = catalog.runtime,
+                permissionId = permission.id,
+                label = option.label,
+                description = option.description,
+                metadata = permission.metadata,
+            )
+            option.copy(label = localized.label, description = localized.description)
+        }
+    }.orEmpty()
+    val modelSelection = modelOptions.validatedSelection(
+        if (isPreparedSession) preparedSelections.model
+        else optimisticSelections["model"] ?: state.runtime.selections["model"],
+    )
+    val permissionSelection = permissionOptions.validatedSelection(
+        if (isPreparedSession) preparedSelections.permission
+        else optimisticSelections["permission"] ?: state.runtime.selections["permission"],
+    )
+    val modelCapability = state.capabilities.find(SESSION_MODEL_CATALOG_CAPABILITY, runtimeId, runtimeType)
+    val permissionCapability = state.capabilities.find(SESSION_PERMISSION_CATALOG_CAPABILITY, runtimeId, runtimeType)
+    val commandCapability = state.capabilities.find(SESSION_COMMANDS_CAPABILITY, runtimeId, runtimeType)
+        ?: state.capabilities.find(SESSION_COMMAND_EXECUTE_CAPABILITY, runtimeId, runtimeType)
+
+    fun openRuntimeSettings() {
+        showRuntimeSettings = true
+        if (state.catalogs.model == null && !state.catalogs.modelLoading) {
+            loadModelCatalog()
+        }
+        if (state.catalogs.permission == null && !state.catalogs.permissionLoading) {
+            loadPermissionCatalog()
+        }
+    }
+
+    fun commandUnavailableMessage(): String = context.getString(
+        when {
+            !connectorOnline -> R.string.session_command_offline
+            commandCapability?.supported != true -> R.string.session_command_runtime_outdated
+            else -> R.string.session_command_unavailable
+        },
+    )
+
+    fun commandBlockMessage(command: RuntimeCommand): String? =
+        // AA's own /plan is not a runtime command; the planning capability already gated it.
+        if (command.id == "plan" && state.commands.commands.none { it.id == "plan" }) null
+        else when (command.block(runtimeStatus, canUseCommands, takeoverEnabled, connectorOnline)) {
+            null -> null
+            RuntimeCommandBlock.Busy -> context.getString(R.string.session_command_busy)
+            RuntimeCommandBlock.ReadOnly -> context.getString(R.string.session_command_read_only)
+            RuntimeCommandBlock.Offline -> context.getString(R.string.session_command_offline)
+            RuntimeCommandBlock.Unavailable -> commandUnavailableMessage()
+            RuntimeCommandBlock.Disabled -> when (val reason = command.disabledReason) {
+                "session_unloaded" -> context.getString(R.string.session_command_session_unloaded)
+                "native_commands_unavailable" -> context.getString(R.string.session_command_native_unavailable)
+                "codex_unavailable" -> context.getString(R.string.session_command_codex_unavailable)
+                null -> context.getString(R.string.session_command_unavailable)
+                else -> reason
+            }
+        }
+
+    /** `clearing` is the draft to clear on success; edits made meanwhile are kept. */
+    fun runCommand(command: RuntimeCommand, raw: String, clearing: String = raw) {
+        val id = sessionId ?: return
+        if (state.commandExecuting) return
+        commandBlockMessage(command)?.let { message ->
+            showError(message)
+            return
+        }
+        if (attachments.isNotEmpty()) {
+            showError(context.getString(R.string.session_command_attachments))
+            return
+        }
+        val intent = SlashIntent.parse(raw)
+        val request = intent?.let { command.request(it) }
+        if (request == null) {
+            showError(
+                context.getString(
+                    if (intent?.multiline == true) R.string.session_command_multiline
+                    else R.string.session_command_bad_args,
+                ),
+            )
+            return
+        }
+        if (command.ui is RuntimeCommandUi.Selector) {
+            if (clearing.isNotEmpty() && draft == clearing) setComposerDraft("")
+            openRuntimeSettings()
+            return
+        }
+        state = state.copy(commandExecuting = true, actionError = null)
+        scope.launch {
+            val outcome = controller.executeCommand(id, request)
+            state = state.copy(commandExecuting = false)
+            val detail = outcome.message?.takeIf(String::isNotBlank)
+            when {
+                outcome.ok -> {
+                    val title = context.getString(
+                        if (outcome.state == RuntimeCommandExecutionState.Completed) R.string.session_command_completed
+                        else R.string.session_command_accepted,
+                    )
+                    val summary = detail?.let { if (it.length > 200) it.take(200) + "…" else it }
+                    showToast(listOfNotNull(title, summary).joinToString("\n"))
+                    if (clearing.isNotEmpty() && draft == clearing) clearComposerDraft()
+                }
+                outcome.state == RuntimeCommandExecutionState.Unknown -> showError(
+                    listOfNotNull(context.getString(R.string.session_command_outcome_unknown), detail)
+                        .joinToString("\n"),
+                )
+                else -> showError(detail ?: context.getString(R.string.session_command_failed))
+            }
+        }
+    }
+
+    /** Suggestion tap: commands with arguments are completed into the draft, the rest run directly. */
+    fun chooseCommand(command: RuntimeCommand) {
+        commandBlockMessage(command)?.let { message ->
+            showError(message)
+            return
+        }
+        val current = draft
+        val typedExact = SlashIntent.parse(current)?.let { listOf(command).exact(it) } != null
+        if (command.acceptsArgs && command.ui !is RuntimeCommandUi.Selector) {
+            if (!typedExact) setComposerDraft("/${command.id} ")
+            return
+        }
+        runCommand(command, if (typedExact) current.trimEnd() else "/${command.id}", clearing = current)
+    }
+
+    val canReviewPlanning = state.capabilities.isUsable("session.plan_review", runtimeId, runtimeType)
+    val planTarget = state.planning?.takeIf { current ->
+        val review = current.review
+        val document = current.proposal
+        canReviewPlanning && review != null && document != null &&
+            current.actions?.any { it in setOf("approve_and_execute", "request_revision", "dismiss_review") } == true &&
+            (review.status == "open" || (review.status == "approved" && current.executionStatus == "rejected" && current.executionRetryable)) &&
+            review.planId == document.planId && review.planRevision == document.revision && review.contentHash == document.contentHash
+    }
+    LaunchedEffect(planTarget?.review?.reviewId) { if (planTarget != null) unfocusComposer() }
+    fun respondPlan(target: io.github.hotmanxp.lanagent.aa.api.RemotePlanningState, action: String, feedback: String) {
+        val id = sessionId
+        if (id != null && !planningBusy) scope.launch {
+            planningBusy = true
+            controller.respondPlanning(id, target, action, feedback).onSuccess { if (planningSession == id) state = state.copy(planning = it) }.onFailure { showError(runtimeOperationErrorMessage(context, it)) }
+            planningBusy = false
+        }
+    }
+
+    fun sendDraft() {
+        val inputs = if (preparedSession != null) {
+            preparedSession.preparedWorkspace?.inputModalities(preparedSelections.model)
+        } else {
+            state.capabilities.find(SESSION_ATTACHMENT_CAPABILITY, runtimeId, runtimeType)?.metadata?.get("inputModalities") as? List<*>
+        }
+        if (inputs != null && "image" !in inputs && attachments.any { AgentForm.isModelImage(it.mediaType) }) {
+            showError(context.getString(R.string.session_image_input_unsupported))
+            return
+        }
+        val raw = draft
+        val text = raw.trim()
+        if (text.isEmpty() && attachments.isEmpty()) return
+        val id = sessionId
+        val planning = io.github.hotmanxp.lanagent.aa.feature.sessiondetail.PlanningCommand.parse(raw)
+        if (planning != null && isPreparedSession && planning.command != "submit_task") {
+            if (attachments.isNotEmpty()) { showError(context.getString(R.string.planning_attachment_task)); return }
+            planningCreation = planning.command == "enter_plan"; clearComposerDraft(); return
+        }
+        if (planning != null && id != null && !isPreparedSession) {
+            if (planningBusy) return
+            if (planning.command != "submit_task" && attachments.isNotEmpty()) { showError(context.getString(R.string.planning_attachment_task)); return }
+            if (attachments.any { it.remote == null || it.uploadState != AttachmentUploadState.Uploaded }) { showError(context.getString(R.string.planning_upload_pending)); return }
+            val uploaded = attachments.mapNotNull { it.remote }
+            scope.launch {
+                planningBusy = true
+                controller.submitPlanning(id, planning, uploaded).onSuccess { if (planningSession == id) { state = state.copy(planning = it); if (draft == raw) clearComposerDraft() } }.onFailure { showError(runtimeOperationErrorMessage(context, it)) }
+                planningBusy = false
+            }
+            return
+        }
+        val intent = if (isPreparedSession) null else SlashIntent.parse(raw)
+            ?.takeIf { it.isCommandLike && it.command.isNotEmpty() }
+        if (id == null || intent == null || !canUseCommands) {
+            sendText(if (isPreparedSession && (planningCreation || planning != null)) raw else text)
+            return
+        }
+        state.commands.commands.exact(intent)?.let { command ->
+            runCommand(command, raw.trimEnd(), clearing = raw)
+            return
+        }
+        if (state.commands.isLoaded) {
+            sendText(text)
+            return
+        }
+        // Read the catalog first so an intended command is never sent to the model.
+        scope.launch {
+            val command = controller.loadCommands(id).getOrNull()?.exact(intent)
+            if (draft != raw) return@launch
+            if (command != null) runCommand(command, raw.trimEnd(), clearing = raw) else sendText(text)
+        }
+    }
 
     /**
      * 「这段文本现在发得出去吗」。
@@ -1382,20 +1582,30 @@ fun SessionDetailScreen(
      * 抽成函数是因为语音识别**没有**按发送钮那条路径：结果直接回填草稿，
      * 而 [draft] 是上一帧的快照，得显式把新文本代进去问一次，否则空草稿时
      * canSend 恒 false，识别完的句子会静默躺在输入框里。
+     *
+     * 逻辑与上面的 [canSend] 对齐（命令 / 计划分支同样按传入文本重算），
+     * 只是把 draft 换成了调用方给的 text。
      */
-    fun canSendWith(text: String): Boolean = inputEnabled &&
-        !runtimeBlocksSubmission &&
-        blockingNotices.isEmpty() &&
-        !state.sending &&
-        !preparedSessionCreating &&
-        !state.commandExecuting &&
-        attachmentsReady &&
-        (attachments.isEmpty() || canUseAttachments) &&
-        (text.isNotBlank() || attachments.isNotEmpty()) &&
-        if (isPreparedSession) true
-        else if (commandMode) canUseCommands && state.commands.isLoaded else canUseSendMessage || canUseSteer
-
-    val canSend = canSendWith(draft)
+    fun canSendWith(text: String): Boolean {
+        val intent = if (isPreparedSession) null else SlashIntent.parse(text)?.takeIf { it.isCommandLike }
+        val exact = intent
+            ?.takeIf { it.command.isNotEmpty() }
+            ?.let { state.commands.commands.exact(it) }
+        val lookupPending = intent != null && intent.command.isNotEmpty() && canUseCommands &&
+            exact == null && state.commands.isLoading
+        val plan = io.github.hotmanxp.lanagent.aa.feature.sessiondetail.PlanningCommand.parse(text) != null
+        return (inputEnabled || (plan && takeoverEnabled && !state.planning?.actions.isNullOrEmpty())) &&
+            !state.sending &&
+            !preparedSessionCreating &&
+            !state.commandExecuting &&
+            (text.isNotBlank() || attachments.isNotEmpty()) &&
+            when {
+                plan -> attachmentsReady && !planningBusy
+                exact != null -> true
+                lookupPending -> false
+                else -> messageSendable
+            }
+    }
 
     // 按住说话（腾讯云实时 ASR）—— 与 lan-agent 会话页同一套状态机。
     //
@@ -1449,58 +1659,6 @@ fun SessionDetailScreen(
     } else {
         null
     }
-    val modelOptions = if (isPreparedSession) preparedModelOptions else remember(state.catalogs.model) {
-        state.catalogs.model?.selectionOptions().orEmpty()
-    }
-    val permissionLocalizer = runtimePermissionLocalizer()
-    val permissionOptions = if (isPreparedSession) {
-        preparedPermissionCatalog?.permissions
-            ?.filter { it.selectionId.isNotBlank() }
-            ?.map { permission ->
-                val localized = permissionLocalizer.localize(
-                    runtime = preparedPermissionCatalog?.runtime.orEmpty(),
-                    permissionId = permission.id,
-                    label = permission.displayName,
-                    description = permission.description,
-                    metadata = permission.metadata,
-                )
-                io.github.hotmanxp.lanagent.aa.feature.sessiondetail.RuntimeSelectionOption(
-                    selectionId = permission.selectionId,
-                    label = localized.label,
-                    description = localized.description,
-                    default = permission.default,
-                    enabled = permission.enabled,
-                    disabledReason = permission.disabledReason,
-                )
-            }
-            ?.distinctBy { it.selectionId }
-            .orEmpty()
-    } else state.catalogs.permission?.let { catalog ->
-        val permissions = catalog.permissions.associateBy { it.selectionId }
-        catalog.selectionOptions().map { option ->
-            val permission = permissions[option.selectionId] ?: return@map option
-            val localized = permissionLocalizer.localize(
-                runtime = catalog.runtime,
-                permissionId = permission.id,
-                label = option.label,
-                description = option.description,
-                metadata = permission.metadata,
-            )
-            option.copy(label = localized.label, description = localized.description)
-        }
-    }.orEmpty()
-    val modelSelection = modelOptions.validatedSelection(
-        if (isPreparedSession) preparedSelections.model
-        else optimisticSelections["model"] ?: state.runtime.selections["model"],
-    )
-    val permissionSelection = permissionOptions.validatedSelection(
-        if (isPreparedSession) preparedSelections.permission
-        else optimisticSelections["permission"] ?: state.runtime.selections["permission"],
-    )
-    val modelCapability = state.capabilities.find(SESSION_MODEL_CATALOG_CAPABILITY, runtimeId, runtimeType)
-    val permissionCapability = state.capabilities.find(SESSION_PERMISSION_CATALOG_CAPABILITY, runtimeId, runtimeType)
-    val commandCapability = state.capabilities.find(SESSION_COMMANDS_CAPABILITY, runtimeId, runtimeType)
-        ?: state.capabilities.find(SESSION_COMMAND_EXECUTE_CAPABILITY, runtimeId, runtimeType)
     LaunchedEffect(
         sessionId,
         state.runtime.selections["model"],
@@ -1552,6 +1710,29 @@ fun SessionDetailScreen(
         }
     }
 
+    // `/plan` is parsed by AA, not run by the runtime; offer it wherever planning is usable.
+    val planningUsable = connectorOnline && state.capabilities.isUsable("session.planning", runtimeId, runtimeType)
+    val planCommandTitle = stringResource(R.string.planning_command_title)
+    val planCommandDescription = stringResource(R.string.planning_command_description)
+    val planCommandHint = stringResource(R.string.planning_command_hint)
+    val planCommand = remember(planCommandTitle, planCommandDescription, planCommandHint) {
+        RuntimeCommand(
+            id = "plan", title = planCommandTitle, description = planCommandDescription, aliases = emptyList(), category = null,
+            scope = "session", enabled = true, disabledReason = null, acceptsArgs = true, argsSchema = null,
+            metadata = mapOf("ui" to mapOf("kind" to "execute", "argumentHint" to planCommandHint)),
+        )
+    }
+    val offeredCommands = remember(state.commands.commands, planningUsable, planCommand) {
+        if (planningUsable && state.commands.commands.none { it.id == "plan" }) listOf(planCommand) + state.commands.commands else state.commands.commands
+    }
+    val commandSuggestions = remember(offeredCommands, slashIntent?.command) {
+        slashIntent?.let { intent -> offeredCommands.filter { it.matchesPrefix(intent.command) }.take(6) }
+            .orEmpty()
+    }
+    // The unavailable reason only answers a bare "/"; other slash text may just be prose.
+    val showCommandSuggestions = commandMode && slashIntent != null &&
+        slashIntent.suffix.isEmpty() && !slashIntent.multiline &&
+        (commandSuggestions.isNotEmpty() || draft.trim() == "/" || (canUseCommands && state.commands.isLoading))
     LaunchedEffect(sessionId, commandMode, canUseCommands) {
         if (sessionId != null && commandMode && canUseCommands) loadCommands(force = false)
     }
@@ -1589,7 +1770,9 @@ fun SessionDetailScreen(
             SessionRuntimeStatus.Stopping,
             SessionRuntimeStatus.WaitingApproval,
             SessionRuntimeStatus.Blocked,
-        )
+        ) &&
+            // A command allowed mid-turn (e.g. /stop) takes the primary button.
+            exactCommand?.allowed(runtimeStatus) != true
     )
     val replyTarget = state.session?.runtimeLabel?.takeIf { it.isNotBlank() }
         ?: stringResource(R.string.session_agent_fallback)
@@ -1630,7 +1813,7 @@ fun SessionDetailScreen(
                 .weight(1f)
                 .fillMaxWidth(),
             beyondViewportPageCount = 1,
-            userScrollEnabled = true,
+            userScrollEnabled = !terminalVerticalDragActive,
         ) {
             page ->
             if (page == 0) {
@@ -1661,6 +1844,11 @@ fun SessionDetailScreen(
                             .fillMaxWidth()
                             .background(colors.canvas),
                     ) {
+                        val planning = state.planning
+                        val planDocs = remember(planning) { planning?.planDocuments().orEmpty() }
+                        val latestPlanRevisions = remember(planDocs) { io.github.hotmanxp.lanagent.aa.feature.sessiondetail.latestPlanRevisions(planDocs) }
+                        val hidePlanEcho = remember(planning, planDocs) { { message: TimelineMessage -> io.github.hotmanxp.lanagent.aa.feature.sessiondetail.isPlanEcho(planning, planDocs, message) } }
+                        PlanReaderDialog(planReader, darkMode)
                         when {
                             sessionId == null && !isPreparedSession -> EmptyDetailMessage(stringResource(R.string.session_open_from_list))
                             state.timeline.isLoading && state.messages.isEmpty() -> {
@@ -1669,14 +1857,40 @@ fun SessionDetailScreen(
                             state.timeline.errorMessage != null && state.messages.isEmpty() -> {
                                 EmptyDetailMessage(state.timeline.errorMessage.orEmpty())
                             }
-                            state.messages.isEmpty() && openInteractions.isEmpty() && !hasOpenNotifications ->
+                            state.messages.isEmpty() && (state.planning == null || (state.planning?.effectiveMode != "plan" && state.planning?.draft == null && state.planning?.proposal == null && state.planning?.documents.isNullOrEmpty())) && openInteractions.isEmpty() && !hasOpenNotifications ->
                                 SessionWelcomeMessage()
                             else -> MessageList(
+                                planningContent = { SessionPlanningPanel(state.planning, darkMode) },
+                                planDocuments = planDocs,
+                                planEntry = { document ->
+                                    PlanTimelineEntry(planning, document, latestPlanRevisions[document.planId] ?: document.revision, darkMode, onRead = { planReader.value = it })
+                                },
+                                hideMessage = hidePlanEcho,
                                 messages = state.messages,
                                 darkMode = darkMode,
                                 sessionId = sessionId.orEmpty(),
                                 workspaceRoot = state.session?.cwd,
                                 controller = controller,
+                                loadWorkspaceImage = { path, cacheOnly ->
+                                    val session = state.session
+                                    val root = session?.cwd.orEmpty()
+                                    val resolvedPath = root.takeIf { it.isNotBlank() }
+                                        ?.let { resolvePathInWorkspace(it, path) }
+                                    if (session == null || resolvedPath == null) {
+                                        Result.failure(IllegalStateException("Image path is outside the workspace."))
+                                    } else if (cacheOnly) {
+                                        Result.success(filesController.cachedWorkspaceFile(session.connectorId, root, resolvedPath))
+                                    } else {
+                                        filesController.downloadWorkspaceFile(
+                                            connectorId = session.connectorId,
+                                            workspaceRoot = root,
+                                            path = resolvedPath,
+                                            cacheDir = context.cacheDir,
+                                            preferCache = true,
+                                            maxBytes = MAX_INLINE_WORKSPACE_IMAGE_BYTES,
+                                        ).map { it.file }
+                                    }
+                                },
                                 forceLatestRequest = forceLatestRequest,
                                 streamLatestRequest = streamLatestRequest,
                                 workingLabel = workingLabel,
@@ -1709,6 +1923,7 @@ fun SessionDetailScreen(
                             Column(
                                 modifier = Modifier.onSizeChanged { composerHeightPx = it.height },
                             ) {
+                                if (planningCreation && isPreparedSession) Text(stringResource(R.string.planning_creation_intent), modifier = Modifier.padding(horizontal = 20.dp))
                                 BlockingRuntimeNoticeStack(
                                     notices = blockingNotices,
                                     respondingNoticeIds = state.respondingNoticeIds,
@@ -1716,27 +1931,34 @@ fun SessionDetailScreen(
                                     canRespond = canRespondToNotice,
                                     onRespond = ::respondNotice,
                                 )
-                                if (commandMode) {
+                                if (showCommandSuggestions) {
                                     RuntimeCommandSuggestions(
-                                        commands = state.commands.commands,
-                                        query = commandQuery,
-                                        loading = state.commands.isLoading,
-                                        errorMessage = state.commands.errorMessage
-                                            ?: commandCapability?.takeUnless { it.usable }?.unavailableReason,
-                                        onRetry = { loadCommands(force = true) },
-                                        onSelect = { command ->
-                                            if (command.enabled) {
-                                                setComposerDraft("/${command.id}${if (command.acceptsArgs) " " else ""}")
-                                            } else {
-                                                showError(
-                                                    command.disabledReason
-                                                        ?: context.getString(R.string.session_command_failed),
-                                                )
-                                            }
-                                        },
+                                        commands = commandSuggestions,
+                                        loading = canUseCommands && state.commands.isLoading,
+                                        errorMessage = if (canUseCommands) state.commands.errorMessage else commandUnavailableMessage(),
+                                        onRetry = if (canUseCommands) ({ loadCommands(force = true) }) else null,
+                                        blockReason = ::commandBlockMessage,
+                                        onSelect = ::chooseCommand,
                                     )
                                 }
-                                MessageComposer(
+                                if (state.runtime.metadata["nativeHistory"] == true && sessionId != null) {
+                                    NativeHistoryControls(
+                                        sessionId = sessionId,
+                                        generation = state.runtime.metadata["ownerGeneration"] as? String ?: "",
+                                        revision = state.runtime.metadata["sourceRevision"] as? String ?: "",
+                                        canContinue = connectorOnline && state.capabilities.find("session.recover", runtimeId, runtimeType)?.let {
+                                            it.supported && it.available && (it.allowed || it.unavailableReason == "session_not_taken_over")
+                                        } == true,
+                                        canRelease = connectorOnline && state.capabilities.isUsable("session.close", runtimeId, runtimeType),
+                                        reason = runtimeErrorText(context, state.runtime.error?.get("code") as? String, state.runtime.error?.get("message") as? String),
+                                        onAction = { body, close -> controller.nativeHistoryAction(sessionId, body, close) },
+                                        onSettled = { loadInitialSnapshot() },
+                                    )
+                                }
+                                planTarget?.let { target ->
+                                    PlanningReviewPanel(target, planningBusy, onRespond = { action, feedback -> respondPlan(target, action, feedback) })
+                                }
+                                if (planTarget == null) MessageComposer(
                                     darkMode = darkMode,
                                     draft = if (takeoverEnabled) draft else "",
                                     onDraftChange = ::setComposerDraft,
@@ -1776,15 +1998,7 @@ fun SessionDetailScreen(
                             title = state.session?.title?.takeIf { it.isNotBlank() }
                                 ?: stringResource(R.string.session_title_fallback),
                             darkMode = darkMode,
-                            onLeftClick = {
-                                showRuntimeSettings = true
-                                if (state.catalogs.model == null && !state.catalogs.modelLoading) {
-                                    loadModelCatalog()
-                                }
-                                if (state.catalogs.permission == null && !state.catalogs.permissionLoading) {
-                                    loadPermissionCatalog()
-                                }
-                            },
+                            onLeftClick = ::openRuntimeSettings,
                             onRightClick = { scope.launch { pagerState.animateScrollToPage(1) } },
                             modifier = Modifier.align(Alignment.TopCenter),
                         )
@@ -1816,11 +2030,13 @@ fun SessionDetailScreen(
                     session = state.session,
                     device = devices.firstOrNull { device -> device.id == state.session?.connectorId },
                     filesController = filesController,
+                    terminalController = remoteTerminal,
                     darkMode = darkMode,
                     openFilePath = pendingOpenFilePath,
                     onOpenFileRequestConsumed = { consumed ->
                         if (pendingOpenFilePath == consumed) pendingOpenFilePath = null
                     },
+                    onTerminalVerticalDragChange = { terminalVerticalDragActive = it },
                     onBack = { scope.launch { pagerState.animateScrollToPage(0) } },
                 )
             }
@@ -1831,6 +2047,7 @@ fun SessionDetailScreen(
         TakeoverConfirmDialog(
             enabled = enabled,
             busy = state.takeoverInFlight,
+            isDsh = (state.session?.runtimeType ?: state.runtime.runtimeType) == "dsh",
             agentLabel = state.session?.runtimeLabel?.takeIf { it.isNotBlank() }
                 ?: stringResource(R.string.session_agent_fallback).lowercase(),
             onDismiss = { if (!state.takeoverInFlight) takeoverConfirm = null },
@@ -1862,6 +2079,10 @@ fun SessionDetailScreen(
             permissionOptions = permissionOptions,
             selectedModelId = modelSelection,
             selectedPermissionId = permissionSelection,
+            pendingSelectionScopes = (state.runtime.metadata["pendingSelectionScopes"] as? List<*>)
+                ?.filterIsInstance<String>()
+                ?.toSet()
+                .orEmpty(),
             modelLoading = if (isPreparedSession) preparedModelLoading else state.catalogs.modelLoading,
             permissionLoading = if (isPreparedSession) preparedPermissionLoading else state.catalogs.permissionLoading,
             modelErrorMessage = if (isPreparedSession) preparedModelError else state.catalogs.modelErrorMessage,
@@ -2106,10 +2327,14 @@ private fun DeviceOfflineDialog(
     }
 }
 
+private const val BETA_BADGE_ID = "beta"
+private const val BETA_BADGE_MARKER = "\uFFFC"
+
 @Composable
 private fun TakeoverConfirmDialog(
     enabled: Boolean,
     busy: Boolean,
+    isDsh: Boolean,
     agentLabel: String,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
@@ -2117,11 +2342,47 @@ private fun TakeoverConfirmDialog(
     val colors = LocalAAColors.current
     val shape = RoundedCornerShape(26.dp)
     val secondaryButton = colors.subtle
-    val message = if (enabled) {
-        stringResource(R.string.session_enable_takeover_body, agentLabel)
-    } else {
-        stringResource(R.string.session_disable_takeover_body, agentLabel)
+    // DSH syncs with Agents Anywhere in real time, so the restart-to-sync caveats do not apply.
+    val message = when {
+        isDsh && enabled -> {
+            val parts = stringResource(R.string.session_enable_takeover_dsh_body, BETA_BADGE_MARKER)
+                .split(BETA_BADGE_MARKER, limit = 2)
+            buildAnnotatedString {
+                append(parts.first())
+                if (parts.size > 1) {
+                    appendInlineContent(BETA_BADGE_ID, "Beta")
+                    append(parts[1])
+                }
+            }
+        }
+        isDsh -> AnnotatedString(stringResource(R.string.session_disable_takeover_dsh_body))
+        enabled -> AnnotatedString(stringResource(R.string.session_enable_takeover_body, agentLabel))
+        else -> AnnotatedString(stringResource(R.string.session_disable_takeover_body, agentLabel))
     }
+    val betaLabel = stringResource(R.string.session_beta_badge)
+    val inlineContent = mapOf(
+        BETA_BADGE_ID to InlineTextContent(
+            Placeholder(width = 44.sp, height = 20.sp, placeholderVerticalAlign = PlaceholderVerticalAlign.Center),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 3.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(colors.subtle)
+                    .border(1.dp, colors.border, RoundedCornerShape(50)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = betaLabel,
+                    color = colors.ink,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    lineHeight = 13.sp,
+                )
+            }
+        },
+    )
 
     Dialog(
         onDismissRequest = { if (!busy) onDismiss() },
@@ -2155,6 +2416,7 @@ private fun TakeoverConfirmDialog(
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Medium,
                 lineHeight = 21.sp,
+                inlineContent = inlineContent,
             )
             Row(
                 modifier = Modifier

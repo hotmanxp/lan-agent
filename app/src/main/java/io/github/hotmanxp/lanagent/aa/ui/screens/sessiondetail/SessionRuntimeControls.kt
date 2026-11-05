@@ -29,9 +29,12 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
@@ -43,12 +46,16 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import io.github.hotmanxp.lanagent.R
 import io.github.hotmanxp.lanagent.aa.feature.sessiondetail.RuntimeCommand
 import io.github.hotmanxp.lanagent.aa.feature.sessiondetail.RuntimeInputRequestDraft
@@ -56,9 +63,9 @@ import io.github.hotmanxp.lanagent.aa.feature.sessiondetail.RuntimeInputRequestF
 import io.github.hotmanxp.lanagent.aa.feature.sessiondetail.RuntimeInputRequestQuestion
 import io.github.hotmanxp.lanagent.aa.feature.sessiondetail.RuntimeNotice
 import io.github.hotmanxp.lanagent.aa.feature.sessiondetail.RuntimeNoticeAction
+import io.github.hotmanxp.lanagent.aa.feature.sessiondetail.argumentHint
 import io.github.hotmanxp.lanagent.aa.feature.sessiondetail.buildPayload
 import io.github.hotmanxp.lanagent.aa.feature.sessiondetail.coerceInput
-import io.github.hotmanxp.lanagent.aa.feature.sessiondetail.initialDrafts
 import io.github.hotmanxp.lanagent.aa.feature.sessiondetail.inputRequestForm
 import io.github.hotmanxp.lanagent.aa.feature.sessiondetail.inputFields
 import io.github.hotmanxp.lanagent.aa.feature.sessiondetail.isComplete
@@ -67,24 +74,30 @@ import io.github.hotmanxp.lanagent.aa.ui.designsystem.noRippleClickable
 import com.composables.icons.lucide.CircleAlert
 import com.composables.icons.lucide.CircleCheck
 import com.composables.icons.lucide.Check
+import com.composables.icons.lucide.ChevronDown
+import com.composables.icons.lucide.ChevronUp
 import com.composables.icons.lucide.Info
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.ShieldCheck
 import com.composables.icons.lucide.TriangleAlert
 import com.composables.icons.lucide.X
+import kotlinx.coroutines.delay
 
+/**
+ * Prefix-matched catalog commands for a slash draft. Blocked rows stay visible
+ * with their reason so the user learns why a command cannot run right now.
+ */
 @Composable
 internal fun RuntimeCommandSuggestions(
     commands: List<RuntimeCommand>,
-    query: String,
     loading: Boolean,
     errorMessage: String?,
-    onRetry: () -> Unit,
+    onRetry: (() -> Unit)?,
+    blockReason: (RuntimeCommand) -> String?,
     onSelect: (RuntimeCommand) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalAAColors.current
-    val matches = remember(commands, query) { commands.filter { it.matches(query) }.take(6) }
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -95,13 +108,15 @@ internal fun RuntimeCommandSuggestions(
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         when {
-            loading -> Text(stringResource(R.string.session_commands_loading), color = colors.muted)
-            errorMessage != null -> {
+            loading && commands.isEmpty() -> Text(stringResource(R.string.session_commands_loading), color = colors.muted)
+            errorMessage != null && commands.isEmpty() -> {
                 Text(errorMessage, color = colors.errorText, fontSize = 13.sp)
-                TextButton(onClick = onRetry) { Text(stringResource(R.string.common_retry)) }
+                onRetry?.let { TextButton(onClick = it) { Text(stringResource(R.string.common_retry)) } }
             }
-            matches.isEmpty() -> Text(stringResource(R.string.session_commands_empty), color = colors.muted)
-            else -> matches.forEach { command ->
+            commands.isEmpty() -> Text(stringResource(R.string.session_commands_empty), color = colors.muted)
+            else -> commands.forEach { command ->
+                val reason = blockReason(command)
+                val (title, description) = localizedCommandText(command)
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -109,13 +124,38 @@ internal fun RuntimeCommandSuggestions(
                         .noRippleClickable { onSelect(command) }
                         .padding(horizontal = 10.dp, vertical = 8.dp),
                 ) {
-                    Text(
-                        text = "/${command.id}  ${command.title}",
-                        color = colors.ink.copy(alpha = if (command.enabled) 1f else 0.45f),
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    (command.disabledReason ?: command.description)?.takeIf(String::isNotBlank)?.let {
-                        Text(it, color = colors.muted, fontSize = 12.sp)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "/${command.id}",
+                            color = colors.ink.copy(alpha = if (reason == null) 1f else 0.45f),
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        command.argumentHint?.takeIf(String::isNotBlank)?.let { hint ->
+                            Text(
+                                text = " $hint",
+                                color = colors.muted,
+                                fontSize = 13.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        Spacer(Modifier.size(width = 10.dp, height = 1.dp))
+                        Text(
+                            text = title,
+                            color = colors.muted.copy(alpha = if (reason == null) 1f else 0.6f),
+                            fontSize = 13.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    (reason ?: description)?.takeIf(String::isNotBlank)?.let {
+                        Text(
+                            it,
+                            color = if (reason != null) colors.errorText else colors.muted,
+                            fontSize = 12.sp,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                     }
                 }
             }
@@ -135,9 +175,33 @@ internal fun RuntimeNoticeCard(
     compact: Boolean = false,
     notificationOnly: Boolean = false,
     composerAdjacent: Boolean = false,
+    expanded: Boolean = true,
+    onExpandedChange: ((Boolean) -> Unit)? = null,
 ) {
+    val runtimeDialog = notice.actions.firstOrNull { it.input.uiSchema?.get("component") == "runtimeDialog" }
+    if (runtimeDialog != null || notice.metadata["kind"] == "form") {
+        val ui = if (notice.metadata["kind"] == "form") notice.metadata else runtimeDialog?.input?.uiSchema.orEmpty()
+        val request = org.json.JSONObject().put("interactionId", notice.noticeId).put("ownerGeneration", notice.metadata["ownerGeneration"])
+            .put("kind", ui["kind"]).put("title", notice.title).put("metadata", org.json.JSONObject(ui))
+            .put("actions", org.json.JSONArray(notice.actions.map { org.json.JSONObject().put("actionId", it.actionId).put("label", it.label) }))
+        notice.message?.let { request.put("message", it) }
+        androidx.compose.runtime.key(notice.noticeId, notice.metadata["ownerGeneration"]) {
+            androidx.compose.foundation.layout.Column(modifier) {
+                io.github.hotmanxp.lanagent.aa.ui.screens.home.RuntimeWorkflowInput(request, busy || actionsDisabled) { action, value ->
+                    notice.actions.firstOrNull { it.actionId == action }?.let { selected ->
+                        val input = value?.let { raw -> raw.keys().asSequence().associateWith { raw.get(it) } }
+                        onRespond(selected, input)
+                    }
+                }
+                if (errorMessage != null) Text(errorMessage)
+            }
+        }
+        return
+    }
     val colors = LocalAAColors.current
     val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    val inputScrollState = rememberScrollState()
     val destructive = notice.severity == "error" || notice.status == "failed"
     val warning = notice.severity == "warning"
     val success = notice.severity == "success"
@@ -155,12 +219,63 @@ internal fun RuntimeNoticeCard(
             else -> 16.dp
         },
     )
-    var selectedActionId by remember(notice.noticeId) { mutableStateOf<String?>(null) }
-    var rawValues by remember(notice.noticeId, selectedActionId) { mutableStateOf(emptyMap<String, String>()) }
-    var validationError by remember(notice.noticeId, selectedActionId) { mutableStateOf<String?>(null) }
-    val inputRequestForm = remember(notice.noticeId, notice.revision) { notice.inputRequestForm() }
-    var inputRequestDrafts by remember(notice.noticeId, notice.revision) {
-        mutableStateOf(inputRequestForm?.initialDrafts().orEmpty())
+    val draftStore = rememberRuntimeNoticeDraftStore()
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val inputRequestForm = remember(notice.sessionId, notice.noticeId, notice.revision) { notice.inputRequestForm() }
+    var noticeDraft by remember(draftStore, notice.sessionId, notice.noticeId, notice.revision) {
+        val saved = draftStore.restore(notice.sessionId, notice.noticeId)
+        val action = notice.actions.firstOrNull { it.actionId == saved.selectedActionId }
+        val fieldKeys = action?.inputFields().orEmpty().map { it.key }.toSet()
+        mutableStateOf(saved.copy(
+            selectedActionId = action?.actionId,
+            rawValues = saved.rawValues.filterKeys { it in fieldKeys },
+            answers = inputRequestForm?.questions.orEmpty().associate { question ->
+                val answer = saved.answers[question.id] ?: RuntimeInputRequestDraft()
+                val optionIds = answer.optionIds.filter { id -> question.options.any { it.id == id } }.distinct()
+                val useCustom = question.allowCustom && answer.useCustom
+                question.id to answer.copy(
+                    optionIds = when {
+                        question.multiple -> optionIds
+                        useCustom -> emptyList()
+                        else -> optionIds.take(1)
+                    },
+                    customText = if (question.allowCustom) answer.customText else "",
+                    useCustom = useCustom,
+                )
+            },
+        ))
+    }
+    val selectedActionId = noticeDraft.selectedActionId
+    val rawValues = noticeDraft.rawValues
+    val inputRequestDrafts = noticeDraft.answers
+    var validationError by remember(notice.sessionId, notice.noticeId, selectedActionId) { mutableStateOf<String?>(null) }
+
+    fun updateDraft(draft: RuntimeNoticeDraft) {
+        if (draft == noticeDraft) return
+        noticeDraft = draft
+        draftStore.update(notice.sessionId, notice.noticeId, draft)
+    }
+
+    LaunchedEffect(draftStore, notice.sessionId, notice.noticeId, noticeDraft) {
+        delay(400)
+        draftStore.flush(notice.sessionId, notice.noticeId)
+    }
+    LaunchedEffect(draftStore, notice.sessionId, notice.noticeId, notice.status) {
+        if (notice.type == "interaction" && !notice.openInteraction) {
+            draftStore.clear(notice.sessionId, notice.noticeId)
+        }
+    }
+    DisposableEffect(lifecycleOwner, draftStore, notice.sessionId, notice.noticeId) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) {
+                draftStore.flush(notice.sessionId, notice.noticeId)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            draftStore.flush(notice.sessionId, notice.noticeId)
+        }
     }
     val selectedAction = notice.actions.firstOrNull { it.actionId == selectedActionId }
     val fields = selectedAction
@@ -194,7 +309,10 @@ internal fun RuntimeNoticeCard(
     fun triggerAction(action: RuntimeNoticeAction) {
         val form = inputRequestForm
         focusManager.clearFocus()
-        selectedActionId = action.actionId
+        updateDraft(noticeDraft.copy(
+            selectedActionId = action.actionId,
+            rawValues = if (selectedActionId == action.actionId) rawValues else emptyMap(),
+        ))
         validationError = null
         when {
             form != null && action.actionId == form.action.actionId -> {
@@ -245,6 +363,54 @@ internal fun RuntimeNoticeCard(
             ),
         verticalArrangement = Arrangement.spacedBy(if (composerAdjacent) 14.dp else 11.dp),
     ) {
+        if (onExpandedChange != null) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 32.dp)
+                    .noRippleClickable {
+                        if (expanded) {
+                            focusManager.clearFocus()
+                            keyboard?.hide()
+                        }
+                        onExpandedChange(!expanded)
+                    },
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = if (expanded) {
+                        stringResource(R.string.session_notice_pending_response)
+                    } else {
+                        inputRequestForm?.questions?.firstOrNull()?.header?.takeIf(String::isNotBlank)
+                            ?: localizedNoticeTitle(notice)
+                    },
+                    modifier = Modifier.weight(1f),
+                    color = colors.muted,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = stringResource(
+                        if (expanded) R.string.session_notice_collapse else R.string.session_notice_expand,
+                    ),
+                    color = colors.inkSoft,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+                Icon(
+                    imageVector = if (expanded) Lucide.ChevronDown else Lucide.ChevronUp,
+                    contentDescription = null,
+                    tint = colors.inkSoft,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
+        }
+        // Keep this card mounted so collapsing never discards a selected answer or text draft.
+        if (!expanded) return@Column
+
         if (inputRequestForm == null) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -265,7 +431,7 @@ internal fun RuntimeNoticeCard(
                 )
                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text(
-                        text = notice.title,
+                        text = localizedNoticeTitle(notice),
                         color = colors.ink,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.SemiBold,
@@ -296,11 +462,11 @@ internal fun RuntimeNoticeCard(
                 drafts = inputRequestDrafts,
                 disabled = disabled,
                 onDraftChange = { questionId, draft ->
-                    inputRequestDrafts = inputRequestDrafts + (questionId to draft)
+                    updateDraft(noticeDraft.copy(answers = inputRequestDrafts + (questionId to draft)))
                 },
                 modifier = Modifier
                     .weight(1f, fill = false)
-                    .verticalScroll(rememberScrollState()),
+                    .verticalScroll(inputScrollState),
             )
         }
 
@@ -332,7 +498,7 @@ internal fun RuntimeNoticeCard(
             fields.forEach { field ->
                 OutlinedTextField(
                     value = rawValues[field.key].orEmpty(),
-                    onValueChange = { rawValues = rawValues + (field.key to it) },
+                    onValueChange = { updateDraft(noticeDraft.copy(rawValues = rawValues + (field.key to it))) },
                     label = { Text(field.label) },
                     singleLine = field.type != "string",
                     modifier = Modifier.fillMaxWidth(),
@@ -501,6 +667,29 @@ private fun RuntimeNoticeActionButton(
     }
 }
 
+/** Runtime approval titles arrive in English; translate the known ones by their structured kind. */
+@Composable
+internal fun localizedNoticeTitle(notice: RuntimeNotice): String {
+    if (notice.interactionType == "approval") {
+        if (notice.context["approvalSource"] is Map<*, *>) when (notice.context["kind"]) {
+            "command" -> return stringResource(R.string.session_approval_title_codex_command)
+            "file_change" -> return stringResource(R.string.session_approval_title_codex_file_change)
+            "permissions" -> return stringResource(R.string.session_approval_title_codex_permissions)
+        }
+        if (notice.noticeId.startsWith("notice_claude_approval_")) return stringResource(R.string.session_approval_title_claude_tool)
+    }
+    return notice.title
+}
+
+/** AA's own commands carry translated text; native commands keep the runtime's text. */
+@Composable
+private fun localizedCommandText(command: RuntimeCommand): Pair<String, String?> = when (command.id) {
+    "compact" -> stringResource(R.string.session_command_title_compact) to stringResource(R.string.session_command_description_compact)
+    "kill-chatgpt" -> stringResource(R.string.session_command_title_kill_chatgpt) to stringResource(R.string.session_command_description_kill_chatgpt)
+    "open-in-codex-app" -> stringResource(R.string.session_command_title_open_in_codex_app) to stringResource(R.string.session_command_description_open_in_codex_app)
+    else -> command.title to command.description
+}
+
 @Composable
 private fun localizedNoticeActionLabel(action: RuntimeNoticeAction): String = when (action.actionId) {
     "approve" -> stringResource(R.string.session_approval_approve)
@@ -614,6 +803,7 @@ private fun RuntimeInputRequestQuestionFields(
         if (question.allowCustom) {
             RuntimeInputRequestCustomAnswer(
                 multiple = question.multiple,
+                showSelectionIndicator = question.options.isNotEmpty(),
                 draft = draft,
                 disabled = disabled,
                 onChange = onChange,
@@ -625,6 +815,7 @@ private fun RuntimeInputRequestQuestionFields(
 @Composable
 private fun RuntimeInputRequestCustomAnswer(
     multiple: Boolean,
+    showSelectionIndicator: Boolean,
     draft: RuntimeInputRequestDraft,
     disabled: Boolean,
     onChange: (RuntimeInputRequestDraft) -> Unit,
@@ -649,10 +840,12 @@ private fun RuntimeInputRequestCustomAnswer(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        RuntimeInputRequestSelectionIndicator(
-            selected = draft.useCustom,
-            multiple = multiple,
-        )
+        if (showSelectionIndicator) {
+            RuntimeInputRequestSelectionIndicator(
+                selected = draft.useCustom,
+                multiple = multiple,
+            )
+        }
         BasicTextField(
             value = draft.customText,
             onValueChange = { value ->
@@ -679,7 +872,10 @@ private fun RuntimeInputRequestCustomAnswer(
                 Box(contentAlignment = Alignment.CenterStart) {
                     if (draft.customText.isEmpty()) {
                         Text(
-                            text = stringResource(R.string.session_input_request_other),
+                            text = stringResource(
+                                if (showSelectionIndicator) R.string.session_input_request_other
+                                else R.string.session_input_request_reply,
+                            ),
                             color = colors.muted,
                             fontSize = 13.sp,
                         )
@@ -734,7 +930,8 @@ internal fun BlockingRuntimeNoticeStack(
     if (notices.isEmpty()) return
     val colors = LocalAAColors.current
     val active = notices.first()
-    val backing = notices.drop(1).take(3).asReversed()
+    var expanded by rememberSaveable(active.noticeId) { mutableStateOf(true) }
+    val backing = if (expanded) notices.drop(1).take(3).asReversed() else emptyList()
     val inputRequest = active.inputRequestForm()
     val maxCardHeight = LocalConfiguration.current.screenHeightDp.dp *
         if (inputRequest != null) 0.58f else 0.38f
@@ -765,6 +962,8 @@ internal fun BlockingRuntimeNoticeStack(
             errorMessage = responseErrors[active.noticeId],
             onRespond = { action, input -> onRespond(active, action, input) },
             composerAdjacent = true,
+            expanded = expanded,
+            onExpandedChange = { expanded = it },
             modifier = Modifier
                 .heightIn(max = maxCardHeight)
                 .then(

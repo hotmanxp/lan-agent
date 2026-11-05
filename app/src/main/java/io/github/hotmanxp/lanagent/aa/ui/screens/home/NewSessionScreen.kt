@@ -85,6 +85,7 @@ fun NewSessionScreen(
     onListDirectory: suspend (String, String, String) -> Result<NewSessionDirectory>,
     onListRuntimes: suspend (String) -> Result<DeviceRuntimeList>,
     onLoadRuntimeCapabilities: suspend (String, String) -> Result<NewSessionRuntimeCapabilities>,
+    onPrepareRuntimeWorkspace: suspend (String, String, String) -> Result<io.github.hotmanxp.lanagent.aa.feature.sessions.PreparedRuntimeWorkspace> = { _, _, _ -> Result.failure(io.github.hotmanxp.lanagent.aa.feature.sessiondetail.PlanningFailure(io.github.hotmanxp.lanagent.aa.feature.sessiondetail.PlanningFailure.Reason.WorkspaceUnavailable)) },
     onLoadModelCatalog: suspend (String, String) -> Result<NewSessionModelCatalog>,
     onLoadPermissionCatalog: suspend (String, String) -> Result<NewSessionPermissionCatalog>,
     onPrepareSession: (NewSessionDraft) -> Unit,
@@ -319,6 +320,12 @@ fun NewSessionScreen(
         }
     }
 
+    var preparedRuntimeWorkspace by remember(selectedDevice?.id, selectedRuntime?.id, selectedWorkspacePath, selectedProjectId) { mutableStateOf<io.github.hotmanxp.lanagent.aa.feature.sessions.PreparedRuntimeWorkspace?>(null) }
+    var preparingRuntime by remember { mutableStateOf(false) }
+    var preparationError by remember(selectedDevice?.id, selectedRuntime?.id, selectedWorkspacePath, selectedProjectId) { mutableStateOf<String?>(null) }
+    var preparationRetry by remember { mutableStateOf(0) }
+    val needsWorkspacePreparation = runtimeSelection.capabilities.data?.find("runtime.workspace.prepare", selectedRuntime?.id.orEmpty(), selectedRuntime?.type)?.usable == true
+
     suspend fun loadRuntimeDetails() {
         val connectorId = runtimeSelection.connectorId ?: return
         val runtimeId = runtimeSelection.selectedRuntimeId ?: return
@@ -336,7 +343,7 @@ fun NewSessionScreen(
         if (runtimeSelection.requestKey != requestKey) return
 
         coroutineScope {
-            val modelRequest = if (runtimeSelection.canUseModelCatalog) {
+            val modelRequest = if (runtimeSelection.canUseModelCatalog && capabilities.find("runtime.workspace.prepare", runtimeId, runtimeSelection.selectedRuntime?.type)?.usable != true) {
                 async { onLoadModelCatalog(connectorId, runtimeId) }
             } else {
                 null
@@ -496,7 +503,27 @@ fun NewSessionScreen(
     } else {
         effectiveWorkspacePath.isNotBlank()
     }
-    val catalogsLoading = selectedRuntime != null && (
+    LaunchedEffect(selectedDevice?.id, selectedRuntime?.id, effectiveWorkspacePath, selectedProjectId, needsWorkspacePreparation, workspaceReady, preparationRetry) {
+        if (needsWorkspacePreparation && workspaceReady && selectedDevice != null && selectedRuntime != null) {
+            preparingRuntime = true
+            preparationError = null
+            try {
+                val device = selectedDevice ?: return@LaunchedEffect
+                val runtime = selectedRuntime ?: return@LaunchedEffect
+                val path = effectiveWorkspacePath
+                val project = workspaceProject(projects, device.id, path, device.deviceOs)
+                    ?: onCreateProject(workspaceProjectName(path), device.id, path).getOrThrow()
+                val result = onPrepareRuntimeWorkspace(device.id, runtime.id, project.id).getOrThrow()
+                if (selectedRuntime?.id == runtime.id && selectedDevice?.id == device.id && effectiveWorkspacePath == path) {
+                    preparedRuntimeWorkspace = result
+                    runtimeSelection.requestKey?.let { runtimeSelection = runtimeSelection.applyModelCatalog(it, result.catalog) }
+                }
+            } catch (error: CancellationException) { throw error }
+            catch (error: Exception) { preparationError = io.github.hotmanxp.lanagent.aa.ui.designsystem.runtimeOperationErrorMessage(context, error, R.string.new_session_model_catalog_failed) }
+            finally { preparingRuntime = false }
+        }
+    }
+    val catalogsLoading = preparingRuntime || selectedRuntime != null && (
         !runtimeSelection.capabilities.loaded ||
             runtimeSelection.capabilities.loading ||
             runtimeSelection.modelCatalog.loading ||
@@ -573,6 +600,7 @@ fun NewSessionScreen(
                             id = model.id,
                             label = model.displayName,
                             enabled = enabled,
+                            group = model.group,
                         )
                     },
                     enabled = !creatingProject && runtimeSelection.modelCatalog.fresh,
@@ -639,6 +667,7 @@ fun NewSessionScreen(
         runtimeSelection.connectorId == selectedDevice.id &&
         selectedRuntime != null &&
         runtimeSelection.readyForCreate &&
+        (!needsWorkspacePreparation || preparedRuntimeWorkspace != null) &&
         workspaceReady &&
         !creatingProject
 
@@ -678,6 +707,7 @@ fun NewSessionScreen(
                 runtimeName = runtime.name,
                 selections = runtimeSelection.selections,
                 attachmentsEnabled = runtimeSelection.canUseAttachments,
+                preparedWorkspace = preparedRuntimeWorkspace,
             ),
         )
     }
@@ -1036,7 +1066,7 @@ fun NewSessionScreen(
                         stringResource(R.string.new_session_catalog_stale)
                     else -> null
                 }
-                val error = runtimeError
+                val error = preparationError ?: runtimeError
                 error?.let {
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
@@ -1059,7 +1089,9 @@ fun NewSessionScreen(
                                 fontWeight = FontWeight.Bold,
                                 modifier = Modifier.noRippleClickable {
                                     scope.launch {
-                                        if (selectedDevice == null || runtimeSelection.runtimesErrorMessage != null ||
+                                        if (preparationError != null) {
+                                            preparationRetry++
+                                        } else if (selectedDevice == null || runtimeSelection.runtimesErrorMessage != null ||
                                             runtimeSelection.runtimes.isEmpty()
                                         ) {
                                             inventory.refresh()

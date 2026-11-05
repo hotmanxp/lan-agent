@@ -112,6 +112,18 @@ function sha256Of(file) {
   return createHash('sha256').update(readFileSync(file)).digest('hex')
 }
 
+/**
+ * manifest.version 的语义 = **lan-agent 的 APK 版本号**(不是 zai/core 版本,
+ * 那是 0.13.7)。App 侧只拿它打日志,不做版本门禁 —— 但写死会一直过期
+ * (脚本里曾经硬编码 '0.29.0',App 升到 0.32.0 它也不动)。
+ */
+function appVersion() {
+  const gradle = readFileSync(join(REPO_ROOT, 'app/build.gradle.kts'), 'utf8')
+  const m = gradle.match(/versionName\s*=\s*"([^"]+)"/)
+  if (!m) fail('app/build.gradle.kts 里找不到 versionName')
+  return m[1]
+}
+
 function verifyEngine(dir) {
   if (!existsSync(dir)) fail(`引擎包不存在: ${dir}\n  先跑 tools/build-engine-pkg.mjs`)
   for (const rel of REQUIRED_ENGINE_FILES) {
@@ -166,7 +178,7 @@ rmSync(staging, { recursive: true, force: true })
 
 const engineFingerprint = readFileSync(join(opt.engine, 'engine.sha256'), 'utf8').trim()
 const manifest = {
-  version: '0.29.0',
+  version: appVersion(),
   abi: 'arm64-v8a',
   fingerprint: sha256.slice(0, 16),
   engineFingerprint,
